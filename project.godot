@@ -1,0 +1,24 @@
+; Engine configuration file.
+config_version=5
+
+[application]
+
+config/name="Clown Shooter"
+run/main_scene="res://scenes/game.tscn"
+config/features=PackedStringArray("4.7", "Forward Plus")
+
+[autoload]
+
+Blood="*res://scripts/blood/blood_manager.gd"
+
+[layer_names]
+
+3d_physics/layer_1="world"
+3d_physics/layer_2="player"
+3d_physics/layer_3="ragdoll"
+3d_physics/layer_4="gibs"
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+common/physics_ticks_per_second=60

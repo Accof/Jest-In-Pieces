@@ -1,0 +1,129 @@
+{
+ "segments": [
+  {
+   "id": 0,
+   "name": "Pelvis",
+   "bone": "Hips",
+   "gib": "Gib_Pelvis"
+  },
+  {
+   "id": 1,
+   "name": "Torso",
+   "bone": "Spine",
+   "gib": "Gib_Torso"
+  },
+  {
+   "id": 2,
+   "name": "Head",
+   "bone": "Neck",
+   "gib": "Gib_Head"
+  },
+  {
+   "id": 3,
+   "name": "LeftUpperArm",
+   "bone": "LeftUpperArm",
+   "gib": "Gib_LeftUpperArm"
+  },
+  {
+   "id": 4,
+   "name": "LeftLowerArm",
+   "bone": "LeftLowerArm",
+   "gib": "Gib_LeftLowerArm"
+  },
+  {
+   "id": 5,
+   "name": "LeftHand",
+   "bone": "LeftHand",
+   "gib": "Gib_LeftHand"
+  },
+  {
+   "id": 6,
+   "name": "LeftUpperLeg",
+   "bone": "LeftUpperLeg",
+   "gib": "Gib_LeftUpperLeg"
+  },
+  {
+   "id": 7,
+   "name": "LeftLowerLeg",
+   "bone": "LeftLowerLeg",
+   "gib": "Gib_LeftLowerLeg"
+  },
+  {
+   "id": 8,
+   "name": "LeftFoot",
+   "bone": "LeftFoot",
+   "gib": "Gib_LeftFoot"
+  },
+  {
+   "id": 9,
+   "name": "RightUpperArm",
+   "bone": "RightUpperArm",
+   "gib": "Gib_RightUpperArm"
+  },
+  {
+   "id": 10,
+   "name": "RightLowerArm",
+   "bone": "RightLowerArm",
+   "gib": "Gib_RightLowerArm"
+  },
+  {
+   "id": 11,
+   "name": "RightHand",
+   "bone": "RightHand",
+   "gib": "Gib_RightHand"
+  },
+  {
+   "id": 12,
+   "name": "RightUpperLeg",
+   "bone": "RightUpperLeg",
+   "gib": "Gib_RightUpperLeg"
+  },
+  {
+   "id": 13,
+   "name": "RightLowerLeg",
+   "bone": "RightLowerLeg",
+   "gib": "Gib_RightLowerLeg"
+  },
+  {
+   "id": 14,
+   "name": "RightFoot",
+   "bone": "RightFoot",
+   "gib": "Gib_RightFoot"
+  }
+ ],
+ "uv2": "UV2.x = (segment_id + 0.5) / 16. UV2.y = 0.5 normal face; 0.25 = wound cap, draw only when segment UV2.x is hidden.",
+ "bones": [
+  "Hips",
+  "Spine",
+  "Chest",
+  "Neck",
+  "Head",
+  "LeftShoulder",
+  "LeftUpperArm",
+  "LeftLowerArm",
+  "LeftHand",
+  "RightShoulder",
+  "RightUpperArm",
+  "RightLowerArm",
+  "RightHand",
+  "LeftUpperLeg",
+  "LeftLowerLeg",
+  "LeftFoot",
+  "LeftToes",
+  "RightUpperLeg",
+  "RightLowerLeg",
+  "RightFoot",
+  "RightToes"
+ ],
+ "rest_bbox_min": [
+  -0.9529999542236328,
+  -0.005,
+  -0.15493059635162354
+ ],
+ "rest_bbox_size": [
+  1.9059999084472656,
+  1.8873679733276365,
+  0.3529081737995148
+ ],
+ "vertex_color": "COLOR.rgb = (rest_position - rest_bbox_min) / rest_bbox_size, in Godot axes"
+}
