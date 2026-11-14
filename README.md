@@ -1,4 +1,4 @@
-# Clown Shooter
+# Jest In Pieces
 
 Godot 4 project (built and tested on 4.7.2, needs 4.4 or newer for built-in Jolt physics).
 Everything is GDScript and builds itself in code, so there is nothing to wire up in the editor.

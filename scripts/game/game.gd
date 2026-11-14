@@ -55,6 +55,8 @@ var _slow_until := 0
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# The project's internal name stays "Clown Shooter" so existing save files are still found.
+	get_window().title = "Jest In Pieces"
 	rng.randomize()
 	_load()
 	_build_environment()
@@ -348,7 +350,7 @@ func _show_menu() -> void:
 	if is_instance_valid(player):
 		player.queue_free()
 	_set_state(State.MENU)
-	_title("CLOWN SHOOTER", 60)
+	_title("JEST IN PIECES", 60)
 	_title("Best floor %d   |   %d kills all time   |   %d tickets" % [int(save.best_floor), int(save.total_kills), int(save.tickets)], 20)
 	_button("START RUN  [Enter]", start_run)
 	_title("Permanent perks", 22)
