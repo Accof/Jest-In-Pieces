@@ -81,6 +81,7 @@ func start_run() -> void:
 	player.health_changed.connect(func(_h: float, _m: float) -> void: _refresh_hud())
 	player.died.connect(_on_player_died)
 	player.fired.connect(_on_player_fired)
+	player.ammo_changed.connect(_refresh_hud)
 	if int(save.perks.get("start", 0)) > 0:
 		_apply_upgrade(UPGRADES[rng.randi() % UPGRADES.size()].id)
 	next_floor()
@@ -360,7 +361,7 @@ func _show_menu() -> void:
 		var label := "[%d]  %s  -  %s   (%d/%d)   %s" % [i + 1, p.name, p.desc, owned, p.max, "MAXED" if owned >= p.max else "%d tickets" % p.cost]
 		var b := _button(label, _buy_perk.bind(i))
 		b.disabled = owned >= p.max or int(save.tickets) < p.cost
-	_title("WASD move   Shift sprint   Mouse aim   Click fire   1/2 weapons   F light", 16)
+	_title("WASD move   Shift sprint   Mouse aim   Click fire   R reload   1/2 weapons   F light", 16)
 
 
 func _title(text: String, size: int) -> void:
@@ -384,7 +385,9 @@ func _button(text: String, action: Callable) -> Button:
 func _refresh_hud() -> void:
 	if not is_instance_valid(player):
 		return
-	_hud.text = "Floor %d     Clowns left: %d     Tickets: %d%s" % [floor_number, maxi(remaining, 0), run_tickets, "     EXIT OPEN - find the green door" if exit_open else ""]
+	var w: Dictionary = FpsPlayer.WEAPONS[player.weapon]
+	_hud.text = "Floor %d     Clowns left: %d     Tickets: %d     %s %d/%d%s" % [floor_number, maxi(remaining, 0), run_tickets, w.name, player.ammo[player.weapon], w.mag,
+		"     EXIT OPEN - find the green door" if exit_open else ""]
 	_health_bar.max_value = player.stats.max_health
 	_health_bar.value = player.health
 

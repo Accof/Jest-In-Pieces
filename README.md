@@ -7,13 +7,14 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 
 1. Open `project.godot` in Godot. The first import takes a few seconds.
 2. Press Play. The main scene is the game, `scenes/game.tscn`.
-3. The old test room is still there: open `scenes/gore_sandbox.tscn` and press "Run Current Scene".
+3. The old test room is still there: open `scenes/gore_sandbox.tscn` and press "Run Current Scene". Backspace resets it.
 
 | Key | Action |
 |---|---|
 | WASD, mouse | Move, look |
 | Shift | Sprint |
 | Left click (hold) | Fire |
+| R | Reload |
 | 1 / 2 | Pistol / shotgun |
 | F | Flashlight |
 | Enter | Start a run, or leave the death screen |
@@ -39,6 +40,7 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 | `shaders/clown_body.gdshader` | Bullet dents, blood soaking into cloth, hiding severed limbs |
 | `shaders/blood_pool.gdshader` | The spreading pool |
 | `scripts/player/fps_player.gd` | Player, health and the two weapons |
+| `scripts/player/view_model.gd` | First-person hands and guns, recoil and reload animation |
 | `scripts/game/game.gd` | Run loop, floors, upgrades, perks, menu, saving |
 | `scripts/world/maze.gd` | Maze generator, stairs, pathfinding |
 | `scripts/clown/clown_brain.gd` | Clown AI: hunting, melee, gunmen |

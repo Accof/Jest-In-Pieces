@@ -1,21 +1,22 @@
 class_name FpsPlayer
 extends CharacterBody3D
 ## First-person player. WASD move, Shift sprint, mouse look, left click fire,
-## 1 pistol, 2 shotgun, F flashlight.
+## R reload, 1 pistol, 2 shotgun, F flashlight.
 
 const LAYER_WORLD := 1
 const LAYER_RAGDOLL := 1 << 2
 const LAYER_RAMP := 1 << 4
 
 const WEAPONS := [
-	{name = "Pistol", damage = 34.0, pellets = 1, spread = 0.0, impulse = 14.0, heavy = false, can_dismember = false, cooldown = 0.22, falloff = 60.0},
-	{name = "Shotgun", damage = 16.0, pellets = 9, spread = 4.5, impulse = 16.0, heavy = true, can_dismember = true, cooldown = 0.8, falloff = 9.0},
+	{name = "Pistol", damage = 34.0, pellets = 1, spread = 0.0, impulse = 14.0, heavy = false, can_dismember = false, cooldown = 0.22, falloff = 60.0, mag = 17},
+	{name = "Shotgun", damage = 16.0, pellets = 9, spread = 4.5, impulse = 16.0, heavy = true, can_dismember = true, cooldown = 0.8, falloff = 9.0, mag = 6},
 ]
 
 signal reset_requested
 signal health_changed(health: float, max_health: float)
 signal died
 signal fired(weapon: int)
+signal ammo_changed
 
 @export var speed := 4.5
 @export var sprint_speed := 6.4
@@ -32,6 +33,14 @@ var stats := {
 var health := 100.0
 var dead := false
 var weapon := 0
+## Rounds loaded in each gun. Spare ammunition is unlimited for now.
+var ammo: Array[int] = [17, 6]
+var view: ViewModel
+## Key that asks for a reset in the test room (R is reload).
+var reset_key := KEY_BACKSPACE
+var _reload_left := -1.0        # pistol: seconds until the new magazine is in
+var _shell_left := -1.0         # shotgun: seconds until the next shell is in
+var _look := Vector2.ZERO
 var camera: Camera3D
 var flashlight: SpotLight3D
 var _cooldown := 0.0
@@ -56,7 +65,7 @@ func _ready() -> void:
 	camera = Camera3D.new()
 	camera.position.y = 1.65
 	camera.fov = 80.0
-	camera.near = 0.05
+	camera.near = 0.02
 	add_child(camera)
 	camera.make_current()
 	flashlight = SpotLight3D.new()
@@ -67,6 +76,8 @@ func _ready() -> void:
 	flashlight.shadow_enabled = true
 	flashlight.position = Vector3(0.15, -0.1, 0.0)
 	camera.add_child(flashlight)
+	view = ViewModel.new()
+	camera.add_child(view)
 	var hud := CanvasLayer.new()
 	add_child(hud)
 	_hurt = ColorRect.new()
@@ -107,6 +118,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if dead:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		_look += event.relative
 		rotate_y(-event.relative.x * mouse_sensitivity)
 		camera.rotation.x = clampf(camera.rotation.x - event.relative.y * mouse_sensitivity, -1.5, 1.5)
 	elif event is InputEventMouseButton and event.pressed:
@@ -116,15 +128,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			fire()
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
-			KEY_1: weapon = 0
-			KEY_2: weapon = 1
+			KEY_1: select_weapon(0)
+			KEY_2: select_weapon(1)
 			KEY_F: flashlight.visible = not flashlight.visible
-			KEY_R: reset_requested.emit()
+			KEY_R: reload()
 			KEY_ESCAPE: Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		if event.keycode == reset_key:
+			reset_requested.emit()
 		_update_label()
 
 
 func _process(delta: float) -> void:
+	view.animate(delta, Vector2(velocity.x, velocity.z).length() if is_on_floor() else 0.0, _look)
+	_look = Vector2.ZERO
 	_hurt.color.a = move_toward(_hurt.color.a, 0.0, delta * 1.2)
 	_kick = move_toward(_kick, 0.0, delta * 0.5)
 	camera.rotation.z = _kick * 0.3
@@ -136,6 +152,7 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector3(0, velocity.y - 9.8 * delta, 0)
 		move_and_slide()
 		return
+	_tick_reload(delta)
 	# Holding the button keeps firing.
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		fire()
@@ -152,12 +169,72 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 
-func fire() -> void:
-	if _cooldown > 0.0 or dead:
+func select_weapon(w: int) -> void:
+	if w == weapon or dead:
 		return
+	_reload_left = -1.0
+	_shell_left = -1.0
+	weapon = w
+	view.swap_to(w)
+	_cooldown = maxf(_cooldown, ViewModel.SWAP_TIME)
+	ammo_changed.emit()
+	_update_label()
+
+
+## Start reloading the gun in hand, if it has room.
+func reload() -> void:
+	if dead or view.swapping() or view.reloading() or ammo[weapon] >= WEAPONS[weapon].mag:
+		return
+	view.start_reload()
+	if weapon == 0:
+		_reload_left = ViewModel.PISTOL_RELOAD * 0.62      # the moment the magazine seats
+	else:
+		_shell_left = ViewModel.SHELL_INTRO + ViewModel.SHELL_TIME * 0.85
+
+
+func _tick_reload(delta: float) -> void:
+	if weapon == 0:
+		if _reload_left >= 0.0:
+			_reload_left -= delta
+			if _reload_left < 0.0:
+				ammo[0] = WEAPONS[0].mag
+				ammo_changed.emit()
+				_update_label()
+		if view.reloading() and view._reload_t >= ViewModel.PISTOL_RELOAD:
+			view.stop_reload()
+			view.slide_locked = false
+	elif _shell_left >= 0.0:
+		# Shells go in one at a time, so the shotgun can be fired part-way through.
+		_shell_left -= delta
+		if _shell_left < 0.0:
+			ammo[1] += 1
+			ammo_changed.emit()
+			_update_label()
+			if ammo[1] >= WEAPONS[1].mag:
+				_shell_left = -1.0
+				view.stop_reload()
+			else:
+				_shell_left = ViewModel.SHELL_TIME
+
+
+func fire() -> void:
+	if _cooldown > 0.0 or dead or view.swapping():
+		return
+	if weapon == 0 and view.reloading():
+		return
+	if ammo[weapon] <= 0:
+		reload()
+		return
+	if weapon == 1 and view.reloading():
+		_shell_left = -1.0                      # break off loading to shoot
+		view.stop_reload()
 	var w: Dictionary = WEAPONS[weapon]
 	_cooldown = w.cooldown / stats.fire_rate
 	_shot_id += 1
+	ammo[weapon] -= 1
+	if weapon == 0 and ammo[0] == 0:
+		view.slide_locked = true
+	view.fire()
 	var from := camera.global_position
 	var aim := -camera.global_basis.z
 	var pellets: int = w.pellets + (stats.pellets if w.pellets > 1 else 0)
@@ -168,6 +245,8 @@ func fire() -> void:
 			d = (aim + camera.global_basis.x * randfn(0.0, s * 0.5) + camera.global_basis.y * randfn(0.0, s * 0.5)).normalized()
 		shoot_ray(from, d, w, _shot_id)
 	fired.emit(weapon)
+	ammo_changed.emit()
+	_update_label()
 
 
 ## Fire one ray with a weapon definition. Also used by the automated tests.
@@ -213,4 +292,4 @@ func heal(amount: float) -> void:
 
 
 func _update_label() -> void:
-	_label.text = "%s   [1] pistol  [2] shotgun  [F] light  [R] reset  [Esc] mouse" % WEAPONS[weapon].name
+	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [F] light  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag]
