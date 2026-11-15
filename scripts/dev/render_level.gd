@@ -17,38 +17,40 @@ func _ready() -> void:
 	add_child(cam)
 	cam.make_current()
 	var views := []
-	# overview from above no man's land
 	var mid := Vector3(m.w * Maze.CELL * 0.5, m.top_height(), m.d * Maze.CELL * 0.5)
-	views.append(["over", mid + Vector3(-m.w * 2.2, 9, -m.d * 2.2), mid])
-	# a trench cell looking along a link, a bunker cell, a dugout from the trench, a room
-	var trench_done := false
-	var bunker_done := false
-	for z in m.d:
-		for x in m.w:
-			var c := Vector2i(x, z)
-			for dir in Maze.DIRS:
-				var n := c + dir
-				if not m.in_bounds(n) or not m.linked(c, n):
-					continue
-				var p := m.cell_center(c) + Vector3.UP * 1.6
-				var q := m.cell_center(n) + Vector3.UP * 1.5
-				if m.is_trench(c) and m.is_trench(n) and not trench_done:
-					views.append(["trench", p - (q - p) * 0.3, q]); trench_done = true
-				elif not m.is_trench(c) and not m.is_trench(n) and not bunker_done and m.level[m.idx(c)] == m.level[m.idx(n)]:
-					views.append(["bunker", p - (q - p) * 0.3, q]); bunker_done = true
-	for s: Dictionary in m.stairs:
-		if m.is_trench(s.high) and not m.is_trench(s.low):
-			var hi := m.cell_center(s.high)
-			var lo := m.cell_center(s.low)
-			var d := (lo - hi); d.y = 0; d = d.normalized()
-			views.append(["dugout", hi - d * 1.2 + Vector3.UP * 1.7, lo + Vector3.UP * 1.0])
-			views.append(["door", hi - d * 2.4 + Vector3.UP * 1.5, lo + Vector3.UP * 2.6])
-			views.append(["dugout_in", lo + Vector3.UP * 1.5 + d * 0.2, hi + Vector3.UP * 1.7 + d * 0.0])
+	views.append(["over", mid + Vector3(-m.w * 1.2, 14, -m.d * 1.2), mid])
+	# the longest straight run of bunker corridor, looking down it
+	var best := 0
+	for i in range(m.route.size() - 1):
+		var k := i
+		while k + 1 < m.route.size() and m.route[k + 1] - m.route[k] == m.route[i + 1] - m.route[i] and m.level[m.idx(m.route[k + 1])] == m.level[m.idx(m.route[i])]:
+			k += 1
+		if k - i > best and not m.is_trench(m.route[i]):
+			best = k - i
+			var a := m.cell_center(m.route[i]); var b := m.cell_center(m.route[k])
+			var dvec := (b - a).normalized()
+			views = views.filter(func(v): return v[0] != "corridor")
+			views.append(["corridor", a - dvec * 1.2 + Vector3.UP * 1.65, b + Vector3.UP * 1.3])
+	# the trench at the start, looking along the route
+	var t0 := m.cell_center(m.route[0]); var t1 := m.cell_center(m.route[1])
+	views.append(["trench", t0 - (t1 - t0).normalized() * 1.0 + Vector3.UP * 1.65, t1 + Vector3.UP * 1.4])
+	# the way in, from the trench
+	for i in range(1, m.route.size()):
+		if m.is_trench(m.route[i - 1]) and not m.is_trench(m.route[i]):
+			var a := m.cell_center(m.route[i - 1]); var b := m.cell_center(m.route[i])
+			var dvec := (b - a).normalized()
+			views.append(["entrance", a - dvec * 1.3 + Vector3.UP * 1.6, b + Vector3.UP * 1.7])
 			break
+	# a stairwell, looking down it
+	if not m.stairs.is_empty():
+		var s0: Dictionary = m.stairs[0]
+		var hi := m.cell_center(s0.high); var lo := m.cell_center(s0.low)
+		var dvec := (lo - hi); dvec.y = 0; dvec = dvec.normalized()
+		views.append(["stairs", hi - dvec * 1.0 + Vector3.UP * 1.65, lo + dvec * 2.0 + Vector3.UP * 0.8])
 	for r: Array in m.rooms:
 		var a := m.cell_center(r[0])
 		var ctr := a + Vector3(Maze.CELL * 0.5, 0, Maze.CELL * 0.5)
-		views.append(["room_" + ("trench" if m.is_trench(r[0]) else "bunker"), a + Vector3(-1.0, 1.7, -1.0), ctr + Vector3(1.5, 0.6, 1.5)])
+		views.append(["room%d" % views.size(), a + Vector3(-0.9, 1.65, -0.9), ctr + Vector3(1.8, 0.9, 1.8)])
 	for v: Array in views:
 		cam.global_position = v[1]
 		cam.look_at(v[2])

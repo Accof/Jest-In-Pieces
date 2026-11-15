@@ -324,9 +324,101 @@ torn = (fbm(1024, (8, 16, 32), 34)[:H, :W] > 0.7) & ((np.mgrid[0:H, 0:W][0] > H 
 alpha = np.where(torn, 0.0, 1.0)
 Image.fromarray((np.dstack([np.clip(arr, 0, 1), alpha]) * 255).astype(np.uint8), 'RGBA').save(os.path.join(OUT, 'poster.png'))
 
+# =============================================================================
+# Dieselpunk bunker set: cast concrete, wet floors, steel, faded circus paint.
+# =============================================================================
+
+# --- cast concrete wall: formwork board lines, tie holes, water streaks --------
+n = fbm(S, (4, 8, 16, 32, 64, 128), 40)
+streak = fbm(S, (4, 8, 16, 32), 41, aspect=(1, 16))           # runs down the wall
+col = np.zeros((S, S, 3)) + np.array([0.40, 0.395, 0.38])
+col *= (0.62 + 0.55 * n)[..., None]
+col = mix(col, (0.16, 0.155, 0.14), np.clip((streak - 0.48) * 2.2, 0, 0.8))     # water stains
+col = mix(col, (0.55, 0.54, 0.5), np.clip((fbm(S, (4, 8, 16), 58) - 0.6) * 2.5, 0, 0.5))  # efflorescence
+col = mix(col, (0.24, 0.17, 0.10), np.clip((fbm(S, (3, 6, 12), 42) - 0.62) * 3, 0, 0.5))  # rust bleed
+board = (yy % 256 < 2).astype(float) * 0.5                     # faint pour lines every metre
+col *= (1 - 0.35 * board)[..., None]
+ties = ((np.abs((xx % 256) - 128) < 5) & (np.abs((yy % 128) - 64) < 5)).astype(float)
+col *= (1 - 0.6 * ties)[..., None]
+pits = sstep(0.72, 0.76, fbm(S, (32, 64, 128), 43))
+col *= (1 - 0.3 * pits)[..., None]
+h = n * 0.5 - board * 0.35 - ties * 0.6 - pits * 0.25
+save('wall_conc', col, h, 3.0, rough=0.85 + 0.1 * n - 0.25 * np.clip((streak - 0.55) * 3, 0, 1))
+
+# --- the bottom of the wall: wetter, darker, splashed with mud ---------------------
+col = np.zeros((S, S, 3)) + np.array([0.25, 0.235, 0.21])
+col *= (0.65 + 0.5 * n)[..., None]
+col = mix(col, (0.12, 0.10, 0.07), np.clip(fbm(S, (8, 16, 32, 64), 44) - 0.35, 0, 1) * 1.2)
+col *= (1 - 0.35 * board)[..., None]
+save('wall_low', col, h, 3.0, rough=0.6 + 0.3 * n)
+
+# --- wet concrete floor: slab joints, cracks, puddles that shine ---------------------
+n = fbm(S, (4, 8, 16, 32, 64, 128), 45)
+col = np.zeros((S, S, 3)) + np.array([0.30, 0.29, 0.27])
+col *= (0.65 + 0.5 * n)[..., None]
+grime = fbm(S, (2, 4, 8, 16), 46)
+col = mix(col, (0.13, 0.12, 0.10), np.clip((grime - 0.45) * 1.8, 0, 0.7))
+joint = ((xx % 512 < 3) | (yy % 512 < 3)).astype(float)
+crack_n = fbm(S, (8, 16, 32), 47)
+crack = np.clip(1 - np.abs(crack_n - 0.5) * 60, 0, 1) * (fbm(S, (4, 8), 48) > 0.55)
+col *= (1 - 0.5 * joint - 0.45 * crack)[..., None]
+puddle = sstep(0.56, 0.62, fbm(S, (2, 4, 8, 16), 49))
+col = mix(col, (0.16, 0.155, 0.15), puddle * 0.55)     # dark grey water, not black
+h = n * 0.5 - joint * 0.5 - crack * 0.6 - puddle * 0.3
+save('floor_conc', col, h, 3.0, rough=np.clip(0.88 - 0.8 * puddle - 0.1 * n, 0.04, 1))
+
+# --- faded harlequin paint on concrete: tall diamonds, peeling, filthy ----------------
+gx = xx / S * 2.0; gy = yy / S * 1.0           # two diamonds across, one tall diamond high
+par = (np.floor(gx + gy) + np.floor(gx - gy)) % 2
+base = np.zeros((S, S, 3)) + np.array([0.37, 0.355, 0.33])
+base *= (0.7 + 0.45 * fbm(S, (4, 8, 16, 32, 64), 50))[..., None]
+paint = np.where(par[..., None] > 0.5, np.array([0.34, 0.09, 0.07]), np.array([0.52, 0.47, 0.39]))
+peel = sstep(0.6, 0.66, fbm(S, (4, 8, 16, 32, 64), 51))
+col = mix(paint * (0.75 + 0.35 * fbm(S, (8, 16, 32), 52))[..., None], (0, 0, 0), np.zeros((S, S)))
+col = col * (1 - peel[..., None]) + base * peel[..., None]
+streak = fbm(S, (4, 8, 16, 32), 53, aspect=(1, 16))
+col = mix(col, (0.12, 0.10, 0.08), np.clip((streak - 0.45) * 2.0, 0, 0.7))
+col = mix(col, (0.2, 0.19, 0.17), np.full((S, S), 0.35)) * 0.8  # everything greyed by dust and soot
+save('harlequin_faded', col, -peel * 0.4 + streak * 0.2, 3.0)
+
+# --- riveted steel door, painted army green, flaking to rust ---------------------------
+DW, DH = 256, 512
+dy, dx = np.mgrid[0:DH, 0:DW]
+dn = fbm(DH, (4, 8, 16, 32, 64), 54)[:, :DW]
+col = np.zeros((DH, DW, 3)) + np.array([0.17, 0.2, 0.15])
+col *= (0.75 + 0.4 * dn)[..., None]
+rust = np.clip((fbm(DH, (4, 8, 16, 32), 55)[:, :DW] - 0.55) * 3, 0, 1)
+col = mix(col, (0.28, 0.13, 0.06), rust)
+frame = ((dx < 14) | (dx > DW - 15) | (dy < 14) | (dy > DH - 15)).astype(float)
+panel = ((np.abs(dy - DH * 0.5) < 6) | (np.abs(dy - DH * 0.25) < 4) | (np.abs(dy - DH * 0.75) < 4)).astype(float)
+riv = np.zeros((DH, DW))
+for ry in list(range(7, DH, 32)):
+    for rx in (7, DW - 8):
+        riv[max(0, ry - 3):ry + 4, rx - 3:rx + 4] = 1
+col *= (1 - 0.25 * frame - 0.3 * panel)[..., None]
+col = mix(col, (0.3, 0.3, 0.28), riv * 0.6)
+# a faded stencilled star: the one bit of circus left on it
+cy, cx = DH * 0.37, DW * 0.5
+pts = [(cx + (46 if k % 2 == 0 else 19) * math.cos(-math.pi / 2 + k * math.pi / 5),
+        cy + (46 if k % 2 == 0 else 19) * math.sin(-math.pi / 2 + k * math.pi / 5)) for k in range(10)]
+sim = Image.new('L', (DW, DH), 0); ImageDraw.Draw(sim).polygon(pts, fill=255)
+star = np.asarray(sim).astype(float) / 255 * (fbm(DH, (16, 32, 64), 56)[:, :DW] > 0.38)
+col = mix(col, (0.45, 0.4, 0.3), star * 0.55)
+dh = dn * 0.3 + frame * 0.4 - panel * 0.3 + riv * 0.8
+save('door', col, dh, 3.0)
+
+# --- the sunburst floor again, faded into the concrete ---------------------------------
+sb = np.asarray(Image.open(os.path.join(OUT, 'sunburst.png')).convert('RGB').resize((S, S))).astype(float) / 255
+fl = np.asarray(Image.open(os.path.join(OUT, 'floor_conc.png')).convert('RGB')).astype(float) / 255
+grey = sb.mean(axis=2, keepdims=True)
+sb = sb * 0.55 + grey * 0.45
+worn = np.clip(fbm(S, (4, 8, 16, 32), 57) * 1.6 - 0.35, 0, 1)
+col = sb * 0.6 * (1 - worn[..., None]) + fl * (0.4 + 0.6 * worn[..., None])
+save('sunburst_faded', col)
+
 # contact sheet
-names = ['planks', 'planks_dark', 'duckboard', 'mud', 'ground', 'sandbags', 'harlequin', 'canvas', 'concrete', 'metal', 'sunburst', 'crate', 'drum', 'pennant', 'camonet', 'poster']
-sheet = Image.new('RGB', (8 * 200, 2 * 200), (40, 40, 40))
+names = ['planks', 'planks_dark', 'duckboard', 'mud', 'ground', 'sandbags', 'harlequin', 'canvas', 'concrete', 'metal', 'sunburst', 'crate', 'drum', 'pennant', 'camonet', 'poster', 'wall_conc', 'wall_low', 'floor_conc', 'harlequin_faded', 'door', 'sunburst_faded', 'timber']
+sheet = Image.new('RGB', (8 * 200, 3 * 200), (40, 40, 40))
 for i, n in enumerate(names):
     im = Image.open(os.path.join(OUT, n + '.png')).convert('RGBA').resize((200, 200))
     sheet.paste(im, ((i % 8) * 200, (i // 8) * 200), im)

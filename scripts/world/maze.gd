@@ -16,8 +16,19 @@ const DIRS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), 
 const LAYER_WORLD := 1
 const LAYER_RAMP := 1 << 4   ## smooth ramps over the stairs, for the player only
 
-## "trench" (WW1 trenches and circus bunkers) or "funhouse" (the original look).
-var theme := "trench"
+## "bunker": one winding route from a short trench down into concrete bunkers
+##   (the default);
+## "trench": the whole grid as a maze, trench above and circus bunker below;
+## "funhouse": the original look.
+var theme := "bunker"
+## Bunker theme: the main route from start to exit, in order.
+var route: Array[Vector2i] = []
+## Bunker theme: cells that are part of the level (the rest is solid earth).
+var open_cells := {}
+## Bunker theme: the open-air trench cells at the start of the route.
+var trench_cells := {}
+## Bunker theme: dead-end side rooms off the route.
+var side_cells := {}
 ## Cells at or above this height level are open-sky trench; below it, roofed bunker.
 var trench_level := 2
 ## How deep the trenches are below the ground surface, at their highest.
@@ -66,6 +77,15 @@ func generate(width: int, depth: int, seed_value: int) -> void:
 	stairs.clear()
 	level = PackedInt32Array()
 	level.resize(w * d)
+	route.clear()
+	open_cells.clear()
+	trench_cells.clear()
+	side_cells.clear()
+	rooms = []
+	if theme == "bunker":
+		_generate_linear()
+		_finish()
+		return
 
 	# 1. A perfect maze by depth-first carving, with heights drifting as it goes.
 	var seen := {}
@@ -162,13 +182,6 @@ func generate(width: int, depth: int, seed_value: int) -> void:
 				if not settled:
 					break
 
-	_stair_at.clear()
-	for s: Dictionary in stairs:
-		var id := idx(s.low)
-		if not _stair_at.has(id):
-			_stair_at[id] = []
-		_stair_at[id].append(s)
-
 	# 6. Split the floor into trench above and bunker below, as near half and
 	#    half as the heights allow. Every link between the zones changes level,
 	#    so every entrance from trench to bunker is a staircase.
@@ -185,6 +198,10 @@ func generate(width: int, depth: int, seed_value: int) -> void:
 			trench_level = t
 
 	# 7. Pathfinding graph, start and the farthest cell as the exit.
+	_finish()
+
+
+func _finish() -> void:
 	_astar.clear()
 	for z in d:
 		for x in w:
@@ -192,16 +209,154 @@ func generate(width: int, depth: int, seed_value: int) -> void:
 	for k: String in links:
 		var parts := k.split("|")
 		_astar.connect_points(int(parts[0]), int(parts[1]))
-	start_cell = Vector2i(rng.randi() % w, rng.randi() % d)
-	var far := 0
-	exit_cell = start_cell
+	_stair_at.clear()
+	for s: Dictionary in stairs:
+		var id := idx(s.low)
+		if not _stair_at.has(id):
+			_stair_at[id] = []
+		_stair_at[id].append(s)
+	if theme == "bunker":
+		start_cell = route[0]
+		exit_cell = route[route.size() - 1]
+	else:
+		start_cell = Vector2i(rng.randi() % w, rng.randi() % d)
+		var far := 0
+		exit_cell = start_cell
+		for z in d:
+			for x in w:
+				var steps := _astar.get_id_path(idx(start_cell), idx(Vector2i(x, z))).size()
+				if steps > far:
+					far = steps
+					exit_cell = Vector2i(x, z)
+	_build()
+
+
+# --- the linear bunker layout --------------------------------------------------
+## One winding route of straight corridors from a trench at the top down into the
+## bunker, with a few stairwells along it, a couple of wide halls and some dead-end
+## side rooms. Everything off the route is solid ground.
+func _generate_linear() -> void:
+	var target := int(w * d * 0.42)
+	for attempt in 300:
+		var r := _walk_route(target)
+		if r.size() > route.size():
+			route = r
+		if route.size() >= target:
+			break
+	for c in route:
+		open_cells[c] = true
+	for i in range(1, route.size()):
+		links[_key(route[i - 1], route[i])] = true
+	var trench_len := mini(3, route.size() / 4)
+	for i in trench_len:
+		trench_cells[route[i]] = true
+
+	# stairwells: only down, only on straight runs, spread along the route
+	var n_stairs := clampi(1 + route.size() / 12, 1, MAX_LEVEL)
+	var lows := {}
+	for k in n_stairs:
+		var want := int(lerpf(trench_len + 2, route.size() - 3, (k + 0.5) / n_stairs))
+		for off in [0, 1, -1, 2, -2, 3, -3]:
+			var i: int = want + off
+			if i < trench_len + 1 or i > route.size() - 2 or lows.has(i) or lows.has(i - 1) or lows.has(i + 1):
+				continue
+			if route[i] - route[i - 1] != route[i + 1] - route[i]:
+				continue
+			lows[i] = true
+			break
+	var lv := lows.size()
+	for i in route.size():
+		if lows.has(i):
+			lv -= 1
+			stairs.append({low = route[i], high = route[i - 1], dir = route[i - 1] - route[i]})
+		level[idx(route[i])] = lv
+
+	# wide halls: a corridor pair widened sideways into a 2x2 room
+	var halls := 1 + route.size() / 16
+	var tries := 0
+	while halls > 0 and tries < 200:
+		tries += 1
+		var i := rng.randi_range(trench_len + 1, route.size() - 3)
+		var c := route[i]
+		var n := route[i + 1]
+		if lows.has(i) or lows.has(i + 1) or _in_room(c) or _in_room(n):
+			continue
+		var dir := n - c
+		var side := Vector2i(dir.y, dir.x) * (1 if rng.randf() < 0.5 else -1)
+		var a := c + side
+		var b := n + side
+		if not in_bounds(a) or not in_bounds(b) or open_cells.has(a) or open_cells.has(b):
+			continue
+		for x in [a, b]:
+			open_cells[x] = true
+			level[idx(x)] = level[idx(c)]
+		links[_key(c, a)] = true
+		links[_key(n, b)] = true
+		links[_key(a, b)] = true
+		var cells: Array = [c, n, a, b]
+		cells.sort_custom(func(p: Vector2i, q: Vector2i) -> bool: return p.x + p.y * 1000 < q.x + q.y * 1000)
+		rooms.append(cells)
+		halls -= 1
+
+	# dead-end side rooms (stores, latrines, somewhere to hide)
+	var sides := route.size() / 5
+	tries = 0
+	while sides > 0 and tries < 300:
+		tries += 1
+		var i := rng.randi_range(trench_len, route.size() - 2)
+		var c := route[i]
+		if lows.has(i):
+			continue
+		var dir: Vector2i = DIRS[rng.randi() % 4]
+		var n := c + dir
+		if not in_bounds(n) or open_cells.has(n):
+			continue
+		open_cells[n] = true
+		side_cells[n] = true
+		level[idx(n)] = level[idx(c)]
+		links[_key(c, n)] = true
+		sides -= 1
 	for z in d:
 		for x in w:
-			var steps := _astar.get_id_path(idx(start_cell), idx(Vector2i(x, z))).size()
-			if steps > far:
-				far = steps
-				exit_cell = Vector2i(x, z)
-	_build()
+			if not open_cells.has(Vector2i(x, z)):
+				level[idx(Vector2i(x, z))] = 0
+
+
+func _in_room(c: Vector2i) -> bool:
+	for r: Array in rooms:
+		if r.has(c):
+			return true
+	return false
+
+
+## A self-avoiding walk made of straight runs of 2-4 cells.
+func _walk_route(target: int) -> Array[Vector2i]:
+	var start := Vector2i(rng.randi() % w, rng.randi() % d)
+	var r: Array[Vector2i] = [start]
+	var used := {start: true}
+	var dir: Vector2i = DIRS[rng.randi() % 4]
+	while r.size() < target:
+		var options: Array = []
+		for nd in DIRS:
+			if nd == -dir:
+				continue
+			var fit := 0
+			for k in range(1, rng.randi_range(2, 4) + 1):
+				var p: Vector2i = r.back() + nd * k
+				if not in_bounds(p) or used.has(p):
+					break
+				fit = k
+			if fit >= 2 or (fit >= 1 and r.size() == 1):
+				options.append([nd, fit])
+		if options.is_empty():
+			break
+		var pick: Array = options[rng.randi() % options.size()]
+		for k in range(1, pick[1] + 1):
+			var p: Vector2i = r.back() + pick[0]
+			r.append(p)
+			used[p] = true
+		dir = pick[0]
+	return r
 
 
 func _all_reachable() -> bool:
@@ -223,7 +378,14 @@ func cell_of(pos: Vector3) -> Vector2i:
 
 
 func is_trench(c: Vector2i) -> bool:
+	if theme == "bunker":
+		return trench_cells.has(c)
 	return theme == "trench" and level[idx(c)] >= trench_level
+
+
+## Part of the playable level (always true outside the bunker theme).
+func is_open(c: Vector2i) -> bool:
+	return theme != "bunker" or open_cells.has(c)
 
 
 ## Height of the ground surface (the top of every wall).
@@ -231,7 +393,7 @@ func top_height() -> float:
 	var hi := 0
 	for v in level:
 		hi = maxi(hi, v)
-	return hi * LEVEL + TRENCH_DEPTH if theme == "trench" else MAX_LEVEL * LEVEL + HEADROOM
+	return hi * LEVEL + TRENCH_DEPTH if theme != "funhouse" else MAX_LEVEL * LEVEL + HEADROOM
 
 
 ## Bunker ceiling: clears its own floor and any floor it steps up to.
@@ -291,7 +453,7 @@ func cells_far_from(c: Vector2i, min_steps: int) -> Array[Vector2i]:
 func _build() -> void:
 	for n in get_children():
 		n.queue_free()
-	if theme == "trench":
+	if theme != "funhouse":
 		_build_trench()
 	else:
 		_build_funhouse()
@@ -312,6 +474,9 @@ func _build_trench() -> void:
 					var mid := Vector3((x + 0.5) * CELL, top * 0.5, (z + 0.5) * CELL) + Vector3(dir.x, 0, dir.y) * CELL * 0.5
 					var size := Vector3(WALL_T, top, CELL + WALL_T) if dir.x != 0 else Vector3(CELL + WALL_T, top, WALL_T)
 					boxes.append([mid, size])
+			if not is_open(c):
+				boxes.append([Vector3((x + 0.5) * CELL, top * 0.5, (z + 0.5) * CELL), Vector3(CELL, top, CELL)])
+				continue
 			if not is_trench(c):
 				# solid earth above the bunker ceiling
 				var ceil := ceiling_height(c)

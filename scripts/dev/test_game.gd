@@ -8,6 +8,7 @@ func _run() -> void:
 	var bad := 0
 	var stair_total := 0
 	var worst_step := 0.0
+	var route_total := 0
 	for i in 40:
 		var m := Maze.new()
 		add_child(m)
@@ -22,7 +23,7 @@ func _run() -> void:
 		for z in m.d:
 			for x in m.w:
 				var c := Vector2i(x, z)
-				if m.path_cells(m.start_cell, c) == 0 and c != m.start_cell:
+				if m.is_open(c) and m.path_cells(m.start_cell, c) == 0 and c != m.start_cell:
 					bad += 1
 				for dir in Maze.DIRS:
 					var n := c + dir
@@ -38,7 +39,9 @@ func _run() -> void:
 				var h := m.floor_height(p)
 				worst_step = max(worst_step, absf(h - prev))
 				prev = h
+		route_total += m.route.size()
 		m.free()
+	print("routes: %.1f cells on average" % (route_total / 40.0))
 	print("mazes: 40 generated, problems=%d, stairs per maze=%.1f, biggest floor jump on a route=%.2fm" % [bad, stair_total / 40.0, worst_step])
 
 	# --- game loop
@@ -70,8 +73,19 @@ func _run() -> void:
 	var idle_ones: Array = game.clowns.filter(func(c): return c.get_node("Brain").mind != ClownBrain.Mind.HUNT)
 	if not idle_ones.is_empty():
 		var c: Clown = idle_ones[0]
-		game.player.global_position = c.global_position + c.global_basis.z * 1.8 + Vector3.UP * 0.05
+		# stand 2m away down an open corridor, with the clown turned towards us
+		var m2: Maze = game.maze
+		var here := m2.cell_of(c.global_position)
+		var spot := m2.cell_center(here)
+		for dir in Maze.DIRS:
+			if m2.in_bounds(here + dir) and m2.linked(here, here + dir) and m2.level[m2.idx(here + dir)] == m2.level[m2.idx(here)]:
+				spot = m2.cell_center(here + dir)
+				break
+		c.global_position = m2.cell_center(here)
+		game.player.global_position = spot + Vector3.UP * 0.05
 		for f in 60:
+			var to: Vector3 = game.player.global_position - c.global_position
+			c.rotation.y = atan2(to.x, to.z)          # keep it looking our way while it wanders
 			await get_tree().physics_frame
 		print("stood in front of an idle clown for 1s: mind=%d (1 = hunting)" % c.get_node("Brain").mind)
 	var off_floor := 0.0

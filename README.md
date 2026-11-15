@@ -23,7 +23,7 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 
 ## The game
 
-- Each floor is a new maze of WW1 trenches and circus bunkers. The higher ground is open trench under a dusk sky (mud, duckboards, plank and sandbag walls, barbed wire, bunting); the lower ground is dug-in bunkers (harlequin and striped canvas walls, plank ceilings, lanterns). Every way down from a trench into a bunker is a dugout entrance with a timber frame and a clown's face over the door. Some bunker rooms are dormitories, messes or stores on painted sunburst floors.
+- Each floor is one winding route: a short stretch of open trench, then down into a dieselpunk concrete bunker. Corridors run straight for a few cells at a time, framed by concrete pillars and steel beams, lit by caged bulbs, with wet floors, pipes and steel doors. There are a couple of stairwells down, a few wider halls (dormitory, mess, stores) and dead-end side rooms. A little of the circus survives: faded harlequin paint, a stencilled star, a clown's face over the way in, an old drum in the mess.
 - Kill every clown, then find the door (it turns green) to leave.
 - After each floor you pick one of three upgrades. Floors get bigger, with more clowns and more gunmen.
 - Kills earn tickets (two for a headshot). When you die they are banked and can be spent on permanent perks on the menu.
@@ -52,7 +52,7 @@ Every body uses the same 21 bone names and 15 dismemberment segments, so the rag
 | `scripts/player/fps_player.gd` | Player, health and the two weapons |
 | `scripts/player/view_model.gd` | First-person hands and guns, recoil and reload animation |
 | `scripts/game/game.gd` | Run loop, floors, upgrades, perks, menu, saving |
-| `scripts/world/maze.gd` | Maze generator, stairs, pathfinding, collision; `theme` picks trench or the old funhouse |
+| `scripts/world/maze.gd` | Maze generator, stairs, pathfinding, collision; `theme` picks the linear bunker (default), the trench maze, or the old funhouse |
 | `scripts/world/level_art.gd` | The trench and bunker look: walls, floors, props, lanterns |
 | `scripts/clown/clown_brain.gd` | Clown AI: hunting, melee, gunmen |
 | `shaders/funhouse.gdshader` | Checker floors and striped walls |
@@ -78,7 +78,7 @@ All of these are in `clown_ragdoll.gd`.
 - **WitzSoldat:** `helmet_pop_chance` in `clown.gd`; his rifle numbers are in `rifleman()` in `clown_brain.gd`; how many appear per floor is `soldier_share` in `game.gd`.
 - **How easily limbs come off:** `dismember_damage` on the clown, and `can_dismember` per weapon in `fps_player.gd`.
 - **What clowns notice** (in `clown_brain.gd`): `sight_range`, `sight_half_angle`, `hearing_cells` (how far a gunshot carries along the corridors), `witness_range` (how close a clown must be to notice another being shot), `give_up_after`.
-- **Level look:** in `maze.gd`, `theme` ("trench" or "funhouse"), `TRENCH_DEPTH` and `BUNKER_HEADROOM`. In `level_art.gd`, the chances in `_trench_wall_props`, `_dress_trench` and `_dress_bunker` set how much bunting, wire, posters and clutter appear; lantern brightness is the energy passed to `_lantern`. Sky, fog and the dusk light are in `_build_environment()` in `game.gd`.
+- **Level layout:** in `maze.gd` `_generate_linear()`: route length (`w * d * 0.42`), number of stairwells, halls and side rooms. **Level look:** `theme` ("bunker", "trench" or "funhouse"), `TRENCH_DEPTH` and `BUNKER_HEADROOM`. In `level_art.gd`, `_bunker_wall_detail` sets how often walls get paint, doors or posters, and `_bulb` the light brightness, range and how many are dead or flickering. In `level_art.gd`, the chances in `_trench_wall_props`, `_dress_trench` and `_dress_bunker` set how much bunting, wire, posters and clutter appear; lantern brightness is the energy passed to `_lantern`. Sky, fog and the dusk light are in `_build_environment()` in `game.gd`.
 - **Blood budget:** `MAX_DECALS`, `MAX_POOLS`, `DRY_TIME` in `blood_manager.gd`.
 
 ## Checks

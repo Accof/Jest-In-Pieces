@@ -7,6 +7,7 @@ extends Node3D
 const TEX := "res://art/level/"
 const LAYER_WORLD := 1
 const WARM := Color(1.0, 0.68, 0.36)
+const BULB := Color(1.0, 0.7, 0.45)
 const MAX_SHADOW_LIGHTS := 10
 
 var maze: Maze
@@ -19,6 +20,9 @@ var _lights: Array = []       # [light, base energy, phase, speed]
 var _shadow_lights := 0
 var _props: StaticBody3D
 var _t := 0.0
+## Concrete dieselpunk bunkers (bunker theme) or the painted circus dugouts.
+var bunker_style := true
+var _route_index := {}
 
 static var _mats := {}
 static var _meshes := {}
@@ -28,20 +32,26 @@ func build(m: Maze) -> void:
 	maze = m
 	rng.seed = m.rng.seed ^ 0x5eed
 	top = m.top_height()
+	bunker_style = m.theme == "bunker"
 	_props = StaticBody3D.new()
 	_props.collision_layer = LAYER_WORLD
 	_props.collision_mask = 0
 	add_child(_props)
+	for i in m.route.size():
+		_route_index[m.route[i]] = i
 	for z in m.d:
 		for x in m.w:
-			var c := Vector2i(x, z)
-			_cell_surfaces(c)
+			_cell_surfaces(Vector2i(x, z))
 	_walls()
 	_stairs()
 	_outer_ground()
+	if bunker_style:
+		_portals()
 	for z in m.d:
 		for x in m.w:
 			var c := Vector2i(x, z)
+			if not m.is_open(c):
+				continue
 			if m.is_trench(c):
 				_dress_trench(c)
 			else:
@@ -100,41 +110,62 @@ func _box_faces(key: String, c: Vector3, s: Vector3, skip_bottom := true) -> voi
 func _cell_surfaces(c: Vector2i) -> void:
 	var m := maze
 	var centre := m.cell_center(c)
-	var f := centre.y
 	var half := Maze.CELL * 0.5
+	if not m.is_open(c):
+		# solid ground: only its surface shows, from the trench
+		_quad("ground", Vector3(centre.x - half, top, centre.z + half), Vector3(centre.x + half, top, centre.z + half), Vector3(centre.x + half, top, centre.z - half), Vector3(centre.x - half, top, centre.z - half))
+		return
+	var f := centre.y
 	var trench := m.is_trench(c)
 	var in_room := _room_of(c) >= 0
-	# floor
-	if trench:
-		_quad("mud", centre + Vector3(-half, 0, half), centre + Vector3(half, 0, half), centre + Vector3(half, 0, -half), centre + Vector3(-half, 0, -half))
-	elif not in_room:
-		_quad("concrete", centre + Vector3(-half, 0, half), centre + Vector3(half, 0, half), centre + Vector3(half, 0, -half), centre + Vector3(-half, 0, -half))
+	var floor_key := "mud" if trench else ("floor_conc" if bunker_style else "concrete")
+	var wall_key := "planks_dark" if trench or not bunker_style else "wall_low"
+	var ceil_key := "ceil_conc" if bunker_style else "planks_dark"
+	if trench or not in_room or bunker_style:
+		_quad(floor_key, centre + Vector3(-half, 0, half), centre + Vector3(half, 0, half), centre + Vector3(half, 0, -half), centre + Vector3(-half, 0, -half))
 	# risers: where a linked neighbour is lower, this floor's edge shows above it
 	for dir in Maze.DIRS:
 		var n := c + dir
 		if m.in_bounds(n) and m.linked(c, n) and m.level[m.idx(n)] < m.level[m.idx(c)]:
 			var dv := Vector3(dir.x, 0, dir.y)
-			_wall_quad("planks_dark", centre + dv * half, Vector3(dv.z, 0, -dv.x), half, m.level[m.idx(n)] * Maze.LEVEL, f)
+			_wall_quad(wall_key, centre + dv * half, Vector3(dv.z, 0, -dv.x), half, m.level[m.idx(n)] * Maze.LEVEL, f)
 	if trench:
 		return
-	# bunker: plank ceiling, beams, and the faces of the earth block above it
+	# bunker: ceiling, and the faces of the earth block above it
 	var ceil := m.ceiling_height(c)
 	var cc := Vector3(centre.x, ceil, centre.z)
-	_quad("planks_dark", cc + Vector3(-half, 0, -half), cc + Vector3(half, 0, -half), cc + Vector3(half, 0, half), cc + Vector3(-half, 0, half))
+	_quad(ceil_key, cc + Vector3(-half, 0, -half), cc + Vector3(half, 0, -half), cc + Vector3(half, 0, half), cc + Vector3(-half, 0, half))
 	_quad("ground", Vector3(centre.x - half, top, centre.z + half), Vector3(centre.x + half, top, centre.z + half), Vector3(centre.x + half, top, centre.z - half), Vector3(centre.x - half, top, centre.z - half))
-	for k: float in [-0.75, 0.75]:
-		_add_multi("beam", Transform3D(Basis.IDENTITY.scaled_local(Vector3(Maze.CELL, 0.16, 0.16)), cc + Vector3(0, -0.08, k)))
+	if bunker_style:
+		# a steel I-beam across the corridor
+		var along_x := _corridor_axis(c) == Vector3.RIGHT
+		var b := Basis.IDENTITY if not along_x else Basis(Vector3.UP, PI * 0.5)
+		if not in_room:
+			_add_multi("ibeam", Transform3D(b.scaled_local(Vector3(Maze.CELL, 0.24, 0.16)), cc + Vector3(0, -0.12, 0)))
+	else:
+		for k: float in [-0.75, 0.75]:
+			_add_multi("beam", Transform3D(Basis.IDENTITY.scaled_local(Vector3(Maze.CELL, 0.16, 0.16)), cc + Vector3(0, -0.08, k)))
 	for dir in Maze.DIRS:
 		var n := c + dir
-		if not (m.in_bounds(n) and m.linked(c, n)):
+		if not (m.in_bounds(n) and m.linked(c, n)) or m.is_trench(n):
 			continue
 		var dv := Vector3(dir.x, 0, dir.y)
-		if m.is_trench(n):
-			continue
 		var nc := m.ceiling_height(n)
 		if nc > ceil + 0.01:
-			# our earth block's side, seen from the neighbour's taller ceiling
-			_wall_quad("planks_dark", centre + dv * half, Vector3(-dv.z, 0, dv.x), half, ceil, nc)
+			_wall_quad("wall_conc" if bunker_style else "planks_dark", centre + dv * half, Vector3(dv.z, 0, -dv.x), half, ceil, nc)
+
+
+## Which way a corridor cell runs: RIGHT (along x) or BACK (along z).
+func _corridor_axis(c: Vector2i) -> Vector3:
+	var x := 0
+	var z := 0
+	for dir in Maze.DIRS:
+		if not _blocked(c, dir):
+			if dir.x != 0:
+				x += 1
+			else:
+				z += 1
+	return Vector3.RIGHT if x > z else Vector3.BACK
 
 
 func _walls() -> void:
@@ -144,24 +175,27 @@ func _walls() -> void:
 	for z in m.d:
 		for x in m.w:
 			var c := Vector2i(x, z)
+			if not m.is_open(c):
+				continue
 			var centre := m.cell_center(c)
 			var trench := m.is_trench(c)
 			var ceil := top if trench else m.ceiling_height(c)
 			var f := centre.y
 			var style := "harlequin" if rng.randf() < 0.75 else "canvas"
+			var conc := "wall_conc" if bunker_style else "planks_dark"
 			for dir in Maze.DIRS:
 				var n := c + dir
 				var dv := Vector3(dir.x, 0, dir.y)
 				var along := Vector3(-dv.z, 0, dv.x)
 				if m.in_bounds(n) and m.linked(c, n):
 					if not trench and m.is_trench(n):
-						# lintel over the dugout opening: its face toward the trench,
-						# and its underside seen from the doorway
+						# lintel over the way out to the trench: its face toward the
+						# trench, and its underside seen from the doorway
 						var lb := m.ceiling_height(c)
 						var face := centre + dv * (half + t)
-						_wall_quad("planks", face, -along, half, lb, top)
+						_wall_quad(conc if bunker_style else "planks", face, -along, half, lb, top)
 						var u0 := centre + dv * (half - t); var u1 := centre + dv * (half + t)
-						_quad("planks_dark", Vector3(u0.x, lb, u0.z) + along * half, Vector3(u1.x, lb, u1.z) + along * half, Vector3(u1.x, lb, u1.z) - along * half, Vector3(u0.x, lb, u0.z) - along * half)
+						_quad("ceil_conc" if bunker_style else "planks_dark", Vector3(u0.x, lb, u0.z) + along * half, Vector3(u1.x, lb, u1.z) + along * half, Vector3(u1.x, lb, u1.z) - along * half, Vector3(u0.x, lb, u0.z) - along * half)
 						_quad("ground", Vector3(u0.x, top, u0.z) - along * half, Vector3(u1.x, top, u1.z) - along * half, Vector3(u1.x, top, u1.z) + along * half, Vector3(u0.x, top, u0.z) + along * half)
 					continue
 				var face := centre + dv * (half - t)
@@ -169,6 +203,11 @@ func _walls() -> void:
 				if trench:
 					_wall_quad("planks", face, along, span, f, f + 2.2)
 					_wall_quad("sandbags", face, along, span, f + 2.2, top)
+				elif bunker_style:
+					_wall_quad("wall_low", face, along, span, f, f + 0.9)
+					_wall_quad("wall_conc", face, along, span, f + 0.9, ceil)
+					if not _stair_side(c, dir):
+						_bunker_wall_detail(c, dir, face, along, span, f, ceil)
 				else:
 					_wall_quad("planks_dark", face, along, span, f, f + 1.0)
 					_wall_quad(style, face, along, span, f + 1.0, ceil)
@@ -176,17 +215,51 @@ func _walls() -> void:
 				var a := centre + dv * (half - t); var b := centre + dv * (half + t)
 				_quad("ground", Vector3(a.x, top, a.z) - along * (half + t), Vector3(b.x, top, b.z) - along * (half + t), Vector3(b.x, top, b.z) + along * (half + t), Vector3(a.x, top, a.z) + along * (half + t))
 				if not m.in_bounds(n):
-					# outer boundary: give the outside of the wall a face too
-					_wall_quad("planks_dark", centre + dv * (half + t), -along, half + t, 0.0, top)
+					_wall_quad(conc, centre + dv * (half + t), -along, half + t, 0.0, top)
 				for side: float in [-1.0, 1.0]:
 					var nb := c + Vector2i(int(along.x * side), int(along.z * side))
-					var corner_open := m.in_bounds(nb) and m.linked(c, nb)
-					if corner_open:
+					if m.in_bounds(nb) and m.linked(c, nb):
 						var e := centre + dv * half + along * side * (half + t)
-						var lo := f
-						_wall_quad("planks_dark", e, dv * side, t, lo, top)
+						_wall_quad("planks_dark" if trench else conc, e, dv * side, t, f, top)
 				if trench:
 					_trench_wall_props(c, dir, face, along, span, f)
+
+
+## Paint, doors and posters on a bunker wall. Most walls are bare concrete.
+func _bunker_wall_detail(c: Vector2i, dir: Vector2i, face: Vector3, along: Vector3, span: float, f: float, ceil: float) -> void:
+	var dv := Vector3(dir.x, 0, dir.y)
+	var out := -dv
+	var roll := rng.randf()
+	if roll < 0.2:
+		# the circus was here once: a panel of faded harlequin paint
+		var p := face + out * 0.006
+		var w := span - 0.12
+		var y0 := f + 0.95
+		var y1 := ceil - 0.3
+		var a := Vector3(p.x, y0, p.z) - along * w
+		var b := Vector3(p.x, y0, p.z) + along * w
+		var u := w * 2.0 / 1.2
+		var v := (y1 - y0) / 1.2
+		_quad("harlequin_faded", a, b, Vector3(b.x, y1, b.z), Vector3(a.x, y1, a.z), [Vector2(0, v), Vector2(u, v), Vector2(u, 0), Vector2(0, 0)])
+	elif roll < 0.32:
+		_steel_door(face + out * 0.004, along, out, f, rng.randf_range(-0.5, 0.5))
+	elif roll < 0.38:
+		_poster(face - dv * 0.012 + along * rng.randf_range(-0.6, 0.6), Basis(along, Vector3.UP, out), f + 1.55, 0.5)
+
+
+## A sealed steel door set into the concrete, with a frame you can see.
+func _steel_door(p: Vector3, along: Vector3, out: Vector3, f: float, offset: float) -> void:
+	var c := p + along * offset
+	var hw := 0.55
+	var h := 2.1
+	var a := Vector3(c.x, f, c.z) - along * hw
+	var b := Vector3(c.x, f, c.z) + along * hw
+	_quad("door", a, b, Vector3(b.x, f + h, b.z), Vector3(a.x, f + h, a.z), [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)])
+	var fb := Basis(along, Vector3.UP, out)
+	for side: float in [-1.0, 1.0]:
+		_add_multi("steel_box", Transform3D(fb.scaled_local(Vector3(0.1, h + 0.1, 0.08)), Vector3(c.x, f + (h + 0.1) * 0.5, c.z) + along * side * (hw + 0.05) + out * 0.04))
+	_add_multi("steel_box", Transform3D(fb.scaled_local(Vector3(hw * 2 + 0.2, 0.1, 0.08)), Vector3(c.x, f + h + 0.05, c.z) + out * 0.04))
+	_add_multi("steel_box", Transform3D(fb.scaled_local(Vector3(0.05, 0.3, 0.06)), Vector3(c.x, f + 1.0, c.z) + along * (hw - 0.15) + out * 0.03))
 
 
 func _stairs() -> void:
@@ -199,11 +272,25 @@ func _stairs() -> void:
 		var side := Vector3(dir.z, 0, -dir.x)
 		var edge := m.cell_center(s.low) + dir * Maze.CELL * 0.5
 		edge.y = base
+		var key := "floor_conc" if bunker_style and not m.is_trench(s.low) else "planks_dark"
 		for i in Maze.STEPS - 1:
 			var near := (Maze.STEPS - 1 - i) * tread
 			var centre := edge - dir * near * 0.5 + Vector3.UP * (i + 1) * rise * 0.5
 			var size := (dir.abs() * near + side.abs() * Maze.STAIR_WIDTH + Vector3.UP * (i + 1) * rise)
-			_box_faces("planks_dark", centre, size)
+			_box_faces(key, centre, size)
+		if key == "floor_conc":
+			# a steel handrail down one side
+			var rail_side := side * (Maze.STAIR_WIDTH * 0.5 + 0.08)
+			var top_p := edge + rail_side + Vector3.UP * (Maze.LEVEL + 0.9)
+			var bot_p := edge - dir * Maze.STAIR_RUN + rail_side + Vector3.UP * 0.9
+			var mid := (top_p + bot_p) * 0.5
+			var len := top_p.distance_to(bot_p)
+			var y := (top_p - bot_p).normalized()
+			var x := side.normalized()
+			_add_multi("pipe", Transform3D(Basis(x, y, x.cross(y)).scaled_local(Vector3(0.6, len, 0.6)), mid))
+			for k: float in [0.1, 0.9]:
+				var q := bot_p.lerp(top_p, k)
+				_add_multi("pipe", Transform3D(Basis.IDENTITY.scaled_local(Vector3(0.5, 0.9, 0.5)), q + Vector3.DOWN * 0.45))
 
 
 func _outer_ground() -> void:
@@ -295,26 +382,39 @@ func _dress_bunker(c: Vector2i) -> void:
 	var centre := m.cell_center(c)
 	var ceil := m.ceiling_height(c)
 	var half := Maze.CELL * 0.5
-	# shoring posts in the corners
-	for sx: float in [-1.0, 1.0]:
-		for sz: float in [-1.0, 1.0]:
-			if not _blocked(c, Vector2i(int(sx), 0)) and not _blocked(c, Vector2i(0, int(sz))):
-				continue      # open on both sides: the middle of a room
-			var p := centre + Vector3(sx * (half - 0.22), 0, sz * (half - 0.22))
-			_add_multi("post", Transform3D(Basis.IDENTITY.scaled_local(Vector3(0.16, ceil - centre.y, 0.16)), Vector3(p.x, (centre.y + ceil) * 0.5, p.z)))
-	# a lantern hanging from the ceiling
-	if _room_of(c) < 0 and rng.randf() < 0.7:
-		_hanging_lantern(Vector3(centre.x + rng.randf_range(-0.4, 0.4), ceil, centre.z + rng.randf_range(-0.4, 0.4)), 1.5, 5.5)
-	# posters on blank walls
-	for dir in Maze.DIRS:
-		var n := c + dir
-		if m.in_bounds(n) and m.linked(c, n):
-			continue
-		if rng.randf() < 0.2:
-			var dv := Vector3(dir.x, 0, dir.y)
-			var along := Vector3(-dv.z, 0, dv.x)
-			_poster(centre + dv * (half - Maze.WALL_T * 0.5 - 0.012) + along * rng.randf_range(-0.5, 0.5), Basis(along, Vector3.UP, -dv), centre.y + 1.6, 0.5)
-	if _room_of(c) < 0:
+	var in_room := _room_of(c) >= 0
+	if not bunker_style:
+		for sx: float in [-1.0, 1.0]:
+			for sz: float in [-1.0, 1.0]:
+				if not _blocked(c, Vector2i(int(sx), 0)) and not _blocked(c, Vector2i(0, int(sz))):
+					continue
+				var p := centre + Vector3(sx * (half - 0.22), 0, sz * (half - 0.22))
+				_add_multi("post", Transform3D(Basis.IDENTITY.scaled_local(Vector3(0.16, ceil - centre.y, 0.16)), Vector3(p.x, (centre.y + ceil) * 0.5, p.z)))
+		if not in_room and rng.randf() < 0.7:
+			_hanging_lantern(Vector3(centre.x + rng.randf_range(-0.4, 0.4), ceil, centre.z + rng.randf_range(-0.4, 0.4)), 1.5, 5.5)
+		if not in_room:
+			_corner_clutter(c, false)
+		return
+	if in_room:
+		return
+	var axis := _corridor_axis(c)
+	var side := Vector3(axis.z, 0, axis.x)
+	var straight := _blocked(c, Vector2i(int(side.x), int(side.z))) and _blocked(c, -Vector2i(int(side.x), int(side.z)))
+	# pipes and a cable run along one side of straight corridors
+	if straight:
+		var b := Basis(Vector3.BACK, PI * 0.5) if axis == Vector3.RIGHT else Basis(Vector3.RIGHT, PI * 0.5)
+		var wall := centre + side * (half - Maze.WALL_T * 0.5 - 0.14)
+		_add_multi("pipe", Transform3D(b.scaled_local(Vector3(1.1, Maze.CELL, 1.1)), Vector3(wall.x, ceil - 0.2, wall.z)))
+		_add_multi("pipe", Transform3D(b.scaled_local(Vector3(0.7, Maze.CELL, 0.7)), Vector3(wall.x, ceil - 0.42, wall.z) + side * 0.03))
+		_add_multi("cable", Transform3D(b.scaled_local(Vector3(1, Maze.CELL, 1)), Vector3(wall.x, ceil - 0.6, wall.z) + side * 0.06))
+	# a caged bulb every other cell along the route; side rooms most of the time
+	var ri: int = _route_index.get(c, -1)
+	var lit := (ri >= 0 and ri % 2 == 0) or (ri < 0 and rng.randf() < 0.6)
+	if lit:
+		_bulb(Vector3(centre.x, ceil, centre.z) + axis * rng.randf_range(-0.3, 0.3))
+	_corner_clutter(c, false)
+	if m.side_cells.has(c):
+		_corner_clutter(c, false)
 		_corner_clutter(c, false)
 
 
@@ -327,32 +427,46 @@ func _rooms() -> void:
 		var lo := m.cell_center(a)
 		var mid := lo + Vector3(Maze.CELL * 0.5, 0, Maze.CELL * 0.5)
 		if trench:
-			# a trench junction: stores piled against the walls
 			for c: Vector2i in cells:
 				_corner_clutter(c, true)
 				_corner_clutter(c, true)
 			_add_multi("wheel", Transform3D(Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, 1.35), _free_spot(cells, 0.5) + Vector3.UP * 0.45))
 			continue
-		# bunker room: painted sunburst floor and a purpose
-		var half := Maze.CELL
-		var y := lo.y + 0.004
-		_quad("sunburst", Vector3(mid.x - half, y, mid.z + half), Vector3(mid.x + half, y, mid.z + half), Vector3(mid.x + half, y, mid.z - half), Vector3(mid.x - half, y, mid.z - half),
-			[Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)])
 		var ceil := 99.0
 		for c: Vector2i in cells:
 			ceil = minf(ceil, m.ceiling_height(c))
-		_hanging_lantern(Vector3(mid.x, ceil, mid.z), 2.2, 7.5)
-		_string_lights(Vector3(mid.x - 2.6, ceil - 0.12, mid.z - 2.6), Vector3(mid.x + 2.6, ceil - 0.12, mid.z - 2.6), 0.25)
-		_string_lights(Vector3(mid.x + 2.6, ceil - 0.12, mid.z + 2.6), Vector3(mid.x - 2.6, ceil - 0.12, mid.z + 2.6), 0.25)
-		match ri % 3:
+		var kind := ri % 3
+		if bunker_style:
+			# a concrete column holding up the middle, steel beams off it
+			_box_faces("wall_conc", Vector3(mid.x, (lo.y + ceil) * 0.5, mid.z), Vector3(0.55, ceil - lo.y, 0.55))
+			_collider(Vector3(0.55, ceil - lo.y, 0.55), Transform3D(Basis.IDENTITY, Vector3(mid.x, (lo.y + ceil) * 0.5, mid.z)))
+			for b: Basis in [Basis.IDENTITY, Basis(Vector3.UP, PI * 0.5)]:
+				_add_multi("ibeam", Transform3D(b.scaled_local(Vector3(Maze.CELL * 2.0, 0.26, 0.18)), Vector3(mid.x, ceil - 0.13, mid.z)))
+			_bulb(Vector3(mid.x - 1.4, ceil, mid.z - 1.4))
+			_bulb(Vector3(mid.x + 1.4, ceil, mid.z + 1.4))
+			if kind == 1:
+				# the mess: what is left of the circus lives here
+				var y := lo.y + 0.004
+				var hw := Maze.CELL - 0.15
+				_quad("sunburst_faded", Vector3(mid.x - hw, y, mid.z + hw), Vector3(mid.x + hw, y, mid.z + hw), Vector3(mid.x + hw, y, mid.z - hw), Vector3(mid.x - hw, y, mid.z - hw))
+				_bunting(Vector3(mid.x - 2.6, ceil - 0.3, mid.z - 2.6), Vector3(mid.x, ceil - 0.25, mid.z))
+		else:
+			var half := Maze.CELL
+			var y := lo.y + 0.004
+			_quad("sunburst", Vector3(mid.x - half, y, mid.z + half), Vector3(mid.x + half, y, mid.z + half), Vector3(mid.x + half, y, mid.z - half), Vector3(mid.x - half, y, mid.z - half),
+				[Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)])
+			_hanging_lantern(Vector3(mid.x, ceil, mid.z), 2.2, 7.5)
+			_string_lights(Vector3(mid.x - 2.6, ceil - 0.12, mid.z - 2.6), Vector3(mid.x + 2.6, ceil - 0.12, mid.z - 2.6), 0.25)
+			_string_lights(Vector3(mid.x + 2.6, ceil - 0.12, mid.z + 2.6), Vector3(mid.x - 2.6, ceil - 0.12, mid.z + 2.6), 0.25)
+		match kind:
 			0:   # dormitory
 				for c: Vector2i in cells:
 					var spot := _wall_spot(c, 1.0)
 					if spot.is_empty():
 						continue
 					_bunk(spot.pos, spot.basis)
-			1:   # mess: a table, a gramophone, a circus drum
-				_table(mid + Vector3(0.6, 0, 0.6))
+			1:   # mess: a table, a gramophone on a circus drum
+				_table(mid + Vector3(0.9, 0, 0.9))
 				var g := _free_spot(cells, 0.6)
 				_drum(g)
 				_gramophone(g + Vector3.UP * 0.62)
@@ -367,36 +481,86 @@ func _rooms() -> void:
 						_shelf(spot.pos, spot.basis)
 
 
-## Timber frames, a clown face and lanterns at every dugout entrance.
 func _entrances() -> void:
 	var m := maze
-	for s: Dictionary in m.stairs:
-		var low: Vector2i = s.low
-		var high: Vector2i = s.high
-		if not (m.is_trench(high) and not m.is_trench(low)):
-			continue
-		var dv := Vector3(s.dir.x, 0, s.dir.y)
-		var along := Vector3(-dv.z, 0, dv.x)
-		var edge := m.cell_center(low) + dv * Maze.CELL * 0.5
-		var tf := m.level[m.idx(high)] * Maze.LEVEL
-		var lb := m.ceiling_height(low)
-		var front := Vector3(edge.x, 0, edge.z) + dv * (Maze.WALL_T * 0.5 + 0.06)
-		var w := Maze.STAIR_WIDTH * 0.5 + 0.12
+	var done := {}
+	for z in m.d:
+		for x in m.w:
+			var high := Vector2i(x, z)
+			if not m.is_open(high) or not m.is_trench(high):
+				continue
+			for dir in Maze.DIRS:
+				var low := high - dir
+				if not m.in_bounds(low) or not m.linked(high, low) or m.is_trench(low) or done.has(low):
+					continue
+				done[low] = true
+				_entrance(low, high, dir)
+
+
+## The way into the bunker, seen from the trench: a frame and a clown's face.
+func _entrance(low: Vector2i, high: Vector2i, dir: Vector2i) -> void:
+	var m := maze
+	var dv := Vector3(dir.x, 0, dir.y)
+	var along := Vector3(-dv.z, 0, dv.x)
+	var edge := m.cell_center(low) + dv * Maze.CELL * 0.5
+	var tf := minf(m.level[m.idx(high)], m.level[m.idx(low)]) * Maze.LEVEL
+	var lb := m.ceiling_height(low)
+	var front := Vector3(edge.x, 0, edge.z) + dv * (Maze.WALL_T * 0.5 + 0.06)
+	var w := Maze.STAIR_WIDTH * 0.5 + 0.12
+	if bunker_style:
+		# a cast concrete portal with a steel lintel
+		for side: float in [-1.0, 1.0]:
+			var p := front + along * side * (w + 0.25)
+			_box_faces("wall_conc", Vector3(p.x, (tf + lb + 0.4) * 0.5, p.z) + dv * 0.1, Vector3(0.5, lb + 0.4 - tf, 0.5) * (Vector3.ONE - dv.abs()) + dv.abs() * 0.5)
+			_collider(Vector3(0.5, lb + 0.4 - tf, 0.5), Transform3D(Basis.IDENTITY, Vector3(p.x, (tf + lb + 0.4) * 0.5, p.z) + dv * 0.1))
+			_bulb(Vector3(p.x, tf + 2.25, p.z) + dv * 0.45, true)
+		_add_multi("ibeam", Transform3D(Basis(along, Vector3.UP, along.cross(Vector3.UP)).scaled_local(Vector3(w * 2.0 + 1.2, 0.32, 0.3)), Vector3(front.x, lb + 0.12, front.z) + dv * 0.12))
+	else:
 		for side: float in [-1.0, 1.0]:
 			var p := front + along * side * w
 			_add_multi("beam_v", Transform3D(Basis.IDENTITY.scaled_local(Vector3(0.2, lb - tf + 0.2, 0.2)), Vector3(p.x, (tf + lb) * 0.5, p.z)))
 			_lantern(Vector3(p.x, tf + 1.9, p.z) + dv * 0.2 + along * side * 0.18, 1.6, 6.0)
 		_add_multi("beam_v", Transform3D(Basis(along, Vector3.UP, along.cross(Vector3.UP)).scaled_local(Vector3(w * 2.0 + 0.4, 0.24, 0.22)), Vector3(front.x, lb + 0.05, front.z)))
-		# the clown over the door
-		var head := _clown_head()
-		if head:
-			var mi := MeshInstance3D.new()
-			mi.mesh = head
-			var face_out := Basis(along.cross(-dv).normalized() if false else -along, Vector3.UP, dv)
-			mi.transform = Transform3D(Basis(-along, Vector3.UP, dv).scaled_local(Vector3.ONE * 2.3) * Basis(Vector3.RIGHT, -0.15), Vector3(front.x, lb + 0.42, front.z) + dv * 0.05)
-			add_child(mi)
-		# bunting across the entrance
 		_bunting(Vector3(front.x, lb + 0.2, front.z) - along * (w + 0.6) + dv * 0.1, Vector3(front.x, lb + 0.2, front.z) + along * (w + 0.6) + dv * 0.1)
+	# the clown over the door
+	var head := _clown_head()
+	if head:
+		var mi := MeshInstance3D.new()
+		mi.mesh = head
+		mi.transform = Transform3D(Basis(-along, Vector3.UP, dv).scaled_local(Vector3.ONE * 2.3) * Basis(Vector3.RIGHT, -0.15), Vector3(front.x, lb + 0.62, front.z) + dv * 0.2)
+		add_child(mi)
+
+
+## Concrete pillars and a steel header at every opening between bunker cells:
+## the frames you see receding down a corridor.
+func _portals() -> void:
+	var m := maze
+	var half := Maze.CELL * 0.5
+	for z in m.d:
+		for x in m.w:
+			var c := Vector2i(x, z)
+			if not m.is_open(c) or m.is_trench(c):
+				continue
+			for dir: Vector2i in [Vector2i(1, 0), Vector2i(0, 1)]:
+				var n := c + dir
+				if not m.in_bounds(n) or not m.linked(c, n) or m.is_trench(n):
+					continue
+				var rc := _room_of(c)
+				if rc >= 0 and rc == _room_of(n):
+					continue
+				var dv := Vector3(dir.x, 0, dir.y)
+				var along := Vector3(-dv.z, 0, dv.x)
+				var edge := m.cell_center(c) + dv * half
+				var y0 := minf(m.level[m.idx(c)], m.level[m.idx(n)]) * Maze.LEVEL
+				var y1 := minf(m.ceiling_height(c), m.ceiling_height(n))
+				for side: float in [-1.0, 1.0]:
+					var p := edge + along * side * (half - 0.2)
+					var size := along.abs() * 0.4 + dv.abs() * 0.55 + Vector3.UP * (y1 - y0)
+					var ctr := Vector3(p.x, (y0 + y1) * 0.5, p.z)
+					_box_faces("wall_conc", ctr, size)
+					_collider(size, Transform3D(Basis.IDENTITY, ctr))
+				var hb := Basis(along, Vector3.UP, along.cross(Vector3.UP))
+				_add_multi("ibeam", Transform3D(hb.scaled_local(Vector3(Maze.CELL, 0.34, 0.3)), Vector3(edge.x, y1 - 0.17, edge.z)))
 
 
 # --- props -------------------------------------------------------------------------
@@ -408,14 +572,20 @@ func _corner_clutter(c: Vector2i, trench: bool) -> void:
 		return
 	var p: Vector3 = spot.pos
 	var roll := rng.randf()
-	if roll < 0.55:
+	if roll < 0.5:
 		var s := rng.randf_range(0.55, 0.75)
 		_crate(p, s, rng.randf_range(-0.3, 0.3))
 		if rng.randf() < 0.45:
 			_crate(p + Vector3.UP * s + Vector3(rng.randf_range(-0.08, 0.08), 0, rng.randf_range(-0.08, 0.08)), s * 0.8, rng.randf_range(-0.6, 0.6))
-	elif roll < 0.75:
+	elif roll < 0.72 and (trench or bunker_style):
+		_barrel(p)
+		if rng.randf() < 0.4:
+			_barrel(p + Vector3(rng.randf_range(-0.1, 0.1), 0, 0) + (maze.cell_center(c) - p).normalized() * 0.62)
+	elif roll < 0.8 and not bunker_style:
 		_drum(p)
-	elif trench:
+	elif roll < 0.84:
+		_drum(p)      # the odd circus drum, even down here
+	elif trench or bunker_style:
 		for i in 6:   # a heap of sandbags
 			var q := p + Vector3(rng.randf_range(-0.3, 0.3), 0.08 + (i / 3) * 0.13, rng.randf_range(-0.3, 0.3))
 			_add_multi("sandbag", Transform3D(Basis(Vector3.UP, rng.randf() * TAU), q))
@@ -424,7 +594,41 @@ func _corner_clutter(c: Vector2i, trench: bool) -> void:
 		_lantern(p + Vector3.UP * 0.62, 0.9, 4.0)
 
 
-## A free corner of the cell (walls on both sides, away from stairs), or {}.
+func _barrel(p: Vector3) -> void:
+	_add_multi("barrel", Transform3D(Basis(Vector3.UP, rng.randf() * TAU), p + Vector3.UP * 0.44))
+	_collider(Vector3(0.58, 0.88, 0.58), Transform3D(Basis.IDENTITY, p + Vector3.UP * 0.44))
+
+
+## A bare bulb in a wire cage, hung from the ceiling on its flex.
+func _bulb(ceiling_point: Vector3, wall_mounted := false) -> void:
+	var drop := 0.0 if wall_mounted else rng.randf_range(0.3, 0.55)
+	if not wall_mounted:
+		_add_multi("rail_v", Transform3D(Basis.IDENTITY.scaled_local(Vector3(0.012, drop, 0.012)), ceiling_point + Vector3.DOWN * drop * 0.5))
+	var p := ceiling_point + Vector3.DOWN * (drop + 0.1)
+	var dead := not wall_mounted and rng.randf() < 0.12
+	_add_multi("cage", Transform3D(Basis.IDENTITY, p))
+	_add_multi("bulb_dead" if dead else "bulb_big", Transform3D(Basis.IDENTITY, p))
+	if dead:
+		return
+	var l := OmniLight3D.new()
+	l.position = p + Vector3.DOWN * 0.05
+	l.light_color = BULB
+	l.light_energy = 3.2
+	l.omni_range = 8.0
+	l.omni_attenuation = 1.6
+	l.light_volumetric_fog_energy = 2.5
+	l.light_size = 0.06
+	l.shadow_enabled = true
+	l.shadow_bias = 0.06
+	l.distance_fade_enabled = true
+	l.distance_fade_begin = 28.0
+	l.distance_fade_length = 8.0
+	l.distance_fade_shadow = 16.0
+	add_child(l)
+	var bad := rng.randf() < 0.15
+	_lights.append([l, l.light_energy, rng.randf() * 100.0, rng.randf_range(6.0, 11.0) * (3.0 if bad else 1.0)])
+
+
 func _corner_spot(c: Vector2i) -> Dictionary:
 	var m := maze
 	var centre := m.cell_center(c)
@@ -668,8 +872,10 @@ func _commit() -> void:
 		var mi := MeshInstance3D.new()
 		mi.mesh = (_st[key] as SurfaceTool).commit()
 		mi.material_override = _mat(key)
-		if key in ["camonet", "pennant"]:
+		if key in ["camonet", "pennant", "harlequin_faded", "door", "poster", "sunburst_faded", "sunburst"]:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		else:
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
 		add_child(mi)
 	for key: String in _multi:
 		var xfs: Array = _multi[key]
@@ -681,7 +887,7 @@ func _commit() -> void:
 			mm.set_instance_transform(i, xfs[i])
 		var mmi := MultiMeshInstance3D.new()
 		mmi.multimesh = mm
-		if key in ["bulb", "lantern_glass", "coil", "rail_v", "rail_h"]:
+		if key in ["bulb", "lantern_glass", "coil", "rail_v", "rail_h", "bulb_big", "bulb_dead", "cable"]:
 			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mmi)
 
@@ -696,9 +902,10 @@ static func _mat(key: String) -> Material:
 		return _mats[key]
 	var m := StandardMaterial3D.new()
 	var tiling := {"planks": [2.0, 0.85], "planks_dark": [2.0, 0.85], "sandbags": [2.0, 0.95], "harlequin": [2.0, 0.7],
-		"canvas": [2.0, 0.9], "mud": [2.5, 1.0], "ground": [4.0, 1.0], "concrete": [3.0, 0.85], "metal": [1.0, 0.55]}
+		"canvas": [2.0, 0.9], "mud": [2.5, 1.0], "ground": [4.0, 1.0], "concrete": [3.0, 0.85], "metal": [1.0, 0.55],
+		"wall_conc": [2.0, 0.9], "wall_low": [2.0, 0.7], "floor_conc": [2.0, 0.8], "ceil_conc": [2.0, 0.95]}
 	if tiling.has(key):
-		var base: String = key
+		var base: String = "wall_conc" if key == "ceil_conc" else key
 		m.albedo_texture = _tex(base)
 		m.normal_enabled = true
 		m.normal_texture = _tex(base + "_n")
@@ -708,6 +915,12 @@ static func _mat(key: String) -> Material:
 		m.uv1_scale = Vector3.ONE / float(tiling[key][0])
 		if key.begins_with("planks"):
 			m.uv1_scale = Vector3(0.22, 0.5, 0.22)      # boards run long
+		if key == "ceil_conc":
+			m.albedo_color = Color(0.6, 0.58, 0.55)
+		if key in ["wall_conc", "wall_low", "floor_conc"]:
+			m.roughness = 1.0
+			m.roughness_texture = _tex(key + "_r")
+			m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
 		if key == "mud" or key == "ground":
 			m.roughness = 1.0
 			m.roughness_texture = _tex(key + "_r")
@@ -719,6 +932,45 @@ static func _mat(key: String) -> Material:
 			"sunburst":
 				m.albedo_texture = _tex("sunburst")
 				m.roughness = 0.8
+			"sunburst_faded":
+				m.albedo_texture = _tex("sunburst_faded")
+				m.roughness = 0.75
+			"harlequin_faded":
+				m.albedo_texture = _tex("harlequin_faded")
+				m.normal_enabled = true
+				m.normal_texture = _tex("harlequin_faded_n")
+				m.roughness = 0.85
+			"door":
+				m.albedo_texture = _tex("door")
+				m.normal_enabled = true
+				m.normal_texture = _tex("door_n")
+				m.metallic = 0.5
+				m.roughness = 0.6
+			"steel":
+				m.albedo_texture = _tex("metal")
+				m.normal_enabled = true
+				m.normal_texture = _tex("metal_n")
+				m.uv1_triplanar = true
+				m.uv1_world_triplanar = true
+				m.albedo_color = Color(0.7, 0.72, 0.68)
+				m.metallic = 0.65
+				m.roughness = 0.55
+			"barrel":
+				m.albedo_texture = _tex("metal")
+				m.albedo_color = Color(0.55, 0.62, 0.5)
+				m.uv1_scale = Vector3(2, 1, 1)
+				m.metallic = 0.5
+				m.roughness = 0.6
+			"bulb_hot":
+				m.albedo_color = Color(1.0, 0.8, 0.55)
+				m.emission_enabled = true
+				m.emission = Color(1.0, 0.7, 0.4)
+				m.emission_energy_multiplier = 9.0
+				m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			"bulb_off":
+				m.albedo_color = Color(0.3, 0.28, 0.25)
+				m.metallic = 0.2
+				m.roughness = 0.2
 			"poster":
 				m.albedo_texture = _tex("poster")
 				m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
@@ -726,6 +978,7 @@ static func _mat(key: String) -> Material:
 				m.cull_mode = BaseMaterial3D.CULL_DISABLED
 			"pennant":
 				m.albedo_texture = _tex("pennant")
+				m.albedo_color = Color(0.6, 0.58, 0.55)
 				m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 				m.cull_mode = BaseMaterial3D.CULL_DISABLED
 				m.roughness = 0.9
@@ -853,6 +1106,42 @@ func _mesh(key: String) -> Mesh:
 			c.material = _mat("brass"); mesh = c
 		"coil":
 			mesh = _coil_mesh()
+		"ibeam":
+			# a unit-length steel I-section along x: flanges top and bottom, a web between
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			_st_box(st, Vector3(0, 0.44, 0), Vector3(1, 0.12, 1))
+			_st_box(st, Vector3(0, -0.44, 0), Vector3(1, 0.12, 1))
+			_st_box(st, Vector3.ZERO, Vector3(1, 0.8, 0.3))
+			mesh = st.commit()
+			mesh.surface_set_material(0, _mat("steel"))
+		"steel_box":
+			var b := BoxMesh.new(); b.material = _mat("steel"); mesh = b
+		"pipe":
+			var c := CylinderMesh.new(); c.top_radius = 0.055; c.bottom_radius = 0.055; c.height = 1.0; c.radial_segments = 10; c.rings = 1
+			c.material = _mat("steel"); mesh = c
+		"cable":
+			var c := CylinderMesh.new(); c.top_radius = 0.018; c.bottom_radius = 0.018; c.height = 1.0; c.radial_segments = 5; c.rings = 1
+			c.material = _mat("wire"); mesh = c
+		"barrel":
+			var c := CylinderMesh.new(); c.top_radius = 0.29; c.bottom_radius = 0.29; c.height = 0.88; c.radial_segments = 18; c.rings = 2
+			c.material = _mat("barrel"); mesh = c
+		"bulb_big":
+			var s := SphereMesh.new(); s.radius = 0.045; s.height = 0.11; s.radial_segments = 8; s.rings = 4
+			s.material = _mat("bulb_hot"); mesh = s
+		"bulb_dead":
+			var s := SphereMesh.new(); s.radius = 0.045; s.height = 0.11; s.radial_segments = 8; s.rings = 4
+			s.material = _mat("bulb_off"); mesh = s
+		"cage":
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			for k in 4:
+				var a := k * PI * 0.5 + PI * 0.25
+				_st_box(st, Vector3(cos(a) * 0.065, -0.01, sin(a) * 0.065), Vector3(0.008, 0.16, 0.008))
+			_st_box(st, Vector3(0, 0.075, 0), Vector3(0.08, 0.03, 0.08))
+			_st_box(st, Vector3(0, -0.085, 0), Vector3(0.11, 0.008, 0.11))
+			mesh = st.commit()
+			mesh.surface_set_material(0, _mat("iron"))
 	_meshes[key] = mesh
 	return mesh
 

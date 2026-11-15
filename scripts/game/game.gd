@@ -96,7 +96,7 @@ func next_floor() -> void:
 	maze = Maze.new()
 	_world.add_child(maze)
 	var size := mini(5 + floor_number / 2, 9)
-	maze.generate(size, size, rng.randi())
+	maze.generate(size + 2, size, rng.randi())     # a little wider than deep: room for a long route
 	var spawn := maze.cell_center(maze.start_cell)
 	player.global_position = spawn + Vector3.UP * 0.1
 	player.velocity = Vector3.ZERO
@@ -258,45 +258,63 @@ func _buy_perk(i: int) -> void:
 
 # --- world dressing -------------------------------------------------------------
 func _build_environment() -> void:
-	# Overcast dusk over no man's land: a slate sky, a dim cold sun low behind
-	# the cloud, and smoky fog that swallows the far trenches.
+	# Overcast dusk above; below ground, damp concrete lit only by bare bulbs,
+	# with a haze in the air that the bulbs glow through.
 	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.07, 0.075, 0.09)
-	sky_mat.sky_horizon_color = Color(0.32, 0.27, 0.25)
+	sky_mat.sky_top_color = Color(0.06, 0.065, 0.075)
+	sky_mat.sky_horizon_color = Color(0.26, 0.24, 0.23)
 	sky_mat.sky_curve = 0.12
 	sky_mat.ground_bottom_color = Color(0.04, 0.035, 0.03)
-	sky_mat.ground_horizon_color = Color(0.22, 0.18, 0.16)
+	sky_mat.ground_horizon_color = Color(0.2, 0.18, 0.16)
 	sky_mat.sun_angle_max = 8.0
-	sky_mat.sky_energy_multiplier = 0.9
+	sky_mat.sky_energy_multiplier = 0.8
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	var env := Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.3, 0.32, 0.38)
-	env.ambient_light_energy = 0.42
-	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	env.ambient_light_color = Color(0.3, 0.31, 0.34)
+	env.ambient_light_energy = 0.2
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 1.1
-	env.fog_enabled = true
-	env.fog_light_color = Color(0.16, 0.14, 0.14)
-	env.fog_density = 0.028
-	env.fog_sky_affect = 0.35
+	env.tonemap_exposure = 1.15
+	env.tonemap_white = 6.0
+	env.ssr_enabled = true                    # wet floors pick up the bulbs
+	env.ssr_max_steps = 48
+	env.ssr_fade_in = 0.2
+	env.ssr_fade_out = 2.0
 	env.ssao_enabled = true
+	env.ssao_intensity = 2.5
+	env.ssao_radius = 1.2
+	env.ssil_enabled = true
+	env.ssil_intensity = 0.6
+	env.fog_enabled = true
+	env.fog_light_color = Color(0.09, 0.085, 0.08)
+	env.fog_density = 0.012
+	env.fog_sky_affect = 0.3
+	env.volumetric_fog_enabled = true
+	env.volumetric_fog_density = 0.035
+	env.volumetric_fog_albedo = Color(0.62, 0.58, 0.52)
+	env.volumetric_fog_anisotropy = 0.55
+	env.volumetric_fog_length = 32.0
+	env.volumetric_fog_ambient_inject = 0.0
+	env.volumetric_fog_sky_affect = 0.15
 	env.glow_enabled = true
-	env.glow_intensity = 0.6
-	env.glow_bloom = 0.05
-	env.glow_hdr_threshold = 1.2
+	env.glow_intensity = 0.7
+	env.glow_bloom = 0.08
+	env.glow_hdr_threshold = 1.0
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 0.85
-	env.adjustment_contrast = 1.08
+	env.adjustment_saturation = 0.72
+	env.adjustment_contrast = 1.12
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
 	var sun := DirectionalLight3D.new()
-	sun.light_color = Color(0.6, 0.63, 0.72)
-	sun.light_energy = 0.55
+	sun.light_color = Color(0.58, 0.62, 0.72)
+	sun.light_energy = 0.45
+	sun.light_volumetric_fog_energy = 0.3
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 40.0
 	sun.rotation = Vector3(deg_to_rad(-28.0), deg_to_rad(-140.0), 0.0)
