@@ -16,6 +16,7 @@ const OVERHEAT_RESUME := 0.35
 var player: FpsPlayer
 var floor_y := 0.0                       ## where the gunner stands
 var active := false                      ## the event is running: it can be manned
+var leave_ok := false                    ## the nest lets the gunner step off (enemies in the trench, time up)
 var can_rip := false                     ## the event is won: it can be taken
 var heat := 0.0
 var overheated := false
@@ -59,7 +60,7 @@ func prompt() -> String:
 	if player and player.mount == self:
 		if overheated:
 			return "OVERHEATED - let it cool"
-		return "[E] Let go" if not active else ""
+		return "[E] Let go" if (not active or leave_ok) else ""
 	if can_rip:
 		return "[E] Rip it off the mount"
 	if active:
@@ -82,7 +83,7 @@ func use(p: Node) -> void:
 
 
 func can_leave() -> bool:
-	return not active                       # no stepping away mid-wave
+	return not active or leave_ok           # no stepping away mid-wave unless they're in the trench
 
 
 func released() -> void:
@@ -104,16 +105,22 @@ func trigger() -> void:
 
 func _fire() -> void:
 	var w: Dictionary = FpsPlayer.MOUNTED_MG
-	var from := _muzzle.global_position
-	var aim := -_pivot.global_basis.z
+	# The round goes where the crosshair is: the ray runs from the gunner's eye
+	# down the sight line (the barrel is lower and behind the parapet lip, so
+	# firing along it put rounds into the dirt and the legs). The tracer still
+	# comes out of the muzzle.
+	var cam := player.camera
+	var from := cam.global_position
+	var aim := -cam.global_basis.z
 	var s := deg_to_rad(w.spread) * (1.0 + heat * 1.5)
-	var dir := (aim + _pivot.global_basis.x * randfn(0.0, s * 0.5) + _pivot.global_basis.y * randfn(0.0, s * 0.5)).normalized()
+	var dir := (aim + cam.global_basis.x * randfn(0.0, s * 0.5) + cam.global_basis.y * randfn(0.0, s * 0.5)).normalized()
 	_shot_id += 1
 	_rounds += 1
-	var hit := player.shoot_ray(from, dir, w, _shot_id)
+	var ignore: Array[RID] = [get_rid()]
+	var hit := player.shoot_ray(from, dir, w, _shot_id, ignore)
 	var end: Vector3 = hit.position if not hit.is_empty() else from + dir * 120.0
 	if _rounds % 3 == 0:
-		_tracer(from, end)
+		_tracer(_muzzle.global_position, end)
 	if not hit.is_empty() and not (hit.collider is PhysicalBone3D):
 		_dust(hit.position, hit.normal)
 	heat = minf(heat + HEAT_PER_SHOT, 1.0)

@@ -324,9 +324,11 @@ func fire() -> void:
 
 
 ## Fire one ray with a weapon definition. Also used by the automated tests.
-func shoot_ray(from: Vector3, dir: Vector3, w: Dictionary, shot_id: int) -> Dictionary:
-	var q := PhysicsRayQueryParameters3D.create(from, from + dir * 100.0, LAYER_WORLD | LAYER_RAGDOLL)
-	q.exclude = [get_rid()]
+func shoot_ray(from: Vector3, dir: Vector3, w: Dictionary, shot_id: int, also_ignore: Array[RID] = []) -> Dictionary:
+	var q := PhysicsRayQueryParameters3D.create(from, from + dir * 130.0, LAYER_WORLD | LAYER_RAGDOLL)
+	var ex: Array[RID] = [get_rid()]
+	ex.append_array(also_ignore)
+	q.exclude = ex
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
 	if hit.is_empty():
 		return hit

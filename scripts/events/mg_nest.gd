@@ -31,6 +31,7 @@ var _fires: Array = []
 var _hud: Label
 var _heat_bar: ProgressBar
 var _craters: Array[Vector3] = []
+var _in_trench := 0
 
 
 func build() -> void:
@@ -193,9 +194,15 @@ func _process(delta: float) -> void:
 	while not _queue.is_empty() and _queue[0][0] <= _t and alive < MAX_ALIVE:
 		_spawn_runner(_queue.pop_front()[1])
 		alive += 1
-	if _t > WAVE_TIME and _queue.is_empty() and not _over:
-		var left := enemies.filter(func(e: Clown) -> bool: return is_instance_valid(e) and not e.dead)
-		if left.is_empty() or _t > WAVE_TIME + 25.0:
+	# who has got into the trench? Then the gunner may let go and fight them off
+	var in_trench := enemies.filter(func(e: Clown) -> bool:
+		return is_instance_valid(e) and not e.dead and e.global_position.y < global_position.y + FIELD_Y - 0.5)
+	_in_trench = in_trench.size()
+	gun.leave_ok = _in_trench > 0 or _t > WAVE_TIME
+	if _t > WAVE_TIME and not _over:
+		_queue.clear()                  # time's up: nobody else comes
+		var left := enemies.filter(func(e: Clown) -> bool: return is_instance_valid(e) and not e.dead and not e.crawling and not e.downed)
+		if left.is_empty() or _t > WAVE_TIME + 12.0:
 			_finish()
 
 
@@ -237,7 +244,10 @@ func _breach(c: Clown) -> void:
 	b.mode = "room"
 	b.hunting = true
 	b.run_speed = 4.0
-	c.global_position = global_position + Vector3(clampf(c.position.x, -3.8, 3.8), 0.4, -0.6)
+	var sd := -1.0 if c.position.x < 0.0 else 1.0
+	c.global_position = global_position + Vector3(sd * 3.7, 0.4, randf_range(0.2, 1.6))
+	c.look_at(global_position + Vector3(0, 0.4, -0.5), Vector3.UP, true)
+	_flash_text("THEY'RE IN THE TRENCH\n[E] let go of the gun")
 
 
 func _launch_flare() -> void:
@@ -328,6 +338,10 @@ func _update_hud() -> void:
 		return
 	var left := maxf(WAVE_TIME - _t, 0.0)
 	_hud.text = ("%d   |   KILLS %d" % [ceil(left), kills]) if _running else ("KILLS %d" % kills if _over else "")
+	if _running and _in_trench > 0:
+		_hud.text += "\n%d IN THE TRENCH  -  [E] let go" % _in_trench
+	elif _running and _t > WAVE_TIME:
+		_hud.text = "TIME  |  KILLS %d\nfinishing off the field..." % kills
 	_heat_bar.visible = player != null and player.mount == gun
 	_heat_bar.value = gun.heat
 	var sb := StyleBoxFlat.new()

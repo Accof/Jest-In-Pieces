@@ -84,6 +84,7 @@ func _play_nest(room: MgNest) -> void:
 			room._finish()
 	var t := 0.0
 	var shot_saved := false
+	var cd_l := 0.0
 	while not room.done and t < 140.0:
 		await get_tree().physics_frame
 		t += 1.0 / 60.0
@@ -96,9 +97,29 @@ func _play_nest(room: MgNest) -> void:
 				if dd < bd:
 					bd = dd
 					best = e
+		var lazy := "--lazy" in OS.get_cmdline_user_args()
+		if lazy and int(t * 60) % 300 == 0:
+			print("   t=%.0f in_trench=%d leave_ok=%s queue=%d alive=%d running=%s" % [room._t, room._in_trench, room.gun.leave_ok, room._queue.size(), room.enemies.filter(func(e: Clown) -> bool: return is_instance_valid(e) and not e.dead).size(), room._running])
+		if lazy and room._in_trench < 4 and p.mount:
+			continue
+		if lazy and p.mount:
+			p._use()
+			print("   let go: mount=%s weapon=%d" % [p.mount, p.weapon])
+			p.select_weapon(FpsPlayer.SHOTGUN)
+		if lazy:
+			cd_l -= 1.0 / 60.0
+			if best and cd_l <= 0.0:
+				cd_l = 0.85
+				var sw: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.SHOTGUN]
+				var aim2 := best.global_position + Vector3.UP * 1.2
+				p.look_at(Vector3(aim2.x, p.global_position.y, aim2.z))
+				for k in 9:
+					var sp := Vector3(randfn(0, 0.04), randfn(0, 0.04), randfn(0, 0.04))
+					p.shoot_ray(p.camera.global_position, ((aim2 - p.camera.global_position).normalized() + sp).normalized(), sw, 90000 + int(t * 100) * 10 + k)
+			continue
 		if best and not room.gun.overheated:
 			var at := best.global_position + Vector3.UP * 1.1 + best.velocity * 0.1
-			var to := at - room.gun._pivot.global_position
+			var to := at - p.camera.global_position
 			var base := room.gun.global_basis.get_euler().y
 			room.gun.yaw = clampf(wrapf(atan2(-to.x, -to.z) - base, -PI, PI), -MountedGun.TRAVERSE, MountedGun.TRAVERSE)
 			room.gun.pitch = clampf(atan2(to.y, Vector2(to.x, to.z).length()), MountedGun.ELEVATION.x, MountedGun.ELEVATION.y)
