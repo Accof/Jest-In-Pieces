@@ -15,7 +15,8 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 | Shift | Sprint |
 | Left click (hold) | Fire |
 | R | Reload |
-| 1 / 2 | Pistol / shotgun |
+| 1 / 2 / 3 | Pistol / shotgun / submachine gun |
+| G | God mode on/off (take no damage; for testing, stays on across runs until you turn it off or quit the game) |
 | F | Flashlight |
 | Enter | Start a run, or leave the death screen |
 | 1 / 2 / 3 | Pick an upgrade, or buy a perk on the menu |
@@ -94,6 +95,7 @@ All of these are in `clown_ragdoll.gd`.
 - **How easily limbs come off:** `dismember_damage` on the clown, and `can_dismember` per weapon in `fps_player.gd`.
 - **What clowns notice** (in `clown_brain.gd`): `sight_range`, `sight_half_angle`, `hearing_cells` (how far a gunshot carries along the corridors), `witness_range` (how close a clown must be to notice another being shot), `give_up_after`.
 - **Level layout:** in `maze.gd` `_generate_linear()`: route length (`w * d * 0.42`), number of stairwells, halls and side rooms. **Level look:** `theme` ("bunker", "trench" or "funhouse"), `TRENCH_DEPTH` and `BUNKER_HEADROOM`. In `level_art.gd`, `_bunker_wall_detail` sets how often walls get paint, doors or posters, and `_bulb` the light brightness, range and how many are dead or flickering. In `level_art.gd`, the chances in `_trench_wall_props`, `_dress_trench` and `_dress_bunker` set how much bunting, wire, posters and clutter appear; lantern brightness is the energy passed to `_lantern`. Sky, fog and the dusk light are in `_build_environment()` in `game.gd`.
+- **Weapons:** `WEAPONS` at the top of `fps_player.gd` (damage, spread, rate as `cooldown`, magazine). The SMG: 21 damage, about 600 rounds a minute, 32-round magazine, 1.9 s reload (`SMG_RELOAD` in `view_model.gd`).
 - **Explosions:** `RADIUS` and `PLAYER_DAMAGE` in `scripts/fx/explosion.gd`; `toughness` on the drum (`explosive_barrel.gd`); how hard and how messily clowns are thrown in `caught_in_blast()` and `_blast_gore()` in `clown.gd`; `crawl_chance` on the clown for being torn in half; `life` and `speed` in `clown_crawler.gd`; how many drums per floor in `_dress_bunker()` in `level_art.gd`.
 - **Blood budget:** `MAX_DECALS`, `MAX_POOLS`, `DRY_TIME` in `blood_manager.gd`.
 
@@ -105,6 +107,7 @@ These run without opening the editor:
 godot --headless --fixed-fps 60 res://scenes/test_joints.tscn   # every joint driven to both ends of every axis
 godot --headless --fixed-fps 60 res://scenes/test_death.tscn    # timeline of each death reaction
 godot --headless --fixed-fps 60 res://scenes/test_game.tscn     # 40 mazes checked, then one pass round the game loop
+godot --headless --fixed-fps 60 res://scenes/test_smg.tscn      # SMG rate of fire, kill, reload; god mode
 godot --headless --fixed-fps 60 res://scenes/test_blast.tscn    # a drum among clowns at set distances: gore, throw, the crawler
 godot --path . res://scenes/render_level.tscn                  # saves views of a level to /tmp/lvl_*.png (needs a window)
 ```

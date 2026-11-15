@@ -1,7 +1,8 @@
 class_name FpsPlayer
 extends CharacterBody3D
 ## First-person player. WASD move, Shift sprint, mouse look, left click fire,
-## R reload, 1 pistol, 2 shotgun, F flashlight.
+## R reload, 1 pistol, 2 shotgun, 3 submachine gun, F flashlight,
+## G god mode (no damage; for testing).
 
 const LAYER_WORLD := 1
 const LAYER_RAGDOLL := 1 << 2
@@ -10,7 +11,14 @@ const LAYER_RAMP := 1 << 4
 const WEAPONS := [
 	{name = "Pistol", damage = 34.0, pellets = 1, spread = 0.0, impulse = 14.0, heavy = false, can_dismember = false, cooldown = 0.22, falloff = 60.0, mag = 17},
 	{name = "Shotgun", damage = 16.0, pellets = 9, spread = 4.5, impulse = 16.0, heavy = true, can_dismember = true, cooldown = 0.8, falloff = 9.0, mag = 6},
+	{name = "SMG", damage = 21.0, pellets = 1, spread = 1.8, impulse = 8.0, heavy = false, can_dismember = false, cooldown = 0.085, falloff = 28.0, mag = 32},
 ]
+const PISTOL := 0
+const SHOTGUN := 1
+const SMG := 2
+
+## Testing aid: take no damage. Kept for the whole session, across runs.
+static var god_mode := false
 
 signal reset_requested
 signal health_changed(health: float, max_health: float)
@@ -34,7 +42,7 @@ var health := 100.0
 var dead := false
 var weapon := 0
 ## Rounds loaded in each gun. Spare ammunition is unlimited for now.
-var ammo: Array[int] = [17, 6]
+var ammo: Array[int] = [17, 6, 32]
 var view: ViewModel
 ## Key that asks for a reset in the test room (R is reload).
 var reset_key := KEY_BACKSPACE
@@ -132,6 +140,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		match event.keycode:
 			KEY_1: select_weapon(0)
 			KEY_2: select_weapon(1)
+			KEY_3: select_weapon(2)
+			KEY_G:
+				god_mode = not god_mode
+				ammo_changed.emit()
 			KEY_F: flashlight.visible = not flashlight.visible
 			KEY_R: reload()
 			KEY_ESCAPE: Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -199,21 +211,23 @@ func reload() -> void:
 	if dead or view.swapping() or view.reloading() or ammo[weapon] >= WEAPONS[weapon].mag:
 		return
 	view.start_reload()
-	if weapon == 0:
+	if weapon == PISTOL:
 		_reload_left = ViewModel.PISTOL_RELOAD * 0.62      # the moment the magazine seats
+	elif weapon == SMG:
+		_reload_left = ViewModel.SMG_SEAT
 	else:
 		_shell_left = ViewModel.SHELL_INTRO + ViewModel.SHELL_TIME * 0.85
 
 
 func _tick_reload(delta: float) -> void:
-	if weapon == 0:
+	if weapon != SHOTGUN:
 		if _reload_left >= 0.0:
 			_reload_left -= delta
 			if _reload_left < 0.0:
-				ammo[0] = WEAPONS[0].mag
+				ammo[weapon] = WEAPONS[weapon].mag
 				ammo_changed.emit()
 				_update_label()
-		if view.reloading() and view._reload_t >= ViewModel.PISTOL_RELOAD:
+		if view.reloading() and view._reload_t >= (ViewModel.PISTOL_RELOAD if weapon == PISTOL else ViewModel.SMG_RELOAD):
 			view.stop_reload()
 			view.slide_locked = false
 	elif _shell_left >= 0.0:
@@ -233,7 +247,7 @@ func _tick_reload(delta: float) -> void:
 func fire() -> void:
 	if _cooldown > 0.0 or dead or view.swapping():
 		return
-	if weapon == 0 and view.reloading():
+	if weapon != SHOTGUN and view.reloading():
 		return
 	if ammo[weapon] <= 0:
 		reload()
@@ -254,7 +268,7 @@ func fire() -> void:
 	for i in pellets:
 		var d := aim
 		if w.spread > 0.0:
-			var s: float = deg_to_rad(w.spread) * stats.spread
+			var s: float = deg_to_rad(w.spread) * (stats.spread if w.pellets > 1 else 1.0)
 			d = (aim + camera.global_basis.x * randfn(0.0, s * 0.5) + camera.global_basis.y * randfn(0.0, s * 0.5)).normalized()
 		shoot_ray(from, d, w, _shot_id)
 	fired.emit(weapon)
@@ -280,7 +294,7 @@ func shoot_ray(from: Vector3, dir: Vector3, w: Dictionary, shot_id: int) -> Dict
 			collider = c, position = hit.position, direction = dir,
 			damage = w.damage * scale * stats.damage, impulse = w.impulse * scale,
 			heavy = w.heavy and scale > 0.5,
-			can_dismember = (w.can_dismember or stats.pistol_dismember) and scale > 0.6,
+			can_dismember = (w.can_dismember or (stats.pistol_dismember and w.name == "Pistol")) and scale > 0.6,
 			shot_id = shot_id, blood = stats.blood,
 		})
 	return hit
@@ -293,6 +307,9 @@ func shake(amount: float) -> void:
 
 func take_damage(amount: float, from_dir: Vector3 = Vector3.ZERO) -> void:
 	if dead:
+		return
+	if god_mode:
+		_hurt.color.a = clampf(0.08 + amount * 0.005, 0.0, 0.2)     # still see you were hit
 		return
 	health = maxf(health - amount, 0.0)
 	_hurt.color.a = clampf(0.25 + amount * 0.02, 0.0, 0.7)
@@ -313,4 +330,4 @@ func heal(amount: float) -> void:
 
 
 func _update_label() -> void:
-	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [F] light  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag]
+	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [F] light  [G] god mode%s  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else ""]

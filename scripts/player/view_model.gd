@@ -11,12 +11,15 @@ extends Node3D
 const SHRINK := 0.45
 const PISTOL := 0
 const SHOTGUN := 1
+const SMG := 2
 
 ## Seconds the reload animations take. The player script reads these.
 const PISTOL_RELOAD := 1.55
 const SHELL_TIME := 0.48
 const SHELL_INTRO := 0.3
 const SWAP_TIME := 0.3
+const SMG_RELOAD := 1.9
+const SMG_SEAT := 1.12          # the new magazine clicks home
 
 var weapon := PISTOL
 var slide_locked := false       # pistol ran dry: slide stays back until reloaded
@@ -28,6 +31,8 @@ var _mag: Node3D
 var _spare_mag: Node3D
 var _pump: Node3D
 var _shell: Node3D
+var _smg_mag: Node3D
+var _smg_bolt: Node3D
 var _left: Array[Node3D] = []   # per gun: the left arm
 var _flash: OmniLight3D
 var _flash_mesh: MeshInstance3D
@@ -48,7 +53,9 @@ func _ready() -> void:
 	scale = Vector3.ONE * SHRINK
 	_build_pistol()
 	_build_shotgun()
+	_build_smg()
 	_guns[SHOTGUN].visible = false
+	_guns[SMG].visible = false
 	_flash = OmniLight3D.new()
 	_flash.light_color = Color(1.0, 0.8, 0.45)
 	_flash.omni_range = 7.0
@@ -87,9 +94,12 @@ func fire() -> void:
 	_since_shot = 0.0
 	var muzzle := _muzzle()
 	_flash.position = muzzle
-	_flash.light_energy = 5.0 if weapon == PISTOL else 9.0
+	_flash.light_energy = [5.0, 9.0, 4.0][weapon]
 	_flash_mesh.position = muzzle
-	_flash_mesh.scale = Vector3.ONE * (1.0 if weapon == PISTOL else 1.8) * randf_range(0.8, 1.2)
+	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9][weapon] * randf_range(0.7, 1.25)
+	_flash_mesh.rotation.z = randf() * TAU
+	if weapon == SMG:
+		_jitter = Vector2(randf_range(-1, 1), randf_range(-0.3, 1))
 	_flash_mesh.visible = true
 
 
@@ -121,7 +131,7 @@ func swapping() -> bool:
 func animate(delta: float, speed: float, look: Vector2) -> void:
 	_time += delta
 	_since_shot += delta
-	_kick = move_toward(_kick, 0.0, delta * (7.0 if weapon == PISTOL else 3.2))
+	_kick = move_toward(_kick, 0.0, delta * [7.0, 3.2, 14.0][weapon])
 	_slide_back = move_toward(_slide_back, 0.0, delta * 14.0)
 	_flash.light_energy = move_toward(_flash.light_energy, 0.0, delta * 90.0)
 	if _since_shot > 0.045:
@@ -139,8 +149,8 @@ func animate(delta: float, speed: float, look: Vector2) -> void:
 		var half := SWAP_TIME * 0.5
 		if _swap_t >= half and weapon != _swap_to:
 			weapon = _swap_to
-			_guns[PISTOL].visible = weapon == PISTOL
-			_guns[SHOTGUN].visible = weapon == SHOTGUN
+			for gi in _guns.size():
+				_guns[gi].visible = gi == weapon
 		drop = 1.0 - absf(_swap_t - half) / half
 		if _swap_t >= SWAP_TIME:
 			_swap_t = -1.0
@@ -155,8 +165,10 @@ func animate(delta: float, speed: float, look: Vector2) -> void:
 
 	if weapon == PISTOL:
 		_animate_pistol()
-	else:
+	elif weapon == SHOTGUN:
 		_animate_shotgun()
+	else:
+		_animate_smg()
 
 
 # --- pistol ---------------------------------------------------------------------
@@ -330,8 +342,115 @@ func _build_shotgun() -> void:
 	_left.append(left)
 
 
+# --- submachine gun --------------------------------------------------------------
+# A WW1 trench gun: wooden stock, a tube receiver with a perforated barrel
+# jacket, and a long magazine sticking out of the left side.
+const Q_HOME := Vector3(0.155, -0.16, -0.40)
+const Q_LEFT_HOME := Vector3.ZERO
+var _jitter := Vector2.ZERO
+
+func _animate_smg() -> void:
+	var pose := _pose[SMG]
+	var left := _left[SMG]
+	var k := _kick * _kick
+	# each round shoves it back and a little up and sideways; sustained fire
+	# makes it buck about
+	var pos := Q_HOME + Vector3(0.004 * _jitter.x * k, 0.008 * k, 0.03 * k)
+	var rot := Vector3(deg_to_rad(4.5 + 2.0 * _jitter.y) * k, deg_to_rad(1.4 * _jitter.x) * k, deg_to_rad(1.0 * _jitter.x) * k)
+	var bolt := _slide_back
+	var mag_pos := Vector3.ZERO
+	var mag_visible := true
+	var left_pos := Q_LEFT_HOME
+	var left_rot := Vector3.ZERO
+	if _reload_t >= 0.0:
+		var t := _reload_t
+		# 0.00-0.25  roll the gun so the magazine comes up into view
+		# 0.25-0.62  support hand to the magazine, pull it out sideways, drop it
+		# 0.62-1.12  hand away for a fresh one, back, push it home
+		# 1.12-1.30  hand back on the jacket
+		# 1.30-1.55  rack the bolt
+		# 1.55-1.90  back on target
+		var tilt := smoothstep(0.0, 0.25, t) * (1.0 - smoothstep(1.55, SMG_RELOAD, t))
+		pos += Vector3(-0.035, 0.04, 0.035) * tilt
+		rot += Vector3(deg_to_rad(10.0), deg_to_rad(14.0), deg_to_rad(28.0)) * tilt
+		var at_mag := Vector3(-0.1, 0.05, 0.06)            # left hand, holding the end of the magazine
+		if t < 0.62:
+			var grab := smoothstep(0.22, 0.42, t)
+			var pull := smoothstep(0.42, 0.58, t)
+			left_pos = at_mag * grab + Vector3(-0.09, -0.02, 0) * pull
+			mag_pos = Vector3(-0.09, -0.02, 0) * pull
+			mag_visible = t < 0.6
+		elif t < 1.12:
+			var away := 1.0 - smoothstep(0.62, 0.82, t) + smoothstep(0.82, 0.98, t)
+			away = clampf(away, 0.0, 1.0)
+			var push := smoothstep(0.98, 1.1, t)
+			var out := Vector3(-0.09, -0.02, 0) * (1.0 - push)
+			left_pos = at_mag + out + Vector3(-0.08, -0.32, 0.12) * (1.0 - away)
+			mag_pos = out + Vector3(-0.08, -0.32, 0.12) * (1.0 - away)
+			mag_visible = t > 0.8
+			pos += Vector3(0.006, 0, 0) * (smoothstep(1.07, 1.1, t) - smoothstep(1.1, 1.16, t))      # the knock as it seats
+		else:
+			left_pos = at_mag * (1.0 - smoothstep(1.12, 1.3, t))
+		bolt = maxf(bolt, smoothstep(1.3, 1.4, t) * (1.0 - smoothstep(1.45, 1.5, t)))
+		pos += Vector3(0, 0, 0.012) * (smoothstep(1.45, 1.5, t) - smoothstep(1.5, 1.62, t))
+	pose.position = pos
+	pose.rotation = rot
+	_smg_bolt.position.z = 0.05 * bolt
+	_smg_mag.position = mag_pos
+	_smg_mag.visible = mag_visible
+	left.position = left_pos
+	left.rotation = left_rot
+
+
+func _build_smg() -> void:
+	var root := Node3D.new()
+	add_child(root)
+	_guns.append(root)
+	var pose := Node3D.new()
+	root.add_child(pose)
+	_pose.append(pose)
+	var steel := _mat(Color(0.14, 0.14, 0.15), 0.35, 0.75)
+	var dark := _mat(Color(0.03, 0.03, 0.03), 0.6, 0.2)
+	var wood := _mat(Color(0.33, 0.18, 0.08), 0.55, 0.0)
+	# receiver tube and barrel jacket, with rows of cooling holes
+	_cyl(pose, 0.018, 0.27, Vector3(0, 0.012, -0.05), Vector3(90, 0, 0), steel)
+	_cyl(pose, 0.021, 0.21, Vector3(0, 0.012, -0.29), Vector3(90, 0, 0), steel)
+	for i in 7:
+		for side: float in [-1.0, 0.0, 1.0]:
+			var a := side * 0.9
+			_box(pose, Vector3(0.008, 0.008, 0.016), Vector3(sin(a) * 0.0205, 0.012 + cos(a) * 0.0205, -0.215 - i * 0.024), Vector3(0, 0, -rad_to_deg(a)), dark)
+	_cyl(pose, 0.007, 0.035, Vector3(0, 0.012, -0.415), Vector3(90, 0, 0), dark)                    # muzzle
+	_box(pose, Vector3(0.004, 0.012, 0.006), Vector3(0, 0.038, -0.385), Vector3.ZERO, steel)        # front sight
+	_box(pose, Vector3(0.018, 0.012, 0.012), Vector3(0, 0.034, 0.03), Vector3.ZERO, steel)          # rear sight
+	_cyl(pose, 0.02, 0.012, Vector3(0, 0.012, 0.085), Vector3(90, 0, 0), steel)                    # end cap
+	# wooden stock in one piece: fore-end under the receiver, wrist, butt
+	_box(pose, Vector3(0.044, 0.036, 0.2), Vector3(0, -0.018, -0.07), Vector3.ZERO, wood)
+	_box(pose, Vector3(0.038, 0.07, 0.07), Vector3(0, -0.045, 0.1), Vector3(24, 0, 0), wood)
+	_box(pose, Vector3(0.042, 0.085, 0.26), Vector3(0, -0.06, 0.25), Vector3(-6, 0, 0), wood)
+	_box(pose, Vector3(0.044, 0.09, 0.012), Vector3(0, -0.07, 0.38), Vector3(-6, 0, 0), steel)      # butt plate
+	_box(pose, Vector3(0.012, 0.005, 0.06), Vector3(0, -0.044, 0.04), Vector3.ZERO, steel)         # trigger guard
+	_box(pose, Vector3(0.005, 0.02, 0.005), Vector3(0, -0.032, 0.035), Vector3(-15, 0, 0), steel)  # trigger
+	# magazine well on the left, and the magazine itself
+	_box(pose, Vector3(0.03, 0.034, 0.036), Vector3(-0.028, 0.012, -0.12), Vector3.ZERO, steel)
+	_smg_mag = Node3D.new()
+	pose.add_child(_smg_mag)
+	_box(_smg_mag, Vector3(0.13, 0.026, 0.03), Vector3(-0.1, 0.012, -0.12), Vector3(0, 0, 6), _mat(Color(0.09, 0.09, 0.1), 0.45, 0.6))
+	_box(_smg_mag, Vector3(0.012, 0.03, 0.034), Vector3(-0.163, 0.006, -0.12), Vector3(0, 0, 6), steel)
+	# the bolt handle on the right, which flicks back with every shot
+	_smg_bolt = Node3D.new()
+	pose.add_child(_smg_bolt)
+	_box(_smg_bolt, Vector3(0.026, 0.008, 0.008), Vector3(0.026, 0.016, 0.0), Vector3.ZERO, steel)
+	_cyl(_smg_bolt, 0.007, 0.012, Vector3(0.04, 0.016, 0.0), Vector3(0, 0, 90), steel)
+	# hands: right on the wrist of the stock, left round the jacket
+	_hand(pose, Vector3(0, -0.06, 0.11), Vector3(0.09, -0.30, 0.48), false)
+	var left := Node3D.new()
+	pose.add_child(left)
+	_hand(left, Vector3(-0.004, -0.022, -0.16), Vector3(-0.28, -0.30, 0.20), true)
+	_left.append(left)
+
+
 func _muzzle() -> Vector3:
-	var local := Vector3(0, 0.02, -0.19) if weapon == PISTOL else Vector3(0, 0.018, -0.64)
+	var local := [Vector3(0, 0.02, -0.19), Vector3(0, 0.018, -0.64), Vector3(0, 0.012, -0.445)][weapon] as Vector3
 	return to_local(_pose[weapon].to_global(local))
 
 

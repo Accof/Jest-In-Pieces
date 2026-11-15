@@ -427,7 +427,7 @@ func _show_menu() -> void:
 		var label := "[%d]  %s  -  %s   (%d/%d)   %s" % [i + 1, p.name, p.desc, owned, p.max, "MAXED" if owned >= p.max else "%d tickets" % p.cost]
 		var b := _button(label, _buy_perk.bind(i))
 		b.disabled = owned >= p.max or int(save.tickets) < p.cost
-	_title("WASD move   Shift sprint   Mouse aim   Click fire   R reload   1/2 weapons   F light", 16)
+	_title("WASD move   Shift sprint   Mouse aim   Click fire   R reload   1/2/3 weapons   F light   G god mode", 16)
 
 
 func _title(text: String, size: int) -> void:
@@ -453,7 +453,7 @@ func _refresh_hud() -> void:
 		return
 	var w: Dictionary = FpsPlayer.WEAPONS[player.weapon]
 	_hud.text = "Floor %d     Clowns left: %d     Tickets: %d     %s %d/%d%s" % [floor_number, maxi(remaining, 0), run_tickets, w.name, player.ammo[player.weapon], w.mag,
-		"     EXIT OPEN - find the green door" if exit_open else ""]
+		("     EXIT OPEN - find the green door" if exit_open else "") + ("     GOD MODE" if FpsPlayer.god_mode else "")]
 	_health_bar.max_value = player.stats.max_health
 	_health_bar.value = player.health
 
