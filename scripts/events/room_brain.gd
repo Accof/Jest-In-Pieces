@@ -26,6 +26,7 @@ var sight_range := 25.0
 var hunting := false
 var waypoints: Array[Vector3] = []  # rifle mode: cover points, far to near
 var on_arrive: Callable            # charge mode: called once on reaching `target`
+var floor_at: Callable             # optional: height of the floor under a point (stairs)
 var _attack_t := -1.0
 var _cooldown := 0.0
 var _weave := randf() * TAU
@@ -145,6 +146,8 @@ func _move(vel: Vector3, delta: float) -> void:
 	if bounds.size != Vector3.ZERO:
 		p.x = clampf(p.x, bounds.position.x, bounds.end.x)
 		p.z = clampf(p.z, bounds.position.z, bounds.end.z)
+	if floor_at.is_valid():
+		floor_y = floor_at.call(p)
 	p.y = move_toward(clown.global_position.y, floor_y, delta * 5.0)
 	clown.velocity = (p - clown.global_position) / maxf(delta, 0.001)
 	clown.global_position = p

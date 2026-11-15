@@ -209,7 +209,9 @@ func _die(info: Dictionary, zone: StringName) -> void:
 	var wall_gap := -1.0 if crawling or info.get("blast", false) or info.get("stake", false) else _wall_behind(info.direction)
 	if force_variant == "wall_slide" and wall_gap < 0.0:
 		wall_gap = 0.5
-	if info.get("blast", false) or info.get("stake", false):
+	if info.has("profile"):
+		profile = info.profile                      # the caller knows best (an event room)
+	elif info.get("blast", false) or info.get("stake", false):
 		profile = ClownRagdoll.profile_blast()      # no fight left: it goes where it is carried
 	elif crawling:
 		profile = ClownRagdoll.profile_limp()

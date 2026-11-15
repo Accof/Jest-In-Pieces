@@ -42,7 +42,7 @@ func _run() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--only="):
 			only = a.trim_prefix("--only=")
-	for kind in ["mg_nest", "shooting_gallery", "card_game", "high_wire", "clown_car", "meat_locker"]:
+	for kind in ["mg_nest", "shooting_gallery", "card_game", "high_wire", "grand_staircase", "meat_locker"]:
 		if only != "" and kind != only:
 			continue
 		var d: EventDoor = doors[0] if not doors.is_empty() else null
@@ -59,8 +59,11 @@ func _run() -> void:
 		match kind:
 			"mg_nest": await _play_nest(room)
 			"shooting_gallery": await _play_gallery(room)
+			"high_wire": await _play_wire(room)
 			_: await _play_room(room, kind)
 		print("   finished=%s kills=%d tickets=%d health=%.0f exit locked=%s" % [room.done, room.kills, game.run_tickets, p.health, room.exit_door.locked])
+		if room is GrandStaircase:
+			print("   staircase: knocked flat=%d all the way down=%d" % [room.knockdowns, room.full_flights])
 		await get_tree().create_timer(2.4).timeout
 		if game.state == game.State.UPGRADE:
 			print("   prize: an upgrade to pick")
@@ -135,6 +138,58 @@ func _play_nest(room: MgNest) -> void:
 	await _shot("maxim_carried")
 
 
+## Take the rifle and pick them off the wires, mostly for the head.
+func _play_wire(room: HighWire) -> void:
+	room.rifle.use(p)
+	print("   on the rifle=%s" % (p.mount == room.rifle))
+	if "--fall_log" in OS.get_cmdline_user_args():
+		_log_falls(room)
+	if render:
+		room.rifle.pitch = -0.32
+		await get_tree().create_timer(3.0).timeout
+		await _shot("high_wire_0")
+		room.rifle.hold_scope = true
+		room.rifle.pitch = -0.12
+		room.rifle.yaw = 0.15
+		await get_tree().create_timer(1.6).timeout
+		await _shot("high_wire_scope")
+		room.rifle.hold_scope = false
+	var t := 0.0
+	var cd := 1.0
+	var saved := 0
+	var falls := 0
+	while not room.done and t < 120.0:
+		await get_tree().physics_frame
+		t += 1.0 / 60.0
+		cd -= 1.0 / 60.0
+		var best: Clown = null
+		for w: Dictionary in room._walkers:
+			var c: Clown = w.clown
+			if is_instance_valid(c) and not c.dead and absf(c.position.x) < 6.5:
+				best = c
+				break
+		if best == null:
+			continue
+		var head: Vector3 = (best.ragdoll.bones[&"Neck"] as PhysicalBone3D).global_position if randf() < 0.75 else best.global_position + Vector3.UP * 1.1
+		var to := head - p.camera.global_position
+		var base := room.rifle.global_basis.get_euler().y
+		room.rifle.yaw = clampf(wrapf(atan2(-to.x, -to.z) - base, -PI, PI), -SniperRifle.TRAVERSE, SniperRifle.TRAVERSE)
+		room.rifle.pitch = clampf(atan2(to.y, Vector2(to.x, to.z).length()), SniperRifle.ELEVATION.x, SniperRifle.ELEVATION.y)
+		if cd <= 0.0 and room.rifle._bolt <= 0.0:
+			cd = 1.3
+			await get_tree().physics_frame          # let the camera catch up with the rifle
+			await get_tree().physics_frame
+			room.rifle.zoom = 1.0                    # looking through the scope (the bot has no RMB)
+			room.rifle.trigger()
+			falls += 1
+			if render and saved < 2 and falls % 3 == 1:
+				saved += 1
+				await get_tree().create_timer(0.9).timeout
+				room.rifle.pitch = -0.75
+				await _shot("high_wire_fall_%d" % saved)
+	print("   wire: score=%d headshots=%d bonks=%d escaped=%d rounds=%d" % [room.score, room.headshots, room.bonks, room.escaped, room.rifle.rounds_fired])
+
+
 func _play_gallery(room: ShootingGallery) -> void:
 	var w: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.PISTOL]
 	var t := 0.0
@@ -169,7 +224,7 @@ func _play_gallery(room: ShootingGallery) -> void:
 
 func _play_room(room: EventRoom, kind: String) -> void:
 	var t := 0.0
-	var w: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.SHOTGUN if kind == "clown_car" else FpsPlayer.PISTOL]
+	var w: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.PISTOL]
 	var cd := 0.0
 	var saved := 0
 	var shots_since_kill := 0
@@ -185,13 +240,33 @@ func _play_room(room: EventRoom, kind: String) -> void:
 		p.camera.look_at(room.to_global(Vector3(0, 0.9, -2.5)))
 		await _shot("card_game_seated")
 	if render:
-		if kind == "high_wire":
-			p.camera.look_at(room.to_global(Vector3(0, HighWire.H, 0)))
+		if kind == "grand_staircase":
+			p.camera.look_at(room.to_global(Vector3(0, 2.5, -10.0)))
 		await _shot("%s_0" % kind)
-	while not room.done and t < 60.0:
+	var triggers: Array = []
+	if kind == "grand_staircase":
+		for n in room.get_children():
+			if n is ShotTrigger:
+				triggers.append(n)
+	var limit := 120.0 if kind == "grand_staircase" else 60.0
+	while not room.done and t < limit:
 		await get_tree().physics_frame
 		t += 1.0 / 60.0
 		cd -= 1.0 / 60.0
+		if render and kind == "grand_staircase" and t > 19.0 and t - 1.0 / 60.0 <= 19.0:
+			p.camera.look_at(room.to_global(Vector3(0, 4.0, -7.0)))
+			await _shot("grand_staircase_climbing")
+		if render and kind == "grand_staircase" and t < 19.0:
+			continue                                 # hold fire: let them come up the stairs first
+		# the staircase: let the barrels go, then drop the chandelier on them
+		if not triggers.is_empty() and ((t > 21.0 and triggers.size() == 2) or (t > 30.0 and triggers.size() == 1)):
+			var tr: ShotTrigger = triggers.pop_back()
+			var hr := p.shoot_ray(p.camera.global_position, (tr.global_position - p.camera.global_position).normalized(), w, 99999 - triggers.size())
+			print("   shot the %s at %.0fs: hit %s" % ["rope" if triggers.size() == 1 else "chain", t, hr.get("collider")])
+			if render:
+				await get_tree().create_timer(1.2).timeout
+				p.camera.look_at(room.to_global(Vector3(0, 3.0, -8.0)))
+				await _shot("%s_%s" % [kind, "barrels" if triggers.size() == 1 else "chandelier"])
 		if cd > 0.0:
 			continue
 		var target: Clown = null
@@ -234,12 +309,12 @@ func _log_falls(room: EventRoom) -> void:
 	while c == null:
 		await get_tree().physics_frame
 		for e: Clown in room.enemies:
-			if is_instance_valid(e) and e.dead and e.ragdoll and e.global_position.y > room.global_position.y + 8.0:
+			if is_instance_valid(e) and e.dead and e.ragdoll and e.global_position.y > room.global_position.y + 8.0 and e.ragdoll.active:
 				c = e
 	var hips: PhysicalBone3D = c.ragdoll.bones[&"Hips"]
 	var t := 0.0
 	var y0 := hips.global_position.y
-	while t < 2.6:
+	while t < 3.4:
 		var v := hips.linear_velocity
 		print("   fall t=%.2f y=%.2f vy=%.1f  (free fall would be %.1f)" % [t, hips.global_position.y - room.global_position.y, v.y, -9.8 * t])
 		for k in 6:

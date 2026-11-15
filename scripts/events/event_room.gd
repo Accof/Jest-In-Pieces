@@ -61,6 +61,41 @@ func solid(centre: Vector3, size: Vector3, mat_key: String, collide := true) -> 
 	return mi
 
 
+## A box from a to b (a beam), with collision unless told not to.
+func beam(a: Vector3, b: Vector3, thick: Vector2, mat_key: String, collide := true, layer := 1) -> StaticBody3D:
+	var len := a.distance_to(b)
+	var mid := (a + b) * 0.5
+	var z := (b - a).normalized()
+	var x := Vector3.UP.cross(z)
+	if x.length() < 0.01:
+		x = Vector3.RIGHT
+	x = x.normalized()
+	var y := z.cross(x).normalized()
+	var basis := Basis(x, y, z)
+	var mi := MeshInstance3D.new()
+	mi.visible = mat_key != ""
+	var bm := BoxMesh.new()
+	bm.size = Vector3(thick.x, thick.y, len)
+	mi.mesh = bm
+	if mat_key != "":
+		mi.material_override = LevelArt._mat(mat_key)
+	mi.transform = Transform3D(basis, mid)
+	add_child(mi)
+	if collide:
+		var body := StaticBody3D.new()
+		body.collision_layer = layer
+		body.collision_mask = 0
+		var cs := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = bm.size
+		cs.shape = box
+		body.add_child(cs)
+		body.transform = mi.transform
+		add_child(body)
+		return body
+	return null
+
+
 ## A closed concrete room: floor, walls, ceiling. Inside spans `size` from `origin`.
 func concrete_room(origin: Vector3, size: Vector3, floor_key := "floor_conc", ceiling := true) -> void:
 	var t := 0.4

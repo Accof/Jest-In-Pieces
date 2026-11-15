@@ -5,7 +5,7 @@ extends Node
 ## pays out when the room is done, and brings them back.
 
 const FEATURES := ["mg_nest", "shooting_gallery", "card_game"]                      # the big set-pieces, once a run each
-const ODDITIES := ["high_wire", "clown_car", "meat_locker"]
+const ODDITIES := ["high_wire", "grand_staircase", "meat_locker"]
 const POCKET := Vector3(4000, 0, 0)               # far from any level
 
 var game: Node
@@ -61,7 +61,7 @@ func make_room(kind: String) -> EventRoom:
 		"shooting_gallery": return ShootingGallery.new()
 		"card_game": return CardGame.new()
 		"high_wire": return HighWire.new()
-		"clown_car": return ClownCar.new()
+		"grand_staircase": return GrandStaircase.new()
 		"meat_locker": return MeatLocker.new()
 	return null
 

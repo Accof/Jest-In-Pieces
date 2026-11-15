@@ -49,7 +49,10 @@ const LAYER_RAGDOLL := 1 << 2
 ## accelerating under real gravity up to roughly a man's terminal velocity.
 const FALL_CAP := 55.0
 ## How much a body that hits the ground hard bounces back off it.
-@export var landing_bounce := 0.16
+@export var landing_bounce := 0.3
+## A hard landing also kicks the trunk back up (a fraction of the impact
+## speed) and sets it turning, so a big fall slams, bounces and rolls.
+@export var landing_kick := 0.17
 ## True once there is nothing under the body: the balance "strings" let go,
 ## it falls at plain 1 g, and it lands with a slight bounce.
 var airborne := false
@@ -898,13 +901,59 @@ func _go_airborne() -> void:
 ## Watch the fall for the moment it hits, then go back to a dead, non-bouncy
 ## body once it has come to rest so it does not jitter on the floor.
 func _track_landing(hv: Vector3) -> void:
+	if _landed_t >= 0.0 and hv.y < -5.0:
+		_landed_t = -1.0                    # glanced off something and is falling again
+		_fall_peak = 0.0
 	if _landed_t < 0.0:
 		_fall_peak = minf(_fall_peak, hv.y)
 		if _fall_peak < -4.0 and hv.y > _fall_peak * 0.5:
 			_landed_t = time
+			_slam(-_fall_peak)
 			landed.emit(-_fall_peak)
-	elif time - _landed_t > 1.2:
+	elif time - _landed_t > 1.4:
 		airborne = false
 		for pb: PhysicalBone3D in bones.values():
 			pb.bounce = 0.0
 			pb.can_sleep = true
+
+
+## The moment a falling body hits something hard: the trunk rebounds a little
+## and picks up a turn, the limbs carry on and flop over.
+func _slam(speed: float) -> void:
+	if speed < 6.0:
+		return
+	var ps := PhysicsServer3D
+	var up := speed * landing_kick
+	var spin := Vector3(randf_range(-1, 1), randf_range(-0.4, 0.4), randf_range(-1, 1)).normalized() * minf(speed * 0.35, 7.0)
+	for n: StringName in [&"Hips", &"Spine", &"Chest", &"Neck"]:
+		var pb: PhysicalBone3D = bones.get(n)
+		if pb == null:
+			continue
+		var v: Vector3 = ps.body_get_state(pb.get_rid(), ps.BODY_STATE_LINEAR_VELOCITY)
+		v.y = maxf(v.y, 0.0) + up * randf_range(0.85, 1.1)
+		ps.body_set_state(pb.get_rid(), ps.BODY_STATE_LINEAR_VELOCITY, v)
+		ps.body_set_state(pb.get_rid(), ps.BODY_STATE_ANGULAR_VELOCITY, spin)
+	# a hard enough landing bursts it
+	if speed > 11.0 and bones.has(&"Chest"):
+		var at: Vector3 = bones[&"Chest"].global_position
+		Blood.spawn_hit(at, Vector3(randf_range(-1, 1), 0.6, randf_range(-1, 1)).normalized(), clampf(speed / 9.0, 1.0, 2.4))
+
+
+## Drop what is left of the balance: no support, no levelling. The body is
+## now just carried by whatever pushes it.
+func let_go() -> void:
+	_profile.erase(&"support")
+	_profile.erase("support")
+	_profile.erase(&"square")
+	_profile.erase("square")
+
+
+## Give a body that has just died a push and a roll (stairs, a fall).
+func tumble(push: Vector3, spin: float) -> void:
+	let_go()
+	var ps := PhysicsServer3D
+	var axis := Vector3(randf_range(-1, 1), randf_range(-0.3, 0.3), randf_range(-1, 1)).normalized()
+	for pb: PhysicalBone3D in bones.values():
+		var v: Vector3 = ps.body_get_state(pb.get_rid(), ps.BODY_STATE_LINEAR_VELOCITY)
+		ps.body_set_state(pb.get_rid(), ps.BODY_STATE_LINEAR_VELOCITY, v + push)
+		ps.body_set_state(pb.get_rid(), ps.BODY_STATE_ANGULAR_VELOCITY, axis * spin)
