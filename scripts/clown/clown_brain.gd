@@ -18,6 +18,11 @@ const LAYER_WORLD := 1
 @export var melee_damage := 10.0
 @export var gun_damage := 7.0
 @export var gun_range := 15.0
+## Seconds spent lining up a shot, and the wait between shots.
+@export var aim_time := 0.65
+@export var shot_gap := Vector2(1.0, 1.7)
+## Hit chance at point blank, how much it falls per metre, and the floor.
+@export var accuracy := Vector3(0.7, 0.03, 0.2)
 ## How far it can see, and how wide (degrees either side of straight ahead).
 @export var sight_range := 16.0
 @export var sight_half_angle := 60.0
@@ -237,10 +242,10 @@ func _physics_process(delta: float) -> void:
 			_aim_t = 0.0
 		if _aim_t >= 0.0:
 			_aim_t += delta
-			if _aim_t > 0.65:
+			if _aim_t > aim_time:
 				_fire(dist)
 				_aim_t = -1.0
-				_cooldown = randf_range(1.0, 1.7)
+				_cooldown = randf_range(shot_gap.x, shot_gap.y)
 		_strafe_left -= delta
 		if _strafe_left <= 0.0:
 			_strafe_left = randf_range(0.7, 1.6)
@@ -363,11 +368,23 @@ func _sees_player() -> bool:
 	return clown.get_world_3d().direct_space_state.intersect_ray(q).is_empty()
 
 
+## WitzSoldat settings: a bolt-action rifle. Slower to aim and to work the
+## bolt, but it reaches further, hits more often and hurts a lot more.
+func rifleman() -> void:
+	gun_damage = 24.0
+	gun_range = 24.0
+	aim_time = 0.95
+	shot_gap = Vector2(2.0, 2.6)
+	accuracy = Vector3(0.85, 0.018, 0.35)
+	keep_distance = 10.0
+	sight_range = 22.0
+
+
 func _fire(dist: float) -> void:
 	var from := clown.muzzle_position()
 	var aim_at := player.global_position + Vector3.UP * 1.25
 	# Further away, or a player on the move, is harder to hit.
-	var chance := clampf(0.7 - dist * 0.03, 0.2, 0.7)
+	var chance := clampf(accuracy.x - dist * accuracy.y, accuracy.z, accuracy.x)
 	if player.velocity.length() > 2.0:
 		chance *= 0.6
 	var hit := randf() < chance

@@ -3,7 +3,6 @@ extends Node
 ## Wounds on the body, bleeding and pooling, and limb loss.
 
 const BODY_SHADER := preload("res://shaders/clown_body.gdshader")
-const GIBS := preload("res://art/clown/clown_gibs.glb")
 const MAX_WOUNDS := 16
 const LAYER_WORLD := 1
 const LAYER_GIBS := 1 << 3
@@ -48,6 +47,8 @@ func setup(c: Clown) -> void:
 			if src.albedo_texture:
 				sm.set_shader_parameter("albedo_tex", src.albedo_texture)
 				sm.set_shader_parameter("use_tex", true)
+		sm.set_shader_parameter("rest_min", clown.spec.rest_min)
+		sm.set_shader_parameter("rest_size", clown.spec.rest_size)
 		clown.mesh.set_surface_override_material(i, sm)
 		_materials.append(sm)
 	_push_wounds()
@@ -424,7 +425,7 @@ func sever(bone: StringName, impulse: Vector3) -> void:
 		for p: String in CHAIN[seg.trim_prefix(side)]:
 			parts.append(StringName(side + p))
 	var skel := clown.skeleton
-	var gib_scene := GIBS.instantiate()
+	var gib_scene := (load(clown.spec.gibs) as PackedScene).instantiate()
 	var removed: Array = []
 	var stump_pos := Vector3.ZERO
 	for i in parts.size():
@@ -486,24 +487,23 @@ func _mass_for(bone: StringName) -> float:
 	return _def(bone).get("m", 1.0)
 
 
-## Collision shape for a gib, matching the ragdoll bone it came from.
+## Collision shape for a gib: a copy of the ragdoll bone's own shape, so it
+## fits whichever body it came from.
 func _shape_for(bone: StringName, gib_origin: Vector3) -> CollisionShape3D:
-	var d := _def(bone)
 	var cs := CollisionShape3D.new()
-	if d.has("box"):
-		var b := BoxShape3D.new()
-		b.size = d.box
-		cs.shape = b
-	elif d.has("sphere"):
-		var sp := SphereShape3D.new()
-		sp.radius = d.sphere
-		cs.shape = sp
+	var pb: PhysicalBone3D = clown.ragdoll.bones.get(bone)
+	var src: CollisionShape3D = null
+	if pb:
+		for ch in pb.get_children():
+			if ch is CollisionShape3D and ch != clown._helmet_hitbox:
+				src = ch
+				break
+	if src:
+		cs.shape = src.shape
+		cs.basis = src.basis
 	else:
-		var cp := CapsuleShape3D.new()
-		cp.radius = d.cap[0]
-		cp.height = d.cap[1]
-		cs.shape = cp
-		if d.cap[2] == "x":
-			cs.rotation = Vector3(0, 0, PI * 0.5)
-	cs.position = d.c - gib_origin
+		var sp := SphereShape3D.new()
+		sp.radius = 0.08
+		cs.shape = sp
+	cs.position = clown.ragdoll.centres.get(bone, gib_origin) - gib_origin
 	return cs

@@ -104,6 +104,8 @@ func next_floor() -> void:
 
 	var count := mini(4 + floor_number * 2, 18)
 	var gun_share := clampf(0.12 + 0.06 * floor_number, 0.0, 0.5)
+	# WitzSoldats: riflemen in gas masks. One in eight on floor 1, rising to a third.
+	var soldier_share := clampf(0.07 + 0.05 * floor_number, 0.0, 0.33)
 	var cells := maze.cells_far_from(maze.start_cell, 3)
 	if cells.is_empty():
 		cells = maze.cells_far_from(maze.start_cell, 1)
@@ -111,11 +113,16 @@ func next_floor() -> void:
 	for i in count:
 		var c := Clown.new()
 		c.max_health = 100.0 * (1.0 + 0.1 * (floor_number - 1))
+		var soldier := rng.randf() < soldier_share
+		if soldier:
+			c.body = "witzsoldat"
 		_world.add_child(c)
 		var cell: Vector2i = cells[rng.randi() % cells.size()]
 		c.global_position = maze.cell_center(cell) + Vector3(rng.randf_range(-0.8, 0.8), 0, rng.randf_range(-0.8, 0.8))
 		c.rotation.y = rng.randf() * TAU
-		if rng.randf() < gun_share:
+		if soldier:
+			c.give_rifle()
+		elif rng.randf() < gun_share:
 			c.give_gun()
 		var brain := ClownBrain.new()
 		brain.maze = maze
@@ -123,6 +130,8 @@ func next_floor() -> void:
 		brain.others = clowns
 		brain.move_speed = rng.randf_range(2.8, 3.5) + 0.06 * floor_number
 		brain.run_speed = minf(rng.randf_range(4.9, 5.8) + 0.1 * floor_number, 6.8)
+		if soldier:
+			brain.rifleman()
 		brain.name = "Brain"
 		c.add_child(brain)
 		c.died.connect(_on_clown_died)

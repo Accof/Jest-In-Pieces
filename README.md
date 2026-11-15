@@ -27,11 +27,20 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 - After each floor you pick one of three upgrades. Floors get bigger, with more clowns and more gunmen.
 - Kills earn tickets (two for a headshot). When you die they are banked and can be spent on permanent perks on the menu.
 
-## What is where
+## Enemies
+
+| Enemy | Body | How it fights |
+|---|---|---|
+| Clown | `art/clown/` | Melee, or a pistol (gunmen strafe and keep their distance) |
+| WitzSoldat | `art/witzsoldat/` | Bolt-action rifle: slower to aim and reload, 24 damage a hit, reaches 24 m. Helmet comes off on half of headshots, always on a shotgun blast to the head |
+
+Every body uses the same 21 bone names and 15 dismemberment segments, so the ragdoll, deaths and gore work on all of them. A new body is added to `Clown.BODIES` in `clown.gd`: model, gibs, the rest-pose box from its `.json`, how much thicker its collision shapes are than the clown's, and optionally a helmet.
+
+
 
 | Path | What it does |
 |---|---|
-| `scripts/clown/clown.gd` | One clown: hit zones, health, which death reaction plays |
+| `scripts/clown/clown.gd` | One enemy (clown or WitzSoldat): body, hit zones, health, death reaction, helmet, weapons |
 | `scripts/clown/clown_ragdoll.gd` | Physical skeleton, joint limits, muscle tone and death profiles |
 | `scripts/clown/clown_gore.gd` | Wounds on the body, bleeding, pooling, limb loss |
 | `scripts/clown/gib.gd` | A severed body part |
@@ -63,6 +72,7 @@ All of these are in `clown_ragdoll.gd`.
 - **Shotgun damage to the body:** `blast_damage` on the clown is how much one shot must do to the torso or head to blow a hole in it. Hole sizes are in `clown.gd` where `gore.blast` is called.
 - **Twitching corpses:** `twitch_chance` in `clown_ragdoll.gd`.
 - **Clown speed and tactics** (in `clown_brain.gd`): `run_speed`, `run_burst`, `run_rest`, `keep_distance` (the range gunmen hold), `weave_rate`.
+- **WitzSoldat:** `helmet_pop_chance` in `clown.gd`; his rifle numbers are in `rifleman()` in `clown_brain.gd`; how many appear per floor is `soldier_share` in `game.gd`.
 - **How easily limbs come off:** `dismember_damage` on the clown, and `can_dismember` per weapon in `fps_player.gd`.
 - **What clowns notice** (in `clown_brain.gd`): `sight_range`, `sight_half_angle`, `hearing_cells` (how far a gunshot carries along the corridors), `witness_range` (how close a clown must be to notice another being shot), `give_up_after`.
 - **Blood budget:** `MAX_DECALS`, `MAX_POOLS`, `DRY_TIME` in `blood_manager.gd`.

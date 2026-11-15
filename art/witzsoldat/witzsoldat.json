@@ -1,0 +1,40 @@
+{
+ "segments": [
+  "Pelvis",
+  "Torso",
+  "Head",
+  "LeftUpperArm",
+  "LeftLowerArm",
+  "LeftHand",
+  "LeftUpperLeg",
+  "LeftLowerLeg",
+  "LeftFoot",
+  "RightUpperArm",
+  "RightLowerArm",
+  "RightHand",
+  "RightUpperLeg",
+  "RightLowerLeg",
+  "RightFoot"
+ ],
+ "rest_bbox_min": [
+  -0.9167469787597656,
+  -0.005,
+  -0.2822515118122101
+ ],
+ "rest_bbox_size": [
+  1.8332768177986145,
+  1.9099999761581419,
+  0.5644071197509766
+ ],
+ "helmet_center": [
+  3.129243850708008e-06,
+  1.8098540306091309,
+  0.04375550150871277
+ ],
+ "helmet_size": [
+  0.2681616544723511,
+  0.23240673542022705,
+  0.2879209518432617
+ ],
+ "note": "Godot axes. Same skeleton names and segment ids as the clown."
+}

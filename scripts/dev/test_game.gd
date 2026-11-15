@@ -97,6 +97,8 @@ func _run() -> void:
 	for f in 5:
 		await get_tree().physics_frame
 	print("floor %d: clowns=%d, taken=%s, state=%d" % [game.floor_number, game.clowns.size(), game.taken, game.state])
+	var soldiers: Array = game.clowns.filter(func(c): return c.body == "witzsoldat")
+	print("floor %d WitzSoldats: %d (helmets on: %d, rifles: %d)" % [game.floor_number, soldiers.size(), soldiers.filter(func(c): return c.has_helmet).size(), soldiers.filter(func(c): return c.has_rifle).size()])
 	game.player.take_damage(9999.0)
 	await get_tree().process_frame
 	print("died: state=%d (3 = dead), saved tickets=%d best_floor=%d" % [game.state, int(game.save.tickets), int(game.save.best_floor)])

@@ -6,7 +6,30 @@ signal died(clown: Clown)
 ## Emitted every time this clown is shot, fatal or not.
 signal hurt(clown: Clown)
 
-const MODEL := preload("res://art/clown/clown.glb")
+## Every enemy body shares the clown's skeleton names and segment layout, so
+## the ragdoll, deaths and gore all work on each of them.
+const BODIES := {
+	"clown": {
+		model = "res://art/clown/clown.glb", gibs = "res://art/clown/clown_gibs.glb",
+		rest_min = Vector3(-0.953, -0.005, -0.15493), rest_size = Vector3(1.906, 1.88737, 0.35291),
+		shapes = {},
+	},
+	"witzsoldat": {
+		model = "res://art/witzsoldat/witzsoldat.glb", gibs = "res://art/witzsoldat/witzsoldat_gibs.glb",
+		rest_min = Vector3(-0.91675, -0.005, -0.28225), rest_size = Vector3(1.83328, 1.91, 0.56441),
+		helmet = "res://art/witzsoldat/witzsoldat_helmet.glb",
+		helmet_center = Vector3(0.0, 1.80985, 0.04376), helmet_size = Vector3(0.268, 0.232, 0.288),
+		shapes = {&"UpperLeg": 1.3, &"LowerLeg": 1.12, &"UpperArm": 1.25, &"LowerArm": 1.05,
+			&"Hips": 1.2, &"Spine": 1.2, &"Chest": 1.2, &"Neck": 1.12, &"Foot": 1.15},
+	},
+}
+
+## Which body this enemy wears (a key of BODIES). Set before adding to the tree.
+@export var body := "clown"
+## Chance a headshot knocks the helmet off (bodies with a helmet only).
+@export var helmet_pop_chance := 0.5
+
+var spec: Dictionary
 
 @export var max_health := 100.0
 ## Damage one shot must do to a limb or the head before it can be blown off.
@@ -47,7 +70,8 @@ var _head_open := false     # part of the skull is already gone
 
 func _ready() -> void:
 	health = max_health
-	var model := MODEL.instantiate()
+	spec = BODIES[body]
+	var model := (load(spec.model) as PackedScene).instantiate()
 	add_child(model)
 	skeleton = model.find_children("*", "Skeleton3D", true, false)[0]
 	mesh = model.find_children("*", "MeshInstance3D", true, false)[0]
@@ -60,9 +84,11 @@ func _ready() -> void:
 	set_process(false)
 	ragdoll = ClownRagdoll.new()
 	add_child(ragdoll)
-	ragdoll.build(skeleton)
+	ragdoll.build(skeleton, spec.shapes)
 	for pb: PhysicalBone3D in ragdoll.bones.values():
 		pb.set_meta(&"clown", self)
+	if spec.has("helmet"):
+		_put_on_helmet()
 	gore = ClownGore.new()
 	add_child(gore)
 	gore.setup(self)
@@ -83,6 +109,9 @@ func hit(info: Dictionary) -> void:
 	var dmg: float = raw * ZONE_DAMAGE.get(zone, 1.0)
 	var amount := clampf(raw / 35.0, 0.3, 1.6) * float(info.get("blood", 1.0))
 
+	# A headshot may knock the helmet clean off; it still goes through.
+	if zone == &"Neck" and has_helmet and randf() < helmet_pop_chance:
+		knock_off_helmet(dir, info.position)
 	gore.add_wound(bone, info.position, raw)
 	Blood.spawn_hit(info.position, dir, amount)
 
@@ -110,6 +139,7 @@ func hit(info: Dictionary) -> void:
 				_shot_blasted[seg] = true
 				_shot_blasted[&"off"] = true
 				_head_open = true
+				knock_off_helmet(dir, info.position)
 				gore.blast(bone, info.position, dir, clampf(0.045 + total * 0.0006, 0.05, 0.085))
 		elif gore.can_sever(bone) and total >= dismember_damage:
 			severed = true
@@ -130,6 +160,8 @@ func hit(info: Dictionary) -> void:
 			impulse = dir * 27.0 + Vector3.UP * 3.0   # a sharp whip of the head, not a launch
 		ragdoll.apply_hit(bone, impulse, info.position)
 	if severed:
+		if zone == &"Neck":
+			knock_off_helmet(dir, info.position)
 		gore.sever(bone, dir * float(info.get("impulse", 12.0)))
 
 
@@ -158,6 +190,7 @@ func _die(info: Dictionary, zone: StringName) -> void:
 		for part in ["UpperLeg", "LowerLeg", "Foot"]:
 			ragdoll.weaken(StringName(side + part), 0.15)
 	ragdoll.start(profile, info.direction, velocity)
+	_drop_rifle()
 	gore.start_bleeding()
 	last_hit_zone = zone
 	died.emit(self)
@@ -239,9 +272,10 @@ func _process(delta: float) -> void:
 		_turn("RightUpperLeg", Vector3.RIGHT, deg_to_rad(stride) * sw * walk_amount)
 		_turn("LeftLowerLeg", Vector3.RIGHT, deg_to_rad(knee) * maxf(0.0, cos(walk_phase)) * walk_amount)
 		_turn("RightLowerLeg", Vector3.RIGHT, deg_to_rad(knee) * maxf(0.0, -cos(walk_phase)) * walk_amount)
-		_turn("LeftUpperArm", Vector3.RIGHT, deg_to_rad(arm) * sw * walk_amount)
+		if not has_rifle:
+			_turn("LeftUpperArm", Vector3.RIGHT, deg_to_rad(arm) * sw * walk_amount)
 		_turn("LeftLowerArm", Vector3.RIGHT, deg_to_rad(-55.0) * run_amount * walk_amount)
-		if attack_amount < 0.01 and aim_amount < 0.01:
+		if attack_amount < 0.01 and aim_amount < 0.01 and not has_rifle:
 			_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-arm) * sw * walk_amount)
 			_turn("RightLowerArm", Vector3.RIGHT, deg_to_rad(-55.0) * run_amount * walk_amount)
 	# Right arm: swung overhead to hit, or held out to aim.
@@ -251,6 +285,23 @@ func _process(delta: float) -> void:
 		_turn("Chest", Vector3.RIGHT, deg_to_rad(12.0) * attack_amount)
 	elif aim_amount > 0.01:
 		_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-84.0) * aim_amount)
+		if has_rifle:
+			# Rifle shouldered: right hand at the grip, left hand out under the fore-end.
+			_turn("RightUpperArm", Vector3.UP, deg_to_rad(14.0) * aim_amount)
+			_turn("RightLowerArm", Vector3.UP, deg_to_rad(38.0) * aim_amount)
+			_turn("LeftUpperArm", Vector3.RIGHT, deg_to_rad(-82.0) * aim_amount)
+			_turn("LeftUpperArm", Vector3.UP, deg_to_rad(-22.0) * aim_amount)
+			_turn("LeftLowerArm", Vector3.UP, deg_to_rad(-12.0) * aim_amount)
+			_turn("Neck", Vector3.UP, deg_to_rad(-8.0) * aim_amount)
+	if has_rifle and aim_amount < 0.99:
+		# Carrying: both hands on the rifle across the chest.
+		var carry := 1.0 - aim_amount
+		_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-30.0) * carry)
+		_turn("RightLowerArm", Vector3.UP, deg_to_rad(70.0) * carry)
+		_turn("LeftUpperArm", Vector3.RIGHT, deg_to_rad(-40.0) * carry)
+		_turn("LeftLowerArm", Vector3.UP, deg_to_rad(-95.0) * carry)
+	if _rifle and is_instance_valid(_rifle):
+		_rifle.transform = _rifle_carried.interpolate_with(_rifle_aimed, aim_amount)
 	if _flinch.length() > 0.0005:
 		for b: Array in FLINCH_BONES:
 			_turn(b[0], _flinch.normalized(), _flinch.length() * b[1])
@@ -260,6 +311,158 @@ func _process(delta: float) -> void:
 		_stagger = Vector3.ZERO
 		_model.position = Vector3.ZERO
 		set_process(false)
+
+
+# --- helmet -----------------------------------------------------------------------
+var has_helmet := false
+var _helmet: MeshInstance3D
+var _helmet_hitbox: CollisionShape3D
+
+
+func _put_on_helmet() -> void:
+	var src := (load(spec.helmet) as PackedScene).instantiate()
+	var found := src.find_children("*", "MeshInstance3D", true, false)
+	if found.is_empty():
+		src.free()
+		return
+	_helmet = MeshInstance3D.new()
+	_helmet.mesh = (found[0] as MeshInstance3D).mesh
+	_helmet.layers = 2
+	src.free()
+	var att := BoneAttachment3D.new()
+	att.bone_name = "Head"
+	skeleton.add_child(att)
+	att.add_child(_helmet)
+	var head_rest := skeleton.get_bone_global_rest(skeleton.find_bone("Head"))
+	_helmet.transform = head_rest.affine_inverse() * Transform3D(Basis.IDENTITY, spec.helmet_center)
+	# Bullets that hit the helmet count as headshots.
+	var neck: PhysicalBone3D = ragdoll.bones.get(&"Neck")
+	if neck:
+		_helmet_hitbox = CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = spec.helmet_size * 0.92
+		_helmet_hitbox.shape = box
+		_helmet_hitbox.position = spec.helmet_center - ragdoll.centres[&"Neck"]
+		neck.add_child(_helmet_hitbox)
+	has_helmet = true
+
+
+## Send the helmet spinning off. `dir` is the way the bullet was travelling.
+func knock_off_helmet(dir: Vector3, at: Vector3) -> void:
+	if not has_helmet:
+		return
+	has_helmet = false
+	var xf := _helmet.global_transform
+	var flying := RigidBody3D.new()
+	flying.collision_layer = 1 << 3
+	flying.collision_mask = 1 | (1 << 3)
+	flying.mass = 1.1
+	flying.continuous_cd = true
+	flying.angular_damp = 0.4
+	var pm := PhysicsMaterial.new()
+	pm.friction = 0.6
+	pm.bounce = 0.35
+	flying.physics_material_override = pm
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = spec.helmet_size * Vector3(0.95, 0.8, 0.95)
+	cs.shape = box
+	flying.add_child(cs)
+	_helmet.get_parent().remove_child(_helmet)
+	flying.add_child(_helmet)
+	_helmet.transform = Transform3D.IDENTITY
+	get_parent().add_child(flying)
+	flying.global_transform = xf
+	var away := Vector3(dir.x, 0, dir.z).normalized()
+	flying.linear_velocity = away * randf_range(3.0, 5.0) + Vector3.UP * randf_range(3.2, 4.6) + Vector3(randf_range(-0.8, 0.8), 0, randf_range(-0.8, 0.8))
+	# Spin end over end about an axis across the shot, with some wobble.
+	var spin_axis := away.cross(Vector3.UP).normalized() + Vector3(randf_range(-0.4, 0.4), randf_range(-0.4, 0.4), randf_range(-0.4, 0.4))
+	flying.angular_velocity = spin_axis.normalized() * randf_range(16.0, 26.0)
+	if _helmet_hitbox and is_instance_valid(_helmet_hitbox):
+		_helmet_hitbox.queue_free()
+	Blood.spawn_hit(at, dir, 0.4)
+
+
+# --- weapons ----------------------------------------------------------------------
+var has_rifle := false
+var _muzzle: Node3D
+var _rifle: Node3D
+var _rifle_attach: BoneAttachment3D
+var _rifle_aimed := Transform3D()
+var _rifle_carried := Transform3D()
+
+
+## Put a bolt-action rifle on him: carried across the chest, shouldered to aim.
+func give_rifle() -> void:
+	has_gun = true
+	has_rifle = true
+	_rifle_attach = BoneAttachment3D.new()
+	_rifle_attach.bone_name = "Chest"
+	skeleton.add_child(_rifle_attach)
+	_rifle = Node3D.new()
+	_rifle_attach.add_child(_rifle)
+	var wood := StandardMaterial3D.new()
+	wood.albedo_color = Color(0.24, 0.13, 0.06)
+	wood.roughness = 0.6
+	var steel := StandardMaterial3D.new()
+	steel.albedo_color = Color(0.09, 0.09, 0.1)
+	steel.metallic = 0.8
+	steel.roughness = 0.35
+	# Laid out with the butt at the origin and the barrel along +Z.
+	_rifle_part(_rifle, Vector3(0.045, 0.05, 0.62), Vector3(0, 0.0, 0.35), wood)         # stock and fore-end
+	_rifle_part(_rifle, Vector3(0.04, 0.11, 0.24), Vector3(0, -0.03, 0.12), wood)        # butt
+	_rifle_part(_rifle, Vector3(0.022, 0.022, 0.48), Vector3(0, 0.025, 0.86), steel)     # barrel
+	_rifle_part(_rifle, Vector3(0.03, 0.035, 0.16), Vector3(0, 0.035, 0.33), steel)      # receiver
+	_rifle_part(_rifle, Vector3(0.06, 0.012, 0.012), Vector3(-0.035, 0.04, 0.29), steel) # bolt handle
+	_muzzle = Node3D.new()
+	_muzzle.position = Vector3(0, 0.025, 1.1)
+	_rifle.add_child(_muzzle)
+	var chest_rest := skeleton.get_bone_global_rest(skeleton.find_bone("Chest"))
+	# Shouldered: butt against the right shoulder, barrel straight ahead.
+	_rifle_aimed = chest_rest.affine_inverse() * Transform3D(Basis.IDENTITY, Vector3(-0.11, 1.47, 0.1))
+	# Carried: diagonal across the chest, butt at the right hip, muzzle over the left shoulder.
+	var up := Vector3(0.55, 0.82, 0.12).normalized()
+	var x := Vector3.BACK.cross(up).normalized()
+	_rifle_carried = chest_rest.affine_inverse() * Transform3D(Basis(x, up.cross(x), up).orthonormalized(), Vector3(-0.2, 0.98, 0.2))
+	_rifle.transform = _rifle_carried
+
+
+## Drop the rifle where it is (on death).
+func _drop_rifle() -> void:
+	if _rifle == null or not is_instance_valid(_rifle):
+		return
+	var xf := _rifle.global_transform
+	var body_ := RigidBody3D.new()
+	body_.collision_layer = 1 << 3
+	body_.collision_mask = 1 | (1 << 3)
+	body_.mass = 4.0
+	body_.continuous_cd = true
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(0.05, 0.1, 1.1)
+	cs.shape = box
+	cs.position = Vector3(0, 0, 0.55)
+	body_.add_child(cs)
+	_rifle.get_parent().remove_child(_rifle)
+	body_.add_child(_rifle)
+	_rifle.transform = Transform3D.IDENTITY
+	get_parent().add_child(body_)
+	body_.global_transform = xf
+	body_.linear_velocity = velocity + Vector3(randf_range(-1, 1), randf_range(0.5, 1.5), randf_range(-1, 1))
+	body_.angular_velocity = Vector3(randf_range(-4, 4), randf_range(-4, 4), randf_range(-4, 4))
+	_rifle = null
+	_muzzle = null
+
+
+func _rifle_part(parent: Node3D, size: Vector3, pos: Vector3, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = size
+	box.material = mat
+	mi.mesh = box
+	mi.position = pos
+	mi.layers = 2
+	parent.add_child(mi)
 
 
 ## Put a pistol in the clown's right hand.
@@ -286,6 +489,8 @@ func give_gun() -> void:
 
 ## World position of the gun's muzzle (roughly the right hand).
 func muzzle_position() -> Vector3:
+	if _muzzle and is_instance_valid(_muzzle):
+		return _muzzle.global_position
 	var hand: PhysicalBone3D = ragdoll.bones.get(&"RightHand")
 	return hand.global_position if hand else global_position + Vector3.UP * 1.3
 

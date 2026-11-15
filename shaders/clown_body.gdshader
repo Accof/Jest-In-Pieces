@@ -49,7 +49,9 @@ void vertex() {
 	rest_pos = COLOR.rgb * rest_size + rest_min;
 	int seg = int(UV2.x * 16.0);
 	bool gone = ((hidden_mask >> seg) & 1) == 1;
-	bool wound_cap = UV2.y < 0.4;       // stump faces: only drawn once the limb is gone
+	// Stump faces: only drawn once the limb is gone. They are flagged 0.25 in
+	// Blender; the glTF export flips V, so accept either side of 0.5.
+	bool wound_cap = abs(UV2.y - 0.5) > 0.1;
 	hide = (wound_cap ? !gone : gone) ? 1.0 : 0.0;
 	if (hide > 0.5) {
 		VERTEX = vec3(0.0);

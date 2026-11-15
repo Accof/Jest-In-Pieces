@@ -121,7 +121,17 @@ static func _mir(lim: Array, s: float) -> Array:
 
 
 # --- build --------------------------------------------------------------------
-func build(skel: Skeleton3D) -> void:
+## The bone each capsule runs to: its length and direction come from the skeleton.
+const CAPSULE_TO := {&"UpperArm": &"LowerArm", &"LowerArm": &"Hand", &"UpperLeg": &"LowerLeg", &"LowerLeg": &"Foot"}
+
+## Where each physical bone's collision shape sits, in skeleton space (rest pose).
+var centres := {}
+
+
+## Build the physical skeleton. Joint positions are read from `skel`, so any
+## body using these bone names works. `shape_scale` thickens shapes per body
+## part (keyed without Left/Right, for example {&"UpperLeg": 1.3}).
+func build(skel: Skeleton3D, shape_scale: Dictionary = {}) -> void:
 	skeleton = skel
 	simulator = PhysicalBoneSimulator3D.new()
 	simulator.name = "Ragdoll"
@@ -143,27 +153,38 @@ func build(skel: Skeleton3D) -> void:
 		pb.linear_damp = limp_linear_damp
 		pb.angular_damp = limp_angular_damp
 		pb.can_sleep = true
+		var part := StringName(String(d.n).trim_prefix("Left").trim_prefix("Right"))
+		var k: float = shape_scale.get(part, 1.0)
+		var bone_rest := skel.get_bone_global_rest(skel.find_bone(d.n))
+		var j := bone_rest.origin
+		var c: Vector3 = j + (d.c - d.j) * k
 		var cs := CollisionShape3D.new()
 		if d.has("box"):
 			var b := BoxShape3D.new()
-			b.size = d.box
+			b.size = d.box * k
 			cs.shape = b
 		elif d.has("sphere"):
 			var sp := SphereShape3D.new()
-			sp.radius = d.sphere
+			sp.radius = d.sphere * k
 			cs.shape = sp
 		else:
+			# Capsules run from this joint to the next one down the limb.
+			var side := String(d.n).trim_suffix(String(part))
+			var to := skel.get_bone_global_rest(skel.find_bone(side + String(CAPSULE_TO[part]))).origin
+			var length := j.distance_to(to)
+			c = (j + to) * 0.5
 			var cp := CapsuleShape3D.new()
-			cp.radius = d.cap[0]
-			cp.height = d.cap[1]
+			cp.radius = d.cap[0] * k
+			cp.height = maxf(d.cap[1] * length / (2.0 * d.c.distance_to(d.j)), cp.radius * 2.0 + 0.01)
 			cs.shape = cp
-			if d.cap[2] == "x":
-				cs.rotation = Vector3(0, 0, PI * 0.5)
+			var y := (to - j).normalized()
+			var x := y.cross(Vector3.FORWARD if absf(y.z) < 0.9 else Vector3.UP).normalized()
+			cs.basis = Basis(x, y, x.cross(y))
 		pb.add_child(cs)
-		var bone_rest := skel.get_bone_global_rest(skel.find_bone(d.n))
-		pb.body_offset = bone_rest.affine_inverse() * Transform3D(Basis.IDENTITY, d.c)
+		centres[d.n] = c
+		pb.body_offset = bone_rest.affine_inverse() * Transform3D(Basis.IDENTITY, c)
 		var frame: Basis = arm_frame if d.get("arm", false) else Basis.IDENTITY
-		pb.joint_offset = Transform3D(frame, d.j - d.c)
+		pb.joint_offset = Transform3D(frame, j - c)
 		simulator.add_child(pb)
 		if d.p != &"":
 			pb.joint_type = PhysicalBone3D.JOINT_TYPE_6DOF
