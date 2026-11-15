@@ -28,6 +28,19 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 - After each floor you pick one of three upgrades. Floors get bigger, with more clowns and more gunmen.
 - Kills earn tickets (two for a headshot). When you die they are banked and can be spent on permanent perks on the menu.
 
+## Fuel drums
+
+Red fuel drums stand in corners of the bunkers and halls (more on bigger floors). Shoot one and it goes up: a hard hit sets it off at once, a lighter one punches a hole that spits flame for a second first. Drums near a blast go up too.
+
+How badly a clown comes apart depends on how close it was (and whether anything stood between it and the drum):
+
+- **Right next to it:** thrown across the room or into the walls, two or three limbs torn off, belly and ribs blown open, often part of the skull gone. Every part that hits a wall at speed bursts blood across it.
+- **A couple of metres:** guts out, ribs showing, maybe a piece of skull and a limb, flung a few metres.
+- **Further:** peppered with wounds and knocked down, or knocked about and very angry.
+- **Torn in half (40% of clowns caught at 1-3 m):** the legs go flying, the torso lives. It drags itself away from you on its hands, guts trailing, smearing a blood trail and stopping to gasp in its own pool. It bleeds out after a minute, or you can finish it.
+
+The blast hurts you too (up to 85 at point blank, much less behind cover) and shakes the view. In the gore sandbox there are three drums among the clowns.
+
 ## Enemies
 
 | Enemy | Body | How it fights |
@@ -53,6 +66,8 @@ Every body uses the same 21 bone names and 15 dismemberment segments, so the rag
 | `scripts/player/view_model.gd` | First-person hands and guns, recoil and reload animation |
 | `scripts/game/game.gd` | Run loop, floors, upgrades, perks, menu, saving |
 | `scripts/world/maze.gd` | Maze generator, stairs, pathfinding, collision; `theme` picks the linear bunker (default), the trench maze, or the old funhouse |
+| `scripts/world/explosive_barrel.gd`, `scripts/fx/explosion.gd` | Fuel drums and the blast (fire, smoke, sparks, scorch, shock wave) |
+| `scripts/clown/clown_crawler.gd` | A clown torn in half, crawling away until it bleeds out |
 | `scripts/world/level_art.gd` | The trench and bunker look: walls, floors, props, lanterns |
 | `scripts/clown/clown_brain.gd` | Clown AI: hunting, melee, gunmen |
 | `shaders/funhouse.gdshader` | Checker floors and striped walls |
@@ -79,6 +94,7 @@ All of these are in `clown_ragdoll.gd`.
 - **How easily limbs come off:** `dismember_damage` on the clown, and `can_dismember` per weapon in `fps_player.gd`.
 - **What clowns notice** (in `clown_brain.gd`): `sight_range`, `sight_half_angle`, `hearing_cells` (how far a gunshot carries along the corridors), `witness_range` (how close a clown must be to notice another being shot), `give_up_after`.
 - **Level layout:** in `maze.gd` `_generate_linear()`: route length (`w * d * 0.42`), number of stairwells, halls and side rooms. **Level look:** `theme` ("bunker", "trench" or "funhouse"), `TRENCH_DEPTH` and `BUNKER_HEADROOM`. In `level_art.gd`, `_bunker_wall_detail` sets how often walls get paint, doors or posters, and `_bulb` the light brightness, range and how many are dead or flickering. In `level_art.gd`, the chances in `_trench_wall_props`, `_dress_trench` and `_dress_bunker` set how much bunting, wire, posters and clutter appear; lantern brightness is the energy passed to `_lantern`. Sky, fog and the dusk light are in `_build_environment()` in `game.gd`.
+- **Explosions:** `RADIUS` and `PLAYER_DAMAGE` in `scripts/fx/explosion.gd`; `toughness` on the drum (`explosive_barrel.gd`); how hard and how messily clowns are thrown in `caught_in_blast()` and `_blast_gore()` in `clown.gd`; `crawl_chance` on the clown for being torn in half; `life` and `speed` in `clown_crawler.gd`; how many drums per floor in `_dress_bunker()` in `level_art.gd`.
 - **Blood budget:** `MAX_DECALS`, `MAX_POOLS`, `DRY_TIME` in `blood_manager.gd`.
 
 ## Checks
@@ -89,5 +105,6 @@ These run without opening the editor:
 godot --headless --fixed-fps 60 res://scenes/test_joints.tscn   # every joint driven to both ends of every axis
 godot --headless --fixed-fps 60 res://scenes/test_death.tscn    # timeline of each death reaction
 godot --headless --fixed-fps 60 res://scenes/test_game.tscn     # 40 mazes checked, then one pass round the game loop
+godot --headless --fixed-fps 60 res://scenes/test_blast.tscn    # a drum among clowns at set distances: gore, throw, the crawler
 godot --path . res://scenes/render_level.tscn                  # saves views of a level to /tmp/lvl_*.png (needs a window)
 ```

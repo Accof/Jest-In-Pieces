@@ -38,6 +38,11 @@ var spec: Dictionary
 @export var blast_damage := 44.0
 ## Seconds a settled corpse keeps simulating before it is frozen in place.
 @export var freeze_after := 6.0
+## Chance that a clown caught close to an explosion is torn in half and lives,
+## crawling away on its arms until it bleeds out.
+@export var crawl_chance := 0.4
+## True while this clown is a torso dragging itself along the floor.
+var crawling := false
 
 ## Damage multiplier for each hit zone (keyed by physical bone).
 const ZONE_DAMAGE := {
@@ -69,6 +74,7 @@ var _head_open := false     # part of the skull is already gone
 
 
 func _ready() -> void:
+	add_to_group(&"clowns")
 	health = max_health
 	spec = BODIES[body]
 	var model := (load(spec.model) as PackedScene).instantiate()
@@ -150,7 +156,7 @@ func hit(info: Dictionary) -> void:
 		if health <= 0.0 or _head_open or (severed and zone in [&"UpperLeg", &"LowerLeg", &"Neck"]):
 			_die(info, zone)
 	hurt.emit(self)
-	if not dead:
+	if not dead and not crawling:
 		_flinch_from(info.position, dir, raw * (1.8 if severed else 1.0))
 	if dead:
 		var impulse: Vector3 = dir * float(info.get("impulse", 12.0))
@@ -168,10 +174,14 @@ func hit(info: Dictionary) -> void:
 func _die(info: Dictionary, zone: StringName) -> void:
 	dead = true
 	var profile: Dictionary
-	var wall_gap := _wall_behind(info.direction)
+	var wall_gap := -1.0 if crawling or info.get("blast", false) else _wall_behind(info.direction)
 	if force_variant == "wall_slide" and wall_gap < 0.0:
 		wall_gap = 0.5
-	if not info.get("heavy", false) and wall_gap >= 0.0 and (force_variant == "wall_slide" or (force_variant == "" and randf() < 0.8)):
+	if info.get("blast", false):
+		profile = ClownRagdoll.profile_blast()
+	elif crawling:
+		profile = ClownRagdoll.profile_limp()
+	elif not info.get("heavy", false) and wall_gap >= 0.0 and (force_variant == "wall_slide" or (force_variant == "" and randf() < 0.8)):
 		profile = ClownRagdoll.profile_wall_slide(wall_gap)
 	elif info.get("heavy", false):
 		profile = ClownRagdoll.profile_heavy(force_variant == "heavy_flat" or (force_variant == "" and randf() < 0.45))
@@ -185,11 +195,11 @@ func _die(info: Dictionary, zone: StringName) -> void:
 		if v == "":
 			v = ("double" if randf() < 0.15 else "double_flat") if (zone in [&"Spine", &"Hips"] and randf() < 0.7) or randf() < 0.2 else ["stagger", "blown_back"].pick_random()
 		profile = ClownRagdoll.profile_bodyshot(v)
-	if zone in [&"UpperLeg", &"LowerLeg", &"Foot"]:
+	if zone in [&"UpperLeg", &"LowerLeg", &"Foot"] and not info.get("blast", false):
 		var side := "Left" if String(info.collider.bone_name).begins_with("Left") else "Right"
 		for part in ["UpperLeg", "LowerLeg", "Foot"]:
 			ragdoll.weaken(StringName(side + part), 0.15)
-	ragdoll.start(profile, info.direction, velocity)
+	ragdoll.start(profile, info.direction, info.get("fling", velocity))
 	_drop_rifle()
 	gore.start_bleeding()
 	last_hit_zone = zone
@@ -200,6 +210,167 @@ func _on_settled() -> void:
 	await get_tree().create_timer(freeze_after).timeout
 	if is_instance_valid(self) and ragdoll.is_settled:
 		ragdoll.freeze()
+
+
+# --- explosions ---------------------------------------------------------------------
+const BLAST_LIMBS := [&"LeftUpperArm", &"RightUpperArm", &"LeftLowerArm", &"RightLowerArm",
+	&"LeftUpperLeg", &"RightUpperLeg", &"LeftLowerLeg", &"RightLowerLeg", &"LeftHand", &"RightHand"]
+
+
+func _bone_world(bone: StringName) -> Vector3:
+	var pb: PhysicalBone3D = ragdoll.bones.get(bone)
+	return pb.global_position if pb else global_position + Vector3.UP * 1.2
+
+
+## An explosion went off at `center`. How badly this clown comes apart depends
+## on how close it was and whether anything stood in the way.
+func caught_in_blast(center: Vector3, radius: float) -> void:
+	var chest := _bone_world(&"Chest")
+	var to := chest - center
+	var d := to.length()
+	if d >= radius:
+		return
+	var s := 1.0 - d / radius
+	var q := PhysicsRayQueryParameters3D.create(center, chest, 1)
+	var cover := get_world_3d().direct_space_state.intersect_ray(q)
+	if not cover.is_empty():
+		s *= 0.35                       # round a corner or behind a crate
+	if s < 0.04:
+		return
+	var away := to / maxf(d, 0.01)
+	var dir := (Vector3(away.x, 0, away.z).normalized() + Vector3.UP * lerpf(0.25, 0.6, s)).normalized()
+	# Close, but not right on top of it: sometimes torn in half and still alive.
+	if not dead and not crawling and s > 0.5 and s < 0.86 and cover.is_empty() and randf() < crawl_chance:
+		_tear_in_half(center, dir, s)
+		return
+	var was_dead := dead
+	var limbs := _blast_gore(center, dir, s)
+	if not dead:
+		health -= 320.0 * pow(s, 1.3)
+		if health <= 0.0 or limbs.size() > 0:
+			last_hit_zone = &"Chest"
+			var fling := dir * lerpf(2.0, 15.0, s * s) * randf_range(0.85, 1.1)
+			ragdoll.max_bone_speed = 26.0
+			_die({direction = dir, heavy = true, blast = true, collider = ragdoll.bones[&"Chest"], fling = fling}, &"Chest")
+			_throw_bones(dir, s)
+		else:
+			# Survived: knocked about, half deaf, and now it knows.
+			_flinch_from(chest - dir * 0.2, dir, 90.0 * s)
+			var b := get_node_or_null("Brain")
+			if b and b.has_method("alert"):
+				b.alert(center)
+	elif was_dead:
+		ragdoll.wake()
+		ragdoll.max_bone_speed = 26.0
+		for pb: PhysicalBone3D in ragdoll.bones.values():
+			PhysicsServer3D.body_set_state(pb.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY, dir * lerpf(1.5, 11.0, s * s))
+		_throw_bones(dir, s)
+	for limb: StringName in limbs:
+		if gore.can_sever(limb):
+			gore.sever(limb, dir * lerpf(10.0, 30.0, s) + Vector3(randf_range(-4, 4), randf_range(0, 6), randf_range(-4, 4)))
+	gore.watch_impacts(2.2)
+	gore.start_bleeding()
+
+
+## After the fling: each part tumbles its own way, so no two land alike.
+func _throw_bones(dir: Vector3, s: float) -> void:
+	for pb: PhysicalBone3D in ragdoll.bones.values():
+		var rid := pb.get_rid()
+		var v: Vector3 = PhysicsServer3D.body_get_state(rid, PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY)
+		v += Vector3(randf_range(-1, 1), randf_range(-0.3, 1), randf_range(-1, 1)) * 2.0 * s
+		PhysicsServer3D.body_set_state(rid, PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY, v)
+		PhysicsServer3D.body_set_state(rid, PhysicsServer3D.BODY_STATE_ANGULAR_VELOCITY, Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * 14.0 * s)
+	var cap := ragdoll
+	get_tree().create_timer(1.6).timeout.connect(func() -> void:
+		if is_instance_valid(cap):
+			cap.max_bone_speed = 9.0)
+
+
+## Wounds, blood and torn-open parts from a blast of strength `s` (0..1).
+## Returns the limbs that should come off once the body is moving.
+func _blast_gore(center: Vector3, dir: Vector3, s: float) -> Array:
+	var near := func(bone: StringName) -> Vector3:
+		var p := _bone_world(bone)
+		return p + (center - p).normalized() * 0.11
+	# shrapnel and burns all over the side facing the blast
+	var bones := [&"Chest", &"Spine", &"Hips", &"Neck", &"LeftUpperArm", &"RightUpperArm", &"LeftUpperLeg", &"RightUpperLeg", &"LeftLowerLeg", &"RightLowerLeg"]
+	for i in int(2 + s * 9):
+		var b: StringName = bones.pick_random()
+		if ragdoll.bones.has(b):
+			gore.add_wound(b, near.call(b) + Vector3(randf_range(-0.06, 0.06), randf_range(-0.06, 0.06), randf_range(-0.06, 0.06)), 20.0 + 45.0 * s)
+	# a lot of blood, every way
+	var chest := _bone_world(&"Chest")
+	for i in int(2 + s * 7):
+		Blood.spawn_hit(chest + Vector3(randf_range(-0.2, 0.2), randf_range(-0.4, 0.3), randf_range(-0.2, 0.2)), (dir + Vector3(randf_range(-0.8, 0.8), randf_range(-0.2, 0.8), randf_range(-0.8, 0.8))).normalized(), 0.9 + s * 1.1)
+	if s > 0.38 and ragdoll.bones.has(&"Spine") and randf() < 0.35 + s * 0.6:
+		gore.blast(&"Spine", near.call(&"Spine"), dir, clampf(0.08 + s * 0.06, 0.08, 0.14))      # belly open, guts out
+	if s > 0.5 and randf() < s * 0.9:
+		gore.blast(&"Chest", near.call(&"Chest"), dir, clampf(0.08 + s * 0.05, 0.08, 0.13))      # ribs showing
+	if s > 0.45 and not _head_open and randf() < 0.2 + s * 0.45:
+		_head_open = true                                                                       # a piece of skull gone
+		knock_off_helmet(dir, _bone_world(&"Neck"))
+		gore.blast(&"Neck", near.call(&"Neck"), dir, clampf(0.05 + s * 0.035, 0.055, 0.085))
+	elif has_helmet and randf() < s:
+		knock_off_helmet(dir, _bone_world(&"Neck"))
+	var count := 0
+	if s > 0.8:
+		count = randi_range(1, 3)
+	elif s > 0.6:
+		count = randi_range(0, 2)
+	elif s > 0.4 and randf() < 0.3:
+		count = 1
+	var limbs := BLAST_LIMBS.duplicate()
+	limbs.shuffle()
+	var out: Array = []
+	for limb: StringName in limbs:
+		if out.size() >= count:
+			break
+		# one limb per side chain is enough (an upper arm takes the forearm with it)
+		var chain := String(limb).replace("Lower", "").replace("Upper", "").replace("Hand", "Arm")
+		var clash := false
+		for o: StringName in out:
+			if String(o).replace("Lower", "").replace("Upper", "").replace("Hand", "Arm") == chain:
+				clash = true
+		if not clash and gore.can_sever(limb):
+			out.append(limb)
+	if s > 0.88 and not _head_open and randf() < 0.2 and gore.can_sever(&"Neck"):
+		out.append(&"Neck")
+	return out
+
+
+## Torn apart at the waist: the legs go flying, the rest of it lives on for a
+## minute, dragging itself away on its hands.
+func _tear_in_half(center: Vector3, dir: Vector3, s: float) -> void:
+	var b := get_node_or_null("Brain")
+	if b:
+		b.process_mode = Node.PROCESS_MODE_DISABLED
+	_drop_rifle()
+	has_gun = false
+	attack_amount = 0.0
+	aim_amount = 0.0
+	if has_helmet and randf() < 0.5:
+		knock_off_helmet(dir, _bone_world(&"Neck"))
+	var lower := gore.cut_waist(dir * lerpf(5.0, 9.0, s) + Vector3.UP * 2.0)
+	lower.add_to_group(&"blast_movable")
+	var torso_hits := [&"Chest", &"Spine", &"LeftUpperArm", &"RightUpperArm", &"Neck"]
+	for i in 5:
+		var bn: StringName = torso_hits.pick_random()
+		gore.add_wound(bn, _bone_world(bn) + (center - _bone_world(bn)).normalized() * 0.1, 30.0)
+	health = minf(health, 40.0)
+	crawling = true
+	set_process(false)
+	var crawler := ClownCrawler.new()
+	crawler.name = "Crawler"
+	add_child(crawler)
+	crawler.begin(self, b.maze if b else null, dir)
+
+
+## Called by the crawler when the minute is up.
+func bleed_out() -> void:
+	if dead:
+		return
+	last_hit_zone = &"Spine"
+	_die({direction = Vector3.DOWN, collider = ragdoll.bones.get(&"Chest")}, &"Spine")
 
 
 # --- living pose ----------------------------------------------------------------
@@ -250,9 +421,10 @@ func _flinch_from(world_pos: Vector3, dir: Vector3, damage: float) -> void:
 
 
 func _process(delta: float) -> void:
-	if dead:
+	if dead or crawling:
 		set_process(false)
 		return
+	delta = minf(delta, 1.0 / 30.0)         # the springs below go unstable on a long frame
 	stagger_time = maxf(stagger_time - delta, 0.0)
 	_flinch_vel += (-_flinch * 120.0 - _flinch_vel * 13.0) * delta
 	_flinch = (_flinch + _flinch_vel * delta).limit_length(0.6)

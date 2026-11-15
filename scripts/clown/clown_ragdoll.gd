@@ -479,6 +479,42 @@ static func profile_heavy(flat: bool = false) -> Dictionary:
 	}
 
 
+static func profile_blast() -> Dictionary:
+	# Caught by an explosion: no balance at all, the body just goes where it is
+	# thrown, arms flailing for a moment.
+	return {
+		support = [Vector2(0, 0.0)],
+		legs = [Vector2(0, 0.12), Vector2(0.3, 0)],
+		spine = [Vector2(0, 0.15), Vector2(0.35, 0.04), Vector2(2.0, 0)],
+		neck = [Vector2(0, 0.1), Vector2(0.3, 0)],
+		arms = [Vector2(0, 0.3), Vector2(0.5, 0.05), Vector2(1.5, 0)],
+		drift = 0.0, drift_time = 0.1, arms_wide = true,
+	}
+
+
+static func profile_limp() -> Dictionary:
+	# Already on the floor and out of strength (a crawler dying).
+	return {
+		support = [Vector2(0, 0.0)],
+		spine = [Vector2(0, 0.2), Vector2(0.6, 0)],
+		neck = [Vector2(0, 0.25), Vector2(0.9, 0)],
+		arms = [Vector2(0, 0.15), Vector2(0.6, 0)],
+		drift = 0.0, drift_time = 0.1,
+	}
+
+
+## A frozen corpse comes back to life as a ragdoll (an explosion reached it).
+func wake() -> void:
+	if active:
+		return
+	simulator.physical_bones_start_simulation()
+	active = true
+	limp = true
+	is_settled = false
+	_still_time = 0.0
+	set_physics_process(true)
+
+
 ## Start simulating. `hit_dir` is the bullet's travel direction (world space).
 func start(profile: Dictionary, hit_dir: Vector3 = Vector3.ZERO, velocity: Vector3 = Vector3.ZERO) -> void:
 	if active:

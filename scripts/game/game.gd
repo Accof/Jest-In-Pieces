@@ -54,6 +54,7 @@ var _slow_until := 0
 
 
 func _ready() -> void:
+	add_to_group(&"game")
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	# The project's internal name stays "Clown Shooter" so existing save files are still found.
 	get_window().title = "Jest In Pieces"
@@ -174,6 +175,15 @@ func _on_player_fired(weapon: int) -> void:
 			var b := c.get_node_or_null("Brain") as ClownBrain
 			if b:
 				b.hear(player.global_position, 1 if weapon == 1 else 0)
+
+
+## A loud noise anywhere (an explosion): clowns within `cells` come looking.
+func noise_at(where: Vector3, cells: int) -> void:
+	for c: Clown in clowns:
+		if is_instance_valid(c) and not c.dead:
+			var b := c.get_node_or_null("Brain") as ClownBrain
+			if b:
+				b.hear(where, cells)
 
 
 func _on_player_died() -> void:

@@ -48,9 +48,11 @@ var _shot_id := 0
 var _label: Label
 var _hurt: ColorRect
 var _kick := 0.0
+var _shake := 0.0
 
 
 func _ready() -> void:
+	add_to_group(&"player")
 	collision_layer = 1 << 1
 	collision_mask = LAYER_WORLD | LAYER_RAMP
 	floor_max_angle = deg_to_rad(50.0)
@@ -144,6 +146,17 @@ func _process(delta: float) -> void:
 	_hurt.color.a = move_toward(_hurt.color.a, 0.0, delta * 1.2)
 	_kick = move_toward(_kick, 0.0, delta * 0.5)
 	camera.rotation.z = _kick * 0.3
+	# explosion shake: a hard jolt that rattles out
+	if _shake > 0.001:
+		_shake = move_toward(_shake, 0.0, delta * 1.6)
+		var t := Time.get_ticks_msec() * 0.001
+		var s := _shake * _shake
+		camera.h_offset = (sin(t * 47.0) + sin(t * 83.0) * 0.5) * 0.05 * s
+		camera.v_offset = (sin(t * 59.0 + 1.3) + sin(t * 97.0) * 0.5) * 0.05 * s
+		camera.rotation.z += sin(t * 37.0) * 0.04 * s
+	elif camera.h_offset != 0.0:
+		camera.h_offset = 0.0
+		camera.v_offset = 0.0
 
 
 func _physics_process(delta: float) -> void:
@@ -257,6 +270,9 @@ func shoot_ray(from: Vector3, dir: Vector3, w: Dictionary, shot_id: int) -> Dict
 	if hit.is_empty():
 		return hit
 	var c: Object = hit.collider
+	if c is ExplosiveBarrel:
+		c.shot(hit.position, dir, w.damage * stats.damage)
+		return hit
 	if c is PhysicalBone3D and c.has_meta(&"clown"):
 		var dist: float = from.distance_to(hit.position)
 		var scale := clampf(1.0 - maxf(dist - w.falloff * 0.4, 0.0) / w.falloff, 0.2, 1.0)
@@ -268,6 +284,11 @@ func shoot_ray(from: Vector3, dir: Vector3, w: Dictionary, shot_id: int) -> Dict
 			shot_id = shot_id, blood = stats.blood,
 		})
 	return hit
+
+
+## Rattle the view (explosions). 1.0 is a drum going up a few metres away.
+func shake(amount: float) -> void:
+	_shake = clampf(maxf(_shake, amount), 0.0, 1.5)
 
 
 func take_damage(amount: float, from_dir: Vector3 = Vector3.ZERO) -> void:

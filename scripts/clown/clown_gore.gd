@@ -128,13 +128,14 @@ func _throw_chunks(pos: Vector3, dir: Vector3, count: int, skull: bool) -> void:
 
 ## A loop of intestine spilling from a belly wound: a short chain of soft links
 ## pinned to the body, which hangs, swings and drags along the floor.
-func _hang_guts(pb: PhysicalBone3D, world_pos: Vector3, out: Vector3) -> void:
+func _hang_guts(pb: PhysicsBody3D, world_pos: Vector3, out: Vector3, links: int = 6) -> void:
 	var prev: PhysicsBody3D = pb
 	var at := world_pos + out * 0.04
 	var mesh := _gut_mesh()
-	for i in 6:
+	for i in links:
 		var link := GoreBit.make(mesh, 0.024, 0.08, 0.1)
-		link.marks = i == 5
+		link.marks = i == links - 1
+		link.add_to_group(&"blast_movable")
 		link.collision_mask = 1
 		clown.get_parent().add_child(link)
 		var next_at := at + out * 0.03 + Vector3.DOWN * 0.085
@@ -320,6 +321,8 @@ func _process(delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if _impact_left > 0.0:
+		_impacts(delta)
 	if not _bleeding and _spurts.is_empty():
 		return
 	_bleed_time += delta
@@ -386,7 +389,7 @@ func _physics_process(delta: float) -> void:
 				b.pooled = true
 			elif clown.ragdoll.is_settled:
 				b.pooled = true
-	if not open and clown.ragdoll.is_settled and _spurts.is_empty():
+	if not open and clown.ragdoll.is_settled and _spurts.is_empty() and _impact_left <= 0.0:
 		set_physics_process(false)
 
 
@@ -403,6 +406,121 @@ func _push_wounds() -> void:
 
 
 # --- dismemberment ------------------------------------------------------------
+# --- explosions --------------------------------------------------------------------
+var _impact_left := 0.0
+var _impact_clock := 0.0
+var _impact_next := {}
+
+
+## For the next `seconds`, a body part that slams into a wall or the floor
+## at speed bursts blood across it.
+func watch_impacts(seconds: float) -> void:
+	_impact_left = maxf(_impact_left, seconds)
+	set_physics_process(true)
+
+
+func _impacts(delta: float) -> void:
+	_impact_left -= delta
+	_impact_clock += delta
+	if not clown.ragdoll.active:
+		return
+	var space := clown.get_world_3d().direct_space_state
+	for bn: StringName in [&"Chest", &"Hips", &"Neck", &"Spine", &"LeftUpperLeg", &"RightUpperLeg"]:
+		var pb: PhysicalBone3D = clown.ragdoll.bones.get(bn)
+		if pb == null or _impact_clock < float(_impact_next.get(bn, 0.0)):
+			continue
+		var v: Vector3 = PhysicsServer3D.body_get_state(pb.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY)
+		var sp := v.length()
+		if sp < 3.0:
+			continue
+		var q := PhysicsRayQueryParameters3D.create(pb.global_position, pb.global_position + v / sp * (0.28 + sp * delta * 2.0), LAYER_WORLD)
+		var hit := space.intersect_ray(q)
+		if hit.is_empty():
+			continue
+		_impact_next[bn] = _impact_clock + 0.18
+		var n: Vector3 = hit.normal
+		var slide := v - n * v.dot(n)
+		var size := clampf(0.4 + sp * 0.05, 0.45, 1.1)
+		Blood.spawn_decal(hit.position, n, size, "impact")
+		if slide.length() > 0.5:
+			Blood.spawn_decal(hit.position + slide.normalized() * size * 0.5, n, size * 0.8, "streak", slide, 1.0, 1.6)
+		Blood.spawn_hit(hit.position + n * 0.05, (n + slide.normalized() * 0.5).normalized(), clampf(sp / 6.0, 0.6, 1.8))
+
+
+## Torn in half at the waist: the pelvis and legs come away as one piece, the
+## torso is left open at the bottom with its guts hanging out. Returns the
+## lower half (already flying with `impulse`).
+func cut_waist(impulse: Vector3) -> RigidBody3D:
+	var parts: Array[StringName] = [&"Pelvis", &"LeftUpperLeg", &"LeftLowerLeg", &"LeftFoot", &"RightUpperLeg", &"RightLowerLeg", &"RightFoot"]
+	var skel := clown.skeleton
+	var gib_scene := (load(clown.spec.gibs) as PackedScene).instantiate()
+	var xfs := {}
+	var srcs := {}
+	for s: StringName in parts:
+		var bone_name: StringName = SEGMENT_BONE.get(s, s)
+		var bi := skel.find_bone(bone_name)
+		var src := gib_scene.get_node("Gib_" + String(s)) as MeshInstance3D
+		srcs[s] = src
+		xfs[s] = skel.global_transform * clown.ragdoll.bone_pose(bi) * skel.get_bone_global_rest(bi).affine_inverse() * Transform3D(Basis.IDENTITY, src.position)
+	var base: Transform3D = xfs[&"Pelvis"]
+	var half := Gib.new()
+	half.setup(srcs[&"Pelvis"].mesh, _shape_for(&"Hips", srcs[&"Pelvis"].position), _mass_for(&"Hips"))
+	var total := _mass_for(&"Hips")
+	for s: StringName in parts:
+		if s == &"Pelvis":
+			continue
+		var local: Transform3D = base.affine_inverse() * xfs[s]
+		var mi := MeshInstance3D.new()
+		mi.mesh = srcs[s].mesh
+		mi.layers = 2
+		mi.transform = local
+		half.add_child(mi)
+		var cs := _shape_for(s, srcs[s].position)
+		cs.transform = local * cs.transform
+		half.add_child(cs)
+		total += _mass_for(s)
+	half.mass = total
+	half.add_to_group(&"blast_movable")
+	gib_scene.free()
+	clown.get_parent().add_child(half)
+	half.global_transform = base
+	half.apply_central_impulse(impulse * total)
+	half.apply_torque_impulse(Vector3(_rng.randf_range(-1, 1), _rng.randf_range(-0.3, 0.3), _rng.randf_range(-1, 1)) * total * 1.2)
+	for s: StringName in parts:
+		hidden_mask |= 1 << SEGMENTS.find(s)
+	for sm in _materials:
+		sm.set_shader_parameter("hidden_mask", hidden_mask)
+	var legs: Array = [&"LeftUpperLeg", &"LeftLowerLeg", &"LeftFoot", &"RightUpperLeg", &"RightLowerLeg", &"RightFoot"]
+	clown.ragdoll.remove_bones(legs)
+	# The hip bone stays (the ragdoll hangs off it) but shrinks to a stub of
+	# meat at the bottom of the torso.
+	var hips: PhysicalBone3D = clown.ragdoll.bones.get(&"Hips")
+	if hips:
+		for ch in hips.get_children():
+			if ch is CollisionShape3D:
+				var sp := SphereShape3D.new()
+				sp.radius = 0.09
+				ch.shape = sp
+		hips.mass = 2.0
+	# Everything that was inside spills: guts, blood, chunks both ways.
+	var cut: Vector3 = xfs[&"Pelvis"].origin
+	_show_innards(&"belly")
+	_add_wound_entry(&"Spine", cut + Vector3.UP * 0.12, 0.13, 0.06, 0.11)
+	for i in 4:
+		Blood.spawn_hit(cut, (impulse.normalized() + Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0, 1), _rng.randf_range(-1, 1))).normalized(), 1.8)
+	_throw_chunks(cut, impulse.normalized(), 7, false)
+	_hang_guts(half, cut, Vector3.UP, 3)
+	set_process(true)
+	return half
+
+
+## Add a heavy, lasting bleed at a point on a bone (the open end of a torso).
+func add_bleed(bone: StringName, world_pos: Vector3, amount: float) -> void:
+	var pb: PhysicalBone3D = clown.ragdoll.bones.get(bone)
+	if pb:
+		_bleeds.append({bone = bone, local = pb.global_transform.affine_inverse() * world_pos, amount = amount, still = 0.0, pooled = false, drip = 0.0})
+
+
 func segment_of(bone: StringName) -> StringName:
 	return &"Head" if bone == &"Neck" else bone
 

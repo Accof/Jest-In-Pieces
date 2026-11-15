@@ -416,8 +416,60 @@ worn = np.clip(fbm(S, (4, 8, 16, 32), 57) * 1.6 - 0.35, 0, 1)
 col = sb * 0.6 * (1 - worn[..., None]) + fl * (0.4 + 0.6 * worn[..., None])
 save('sunburst_faded', col)
 
+# =============================================================================
+# Explosive barrel and explosion sprites
+# =============================================================================
+# --- red fuel drum: chipped paint, a yellow hazard band, a stencilled flame -------
+BW, BH = 512, 256          # wraps once round the drum (u) and covers its height (v)
+by, bx = np.mgrid[0:BH, 0:BW]
+bn = fbm(512, (4, 8, 16, 32, 64), 60)[:BH, :BW]
+col = np.zeros((BH, BW, 3)) + np.array([0.42, 0.06, 0.04])
+col *= (0.75 + 0.4 * bn)[..., None]
+band = (np.abs(by - BH * 0.5) < 22).astype(float)
+stripe = (((bx + by) // 18) % 2 == 0).astype(float) * band
+col = mix(col, (0.62, 0.48, 0.08), band * 0.9)
+col = mix(col, (0.06, 0.05, 0.04), stripe * 0.9)
+ribs = ((np.abs(by - BH * 0.18) < 4) | (np.abs(by - BH * 0.82) < 4)).astype(float)
+col *= (1 - 0.35 * ribs)[..., None]
+chip = sstep(0.68, 0.72, fbm(512, (8, 16, 32, 64), 61)[:BH, :BW])
+col = mix(col, (0.2, 0.17, 0.15), chip)
+rust = np.clip((fbm(512, (4, 8, 16), 62)[:BH, :BW] - 0.55) * 3, 0, 0.8)
+col = mix(col, (0.25, 0.12, 0.05), rust)
+# a flame stencil, twice round the drum
+sim = Image.new('L', (BW, BH), 0); dr = ImageDraw.Draw(sim)
+for cx in (BW * 0.25, BW * 0.75):
+    cy = BH * 0.3
+    dr.polygon([(cx - 18, cy + 22), (cx - 22, cy), (cx - 10, cy - 14), (cx - 6, cy - 2), (cx, cy - 26), (cx + 8, cy - 6), (cx + 14, cy - 16), (cx + 22, cy + 2), (cx + 18, cy + 22)], fill=255)
+    dr.rectangle([cx - 24, cy + 25, cx + 24, cy + 29], fill=255)
+fl = np.asarray(sim).astype(float) / 255 * (fbm(512, (16, 32, 64), 63)[:BH, :BW] > 0.33)
+col = mix(col, (0.75, 0.68, 0.55), fl * 0.85)
+save('barrel_red', col, bn * 0.3 - ribs * 0.5 - chip * 0.3, 3.0)
+
+# --- soft sprites: a fire puff, a smoke puff, a scorch mark ----------------------
+P = 256
+py, px = np.mgrid[0:P, 0:P]
+r = np.hypot(px - P / 2, py - P / 2) / (P / 2)
+wob = fbm(P, (4, 8, 16, 32), 64)
+fall = np.clip(1 - (r + (wob - 0.5) * 0.5), 0, 1)
+a = sstep(0.0, 0.6, fall)
+hot = sstep(0.35, 0.9, fall)
+col = np.zeros((P, P, 3)) + np.array([0.9, 0.35, 0.06])
+col = mix(col, (1.0, 0.85, 0.5), hot)
+col *= (0.75 + 0.4 * wob)[..., None]
+save('fx_fire', col, alpha=a * (0.7 + 0.3 * wob))
+wob = fbm(P, (3, 6, 12, 24, 48), 65)
+fall = np.clip(1 - (r + (wob - 0.5) * 0.7), 0, 1)
+col = np.zeros((P, P, 3)) + np.array([0.16, 0.15, 0.14])
+col *= (0.7 + 0.6 * wob)[..., None]
+save('fx_smoke', col, alpha=sstep(0.0, 0.7, fall) * (0.5 + 0.5 * wob))
+wob = fbm(P, (4, 8, 16, 32, 64), 66)
+fall = np.clip(1 - (r + (wob - 0.5) * 0.6), 0, 1)
+col = np.zeros((P, P, 3)) + np.array([0.03, 0.025, 0.02])
+col = mix(col, (0.12, 0.09, 0.07), np.clip(1 - fall * 1.5, 0, 1))
+save('fx_scorch', col, alpha=sstep(0.0, 0.5, fall) * (0.6 + 0.4 * wob))
+
 # contact sheet
-names = ['planks', 'planks_dark', 'duckboard', 'mud', 'ground', 'sandbags', 'harlequin', 'canvas', 'concrete', 'metal', 'sunburst', 'crate', 'drum', 'pennant', 'camonet', 'poster', 'wall_conc', 'wall_low', 'floor_conc', 'harlequin_faded', 'door', 'sunburst_faded', 'timber']
+names = ['planks', 'planks_dark', 'duckboard', 'mud', 'ground', 'sandbags', 'harlequin', 'canvas', 'concrete', 'metal', 'sunburst', 'crate', 'drum', 'pennant', 'camonet', 'poster', 'wall_conc', 'wall_low', 'floor_conc', 'harlequin_faded', 'door', 'sunburst_faded', 'timber', 'barrel_red', 'fx_fire', 'fx_smoke', 'fx_scorch']
 sheet = Image.new('RGB', (8 * 200, 3 * 200), (40, 40, 40))
 for i, n in enumerate(names):
     im = Image.open(os.path.join(OUT, n + '.png')).convert('RGBA').resize((200, 200))

@@ -23,7 +23,7 @@ func reset() -> void:
 			c.queue_free()
 	clowns.clear()
 	for n in get_children():
-		if n is Gib or n is GoreBit or n is PinJoint3D:
+		if n is Gib or n is GoreBit or n is PinJoint3D or n is ExplosiveBarrel or n is Explosion or n is Decal or n is RigidBody3D or n is AnimatableBody3D:
 			n.queue_free()
 	Blood.clear()
 	for p: Vector3 in _spawns:
@@ -31,6 +31,11 @@ func reset() -> void:
 		add_child(c)
 		c.position = p
 		clowns.append(c)
+	# fuel drums among them: shoot one
+	for p: Vector3 in [Vector3(-0.8, 0, -4.7), Vector3(2.4, 0, -5.9), Vector3(-3.9, 0, -5.0)]:
+		var b := ExplosiveBarrel.new()
+		add_child(b)
+		b.position = p
 
 
 func _build_room() -> void:

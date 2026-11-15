@@ -22,6 +22,7 @@ var _props: StaticBody3D
 var _t := 0.0
 ## Concrete dieselpunk bunkers (bunker theme) or the painted circus dugouts.
 var bunker_style := true
+var explosive_count := 0
 var _route_index := {}
 
 static var _mats := {}
@@ -412,6 +413,9 @@ func _dress_bunker(c: Vector2i) -> void:
 	var lit := (ri >= 0 and ri % 2 == 0) or (ri < 0 and rng.randf() < 0.6)
 	if lit:
 		_bulb(Vector3(centre.x, ceil, centre.z) + axis * rng.randf_range(-0.3, 0.3))
+	# a red fuel drum now and then (never right at the start)
+	if bunker_style and (ri < 0 or ri >= 4) and rng.randf() < 0.28:
+		_explosive(c)
 	_corner_clutter(c, false)
 	if m.side_cells.has(c):
 		_corner_clutter(c, false)
@@ -442,6 +446,9 @@ func _rooms() -> void:
 			_collider(Vector3(0.55, ceil - lo.y, 0.55), Transform3D(Basis.IDENTITY, Vector3(mid.x, (lo.y + ceil) * 0.5, mid.z)))
 			for b: Basis in [Basis.IDENTITY, Basis(Vector3.UP, PI * 0.5)]:
 				_add_multi("ibeam", Transform3D(b.scaled_local(Vector3(Maze.CELL * 2.0, 0.26, 0.18)), Vector3(mid.x, ceil - 0.13, mid.z)))
+			for c: Vector2i in cells:
+				if rng.randf() < 0.3:
+					_explosive(c)
 			_bulb(Vector3(mid.x - 1.4, ceil, mid.z - 1.4))
 			_bulb(Vector3(mid.x + 1.4, ceil, mid.z + 1.4))
 			if kind == 1:
@@ -592,6 +599,18 @@ func _corner_clutter(c: Vector2i, trench: bool) -> void:
 	else:
 		_crate(p, 0.5, 0.0)
 		_lantern(p + Vector3.UP * 0.62, 0.9, 4.0)
+
+
+## A red fuel drum in a free corner: shoot it to blow up anyone near it.
+func _explosive(c: Vector2i) -> void:
+	var spot := _corner_spot(c)
+	if spot.is_empty():
+		return
+	var b := ExplosiveBarrel.new()
+	add_child(b)
+	b.position = spot.pos
+	b.rotation.y = rng.randf() * TAU
+	explosive_count += 1
 
 
 func _barrel(p: Vector3) -> void:

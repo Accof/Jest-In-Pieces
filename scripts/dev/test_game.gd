@@ -9,6 +9,7 @@ func _run() -> void:
 	var stair_total := 0
 	var worst_step := 0.0
 	var route_total := 0
+	var barrel_total := 0
 	for i in 40:
 		var m := Maze.new()
 		add_child(m)
@@ -40,8 +41,9 @@ func _run() -> void:
 				worst_step = max(worst_step, absf(h - prev))
 				prev = h
 		route_total += m.route.size()
+		barrel_total += (m.get_node("Art") as LevelArt).explosive_count
 		m.free()
-	print("routes: %.1f cells on average" % (route_total / 40.0))
+	print("routes: %.1f cells on average, %.1f fuel drums" % [route_total / 40.0, barrel_total / 40.0])
 	print("mazes: 40 generated, problems=%d, stairs per maze=%.1f, biggest floor jump on a route=%.2fm" % [bad, stair_total / 40.0, worst_step])
 
 	# --- game loop
