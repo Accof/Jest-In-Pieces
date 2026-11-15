@@ -87,6 +87,9 @@ func _run() -> void:
 		cam.global_position = s.global_position + Vector3(0, 1.0, 4.2)
 		cam.look_at(s.global_position + Vector3.UP * 0.9)
 		await _shot("walk_%d" % i)
+		cam.global_position = s.global_position + Vector3(0, 0.3, 1.6)
+		cam.look_at(s.global_position + Vector3.UP * 0.25)
+		await _shot("feet_%d" % i)
 		print("walk %d: %s" % [i, _angles(s)])
 		await _frames(6)
 	# 2. the walk the brain actually asks for while side-stepping: 0.42 of
@@ -124,6 +127,12 @@ func _run() -> void:
 	cam.global_position = s.global_position + Vector3(0, 1.3, 3.0)
 	cam.look_at(s.global_position + Vector3.UP * 1.1)
 	await _shot("aim_front")
+	cam.global_position = s.global_position + Vector3(-2.6, 1.4, 0.4)
+	cam.look_at(s.global_position + Vector3(0, 1.35, 0.3))
+	await _shot("aim_side")
+	cam.global_position = s.global_position + Vector3(0, 0.3, 1.6)
+	cam.look_at(s.global_position + Vector3.UP * 0.25)
+	await _shot("feet_stand")
 	s.queue_free()
 	# 4. deaths: chest (pistol), head (pistol), shotgun; look 2.5s later
 	var dead: Array[Clown] = []

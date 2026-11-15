@@ -670,8 +670,11 @@ func bleed_out() -> void:
 # There are no animation clips yet. A living clown is posed in code every frame:
 # a walk cycle, an attack or aiming arm, and flinches from hits, layered on top
 # of the standing pose.
+## Bones put back to their base rotation at the start of every posed frame.
+## Anything the living pose turns must be here, or the turns add up frame
+## after frame (the feet once ended up twisted toe-up this way).
 const POSED_BONES := ["Spine", "Chest", "Neck", "LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg",
-	"LeftUpperArm", "RightUpperArm", "LeftLowerArm", "RightLowerArm"]
+	"LeftFoot", "RightFoot", "LeftUpperArm", "RightUpperArm", "LeftLowerArm", "RightLowerArm", "LeftHand", "RightHand"]
 const FLINCH_BONES := [["Spine", 0.4], ["Chest", 0.45], ["Neck", 0.55]]
 
 ## Set by the AI: how far through a stride (radians), how much it is walking
@@ -775,7 +778,8 @@ func _process(delta: float) -> void:
 			var knee_deg := knee * pow(swing, 1.4) + 9.0 * stance + 5.0
 			_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(knee_deg) * gait * (0.3 if limp else 1.0))
 			# ankle: toe pushes off behind, lifts clear coming through, lands heel first
-			_turn(side + "Foot", Vector3.RIGHT, deg_to_rad(-22.0 * pow(behind, 2.0) * stance + 14.0 * swing) * gait * k)
+			# (positive turns the toe down)
+			_turn(side + "Foot", Vector3.RIGHT, deg_to_rad(20.0 * pow(behind, 2.0) * stance - 12.0 * swing) * gait * k)
 		if not has_rifle:
 			_turn("LeftUpperArm", Vector3.RIGHT, deg_to_rad(arm) * sw * gait)
 			_turn("LeftLowerArm", Vector3.RIGHT, deg_to_rad(-55.0) * run_amount * gait)
@@ -879,10 +883,10 @@ func _hold_rifle() -> void:
 	var fore := xf * Vector3(0.0, -0.035, lerpf(0.33, 0.4, a))
 	var rs := sk.get_bone_global_pose(sk.find_bone("RightUpperArm")).origin
 	var ls := sk.get_bone_global_pose(sk.find_bone("LeftUpperArm")).origin
-	# elbows: down and a little out when carrying; the right one comes up and
-	# out to the side when the rifle is shouldered
+	# elbows: down and a little out when carrying; when the rifle is shouldered
+	# the right one goes out to the side but stays well below the shoulder
 	var ab := a * a * (3.0 - 2.0 * a)
-	reach("Right", grip, rs + Vector3(-0.4, -0.55, -0.15).lerp(Vector3(-0.6, -0.12, -0.05), ab))
+	reach("Right", grip, rs + Vector3(-0.4, -0.55, -0.15).lerp(Vector3(-0.42, -0.5, -0.12), ab))
 	reach("Left", fore, ls + Vector3(0.3, -0.6, 0.05).lerp(Vector3(0.15, -0.65, 0.0), ab))
 	point_bone("RightHand", xf.basis.z)
 	point_bone("LeftHand", xf.basis.z)
