@@ -12,6 +12,7 @@ const SHRINK := 0.45
 const PISTOL := 0
 const SHOTGUN := 1
 const SMG := 2
+const STAKE := 3
 
 ## Seconds the reload animations take. The player script reads these.
 const PISTOL_RELOAD := 1.55
@@ -20,6 +21,8 @@ const SHELL_INTRO := 0.3
 const SWAP_TIME := 0.3
 const SMG_RELOAD := 1.9
 const SMG_SEAT := 1.12          # the new magazine clicks home
+const STAKE_RELOAD := 2.9
+const STAKE_SEAT := 1.5         # the new stake is on the rail
 
 var weapon := PISTOL
 var slide_locked := false       # pistol ran dry: slide stays back until reloaded
@@ -33,6 +36,11 @@ var _pump: Node3D
 var _shell: Node3D
 var _smg_mag: Node3D
 var _smg_bolt: Node3D
+var _stake_loaded: Node3D
+var _stake_in_hand: Node3D
+var _stake_lever: Node3D
+var _gauge_needle: Node3D
+var stake_ready := true         # set by the player: is a stake on the rail
 var _left: Array[Node3D] = []   # per gun: the left arm
 var _flash: OmniLight3D
 var _flash_mesh: MeshInstance3D
@@ -54,8 +62,9 @@ func _ready() -> void:
 	_build_pistol()
 	_build_shotgun()
 	_build_smg()
-	_guns[SHOTGUN].visible = false
-	_guns[SMG].visible = false
+	_build_stake()
+	for gi in range(1, _guns.size()):
+		_guns[gi].visible = false
 	_flash = OmniLight3D.new()
 	_flash.light_color = Color(1.0, 0.8, 0.45)
 	_flash.omni_range = 7.0
@@ -94,9 +103,9 @@ func fire() -> void:
 	_since_shot = 0.0
 	var muzzle := _muzzle()
 	_flash.position = muzzle
-	_flash.light_energy = [5.0, 9.0, 4.0][weapon]
+	_flash.light_energy = [5.0, 9.0, 4.0, 1.5][weapon]
 	_flash_mesh.position = muzzle
-	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9][weapon] * randf_range(0.7, 1.25)
+	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9, 2.4][weapon] * randf_range(0.7, 1.25)
 	_flash_mesh.rotation.z = randf() * TAU
 	if weapon == SMG:
 		_jitter = Vector2(randf_range(-1, 1), randf_range(-0.3, 1))
@@ -131,7 +140,7 @@ func swapping() -> bool:
 func animate(delta: float, speed: float, look: Vector2) -> void:
 	_time += delta
 	_since_shot += delta
-	_kick = move_toward(_kick, 0.0, delta * [7.0, 3.2, 14.0][weapon])
+	_kick = move_toward(_kick, 0.0, delta * [7.0, 3.2, 14.0, 2.2][weapon])
 	_slide_back = move_toward(_slide_back, 0.0, delta * 14.0)
 	_flash.light_energy = move_toward(_flash.light_energy, 0.0, delta * 90.0)
 	if _since_shot > 0.045:
@@ -167,8 +176,10 @@ func animate(delta: float, speed: float, look: Vector2) -> void:
 		_animate_pistol()
 	elif weapon == SHOTGUN:
 		_animate_shotgun()
-	else:
+	elif weapon == SMG:
 		_animate_smg()
+	else:
+		_animate_stake()
 
 
 # --- pistol ---------------------------------------------------------------------
@@ -449,8 +460,123 @@ func _build_smg() -> void:
 	_left.append(left)
 
 
+# --- stake gun --------------------------------------------------------------------
+# A compressed-air stake launcher: a long open rail with the stake lying on it,
+# a brass air tank underneath with a pressure gauge, a pump lever, a heavy
+# wooden stock. One stake at a time, slow to load.
+const K_HOME := Vector3(0.15, -0.165, -0.38)
+
+func _animate_stake() -> void:
+	var pose := _pose[STAKE]
+	var left := _left[STAKE]
+	var k := _kick * _kick
+	var pos := K_HOME + Vector3(0, 0.03 * k, 0.11 * k)
+	var rot := Vector3(deg_to_rad(14.0) * k, deg_to_rad(-2.0) * k, 0)
+	var left_pos := Vector3.ZERO
+	var loaded := stake_ready
+	var in_hand := false
+	var slide := 0.0
+	var lever := 0.0
+	var needle := 1.0 if stake_ready else 0.15
+	if _reload_t >= 0.0:
+		var t := _reload_t
+		# 0.00-0.30  tip the muzzle up, rail toward you
+		# 0.30-0.95  hand down for a stake from the belt and back up with it
+		# 0.95-1.50  lay it on the rail and slide it forward till it locks
+		# 1.50-2.40  three strokes of the pump lever: the gauge climbs
+		# 2.40-2.90  back on target
+		var tilt := smoothstep(0.0, 0.3, t) * (1.0 - smoothstep(2.4, STAKE_RELOAD, t))
+		pos += Vector3(-0.04, 0.05, 0.05) * tilt
+		rot += Vector3(deg_to_rad(16.0), deg_to_rad(16.0), deg_to_rad(24.0)) * tilt
+		var rail := Vector3(0.0, 0.07, 0.05)                 # where the hand lays the stake down
+		if t < 0.95:
+			var down := sin(clampf((t - 0.3) / 0.65, 0.0, 1.0) * PI)
+			left_pos = rail * smoothstep(0.75, 0.95, t) + Vector3(-0.06, -0.35, 0.15) * down
+			in_hand = t > 0.62
+			loaded = false
+		elif t < STAKE_SEAT:
+			var push := smoothstep(1.1, 1.45, t)
+			left_pos = rail + Vector3(0, 0, -0.16) * push
+			in_hand = false
+			loaded = true
+			slide = 1.0 - push
+		elif t < 2.4:
+			var c := clampf((t - STAKE_SEAT) / 0.9, 0.0, 1.0)
+			lever = absf(sin(c * PI * 3.0))
+			left_pos = Vector3(0.0, -0.05, -0.02) + Vector3(0, -0.07, 0.02) * lever
+			needle = 0.15 + 0.85 * c
+		else:
+			left_pos = Vector3(0.0, -0.05, -0.02) * (1.0 - smoothstep(2.4, 2.65, t))
+	pose.position = pos
+	pose.rotation = rot
+	left.position = left_pos
+	_stake_loaded.visible = loaded
+	_stake_loaded.position.z = 0.18 * slide
+	_stake_in_hand.visible = in_hand
+	_stake_lever.rotation.x = deg_to_rad(-38.0) * lever
+	_gauge_needle.rotation.x = lerpf(2.2, -2.2, needle)
+
+
+func _build_stake() -> void:
+	var root := Node3D.new()
+	add_child(root)
+	_guns.append(root)
+	var pose := Node3D.new()
+	root.add_child(pose)
+	_pose.append(pose)
+	var steel := _mat(Color(0.13, 0.13, 0.14), 0.4, 0.75)
+	var brass := _mat(Color(0.55, 0.4, 0.17), 0.35, 0.9)
+	var wood := _mat(Color(0.28, 0.15, 0.07), 0.6, 0.0)
+	var stake_wood := _mat(Color(0.5, 0.36, 0.22), 0.8, 0.0)
+	var iron := _mat(Color(0.18, 0.17, 0.16), 0.45, 0.8)
+	# the rail: two side bars and a floor, open on top
+	_box(pose, Vector3(0.05, 0.012, 0.62), Vector3(0, 0.0, -0.27), Vector3.ZERO, steel)
+	for side: float in [-1.0, 1.0]:
+		_box(pose, Vector3(0.008, 0.03, 0.62), Vector3(side * 0.024, 0.015, -0.27), Vector3.ZERO, steel)
+	_box(pose, Vector3(0.06, 0.05, 0.03), Vector3(0, 0.012, -0.585), Vector3.ZERO, steel)          # muzzle block
+	_box(pose, Vector3(0.06, 0.06, 0.1), Vector3(0, 0.0, 0.05), Vector3.ZERO, steel)               # breech / valve
+	_cyl(pose, 0.012, 0.03, Vector3(0, 0.04, 0.05), Vector3.ZERO, brass)                           # valve cap
+	# brass air tank under the rail, banded, with a gauge on its side
+	_cyl(pose, 0.032, 0.36, Vector3(0, -0.05, -0.2), Vector3(90, 0, 0), brass)
+	for z: float in [-0.05, -0.35]:
+		_cyl(pose, 0.034, 0.012, Vector3(0, -0.05, z), Vector3(90, 0, 0), steel)
+	_cyl(pose, 0.022, 0.012, Vector3(-0.038, -0.02, 0.0), Vector3(0, 0, 90), steel)               # gauge body
+	_cyl(pose, 0.018, 0.004, Vector3(-0.045, -0.02, 0.0), Vector3(0, 0, 90), _mat(Color(0.85, 0.82, 0.72), 0.6, 0.0))   # face
+	_gauge_needle = Node3D.new()
+	_gauge_needle.position = Vector3(-0.048, -0.02, 0.0)
+	pose.add_child(_gauge_needle)
+	_box(_gauge_needle, Vector3(0.002, 0.014, 0.002), Vector3(0, 0.006, 0), Vector3.ZERO, _mat(Color(0.6, 0.05, 0.03), 0.5, 0.0))
+	_cyl(pose, 0.006, 0.12, Vector3(0.03, -0.02, 0.06), Vector3(70, 0, 0), _mat(Color(0.08, 0.07, 0.06), 0.9, 0.0))   # hose
+	# pump lever under the tank, hinged at the front
+	_stake_lever = Node3D.new()
+	_stake_lever.position = Vector3(0, -0.085, -0.3)
+	pose.add_child(_stake_lever)
+	_box(_stake_lever, Vector3(0.02, 0.014, 0.26), Vector3(0, 0, 0.13), Vector3.ZERO, steel)
+	_box(_stake_lever, Vector3(0.03, 0.03, 0.07), Vector3(0, -0.01, 0.2), Vector3.ZERO, wood)
+	# stock, grip, trigger
+	_box(pose, Vector3(0.045, 0.08, 0.3), Vector3(0, -0.05, 0.25), Vector3(-8, 0, 0), wood)
+	_box(pose, Vector3(0.036, 0.08, 0.05), Vector3(0, -0.07, 0.12), Vector3(22, 0, 0), wood)
+	_box(pose, Vector3(0.012, 0.005, 0.06), Vector3(0, -0.04, 0.07), Vector3.ZERO, steel)
+	# the stake on the rail, iron point at the muzzle
+	_stake_loaded = Node3D.new()
+	pose.add_child(_stake_loaded)
+	_cyl(_stake_loaded, 0.014, 0.5, Vector3(0, 0.024, -0.29), Vector3(90, 0, 0), stake_wood)
+	_cyl(_stake_loaded, 0.0, 0.08, Vector3(0, 0.024, -0.58), Vector3(-90, 0, 0), iron).mesh.top_radius = 0.0
+	(_stake_loaded.get_child(1) as MeshInstance3D).mesh.bottom_radius = 0.017
+	# right hand on the grip; left hand under the tank, carrying the next stake
+	_hand(pose, Vector3(0, -0.07, 0.13), Vector3(0.09, -0.30, 0.48), false)
+	var left := Node3D.new()
+	pose.add_child(left)
+	_hand(left, Vector3(-0.004, -0.07, -0.12), Vector3(-0.28, -0.32, 0.22), true)
+	_stake_in_hand = Node3D.new()
+	left.add_child(_stake_in_hand)
+	_cyl(_stake_in_hand, 0.014, 0.5, Vector3(0, -0.04, -0.3), Vector3(90, 0, 0), stake_wood)
+	_stake_in_hand.visible = false
+	_left.append(left)
+
+
 func _muzzle() -> Vector3:
-	var local := [Vector3(0, 0.02, -0.19), Vector3(0, 0.018, -0.64), Vector3(0, 0.012, -0.445)][weapon] as Vector3
+	var local := [Vector3(0, 0.02, -0.19), Vector3(0, 0.018, -0.64), Vector3(0, 0.012, -0.445), Vector3(0, 0.03, -0.6)][weapon] as Vector3
 	return to_local(_pose[weapon].to_global(local))
 
 

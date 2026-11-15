@@ -15,7 +15,7 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 | Shift | Sprint |
 | Left click (hold) | Fire |
 | R | Reload |
-| 1 / 2 / 3 | Pistol / shotgun / submachine gun |
+| 1 / 2 / 3 / 4 | Pistol / shotgun / submachine gun / stake gun |
 | G | God mode on/off (take no damage; for testing, stays on across runs until you turn it off or quit the game) |
 | F | Flashlight |
 | Enter | Start a run, or leave the death screen |
@@ -28,6 +28,14 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 - Kill every clown, then find the door (it turns green) to leave.
 - After each floor you pick one of three upgrades. Floors get bigger, with more clowns and more gunmen.
 - Kills earn tickets (two for a headshot). When you die they are banked and can be spent on permanent perks on the menu.
+
+## Stake gun
+
+Key 4. A compressed-air launcher that fires one iron-tipped stake. It goes straight through any clown (always a kill), carries the body with it and nails it to the next wall, where it hangs; with no wall within about 9 m the stake stays in the body and it drops. Reloading is slow (2.9 s: fetch a stake, lay it on the rail, three strokes of the pump while the gauge climbs) and starts by itself after each shot. A stake into a fuel drum sets it off.
+
+## Rounds add up
+
+Pistol and SMG rounds wear a body down. Enough of them into one part, alive or dead, tears it open in stages: the head cracks open, then more of the skull goes, then most of it; the chest opens to the ribs, then wider; the belly opens and the guts come out, then more. The thresholds are `WEAR_STAGES` in `clown.gd` (damage soaked up, and hole size, per stage). The shotgun still does it all in one blast.
 
 ## Fuel drums
 
@@ -68,6 +76,7 @@ Every body uses the same 21 bone names and 15 dismemberment segments, so the rag
 | `scripts/game/game.gd` | Run loop, floors, upgrades, perks, menu, saving |
 | `scripts/world/maze.gd` | Maze generator, stairs, pathfinding, collision; `theme` picks the linear bunker (default), the trench maze, or the old funhouse |
 | `scripts/world/explosive_barrel.gd`, `scripts/fx/explosion.gd` | Fuel drums and the blast (fire, smoke, sparks, scorch, shock wave) |
+| `scripts/weapons/stake.gd` | The stake in flight: skewering, carrying the body, pinning it to a wall |
 | `scripts/clown/clown_crawler.gd` | A clown torn in half, crawling away until it bleeds out |
 | `scripts/world/level_art.gd` | The trench and bunker look: walls, floors, props, lanterns |
 | `scripts/clown/clown_brain.gd` | Clown AI: hunting, melee, gunmen |
@@ -96,6 +105,7 @@ All of these are in `clown_ragdoll.gd`.
 - **What clowns notice** (in `clown_brain.gd`): `sight_range`, `sight_half_angle`, `hearing_cells` (how far a gunshot carries along the corridors), `witness_range` (how close a clown must be to notice another being shot), `give_up_after`.
 - **Level layout:** in `maze.gd` `_generate_linear()`: route length (`w * d * 0.42`), number of stairwells, halls and side rooms. **Level look:** `theme` ("bunker", "trench" or "funhouse"), `TRENCH_DEPTH` and `BUNKER_HEADROOM`. In `level_art.gd`, `_bunker_wall_detail` sets how often walls get paint, doors or posters, and `_bulb` the light brightness, range and how many are dead or flickering. In `level_art.gd`, the chances in `_trench_wall_props`, `_dress_trench` and `_dress_bunker` set how much bunting, wire, posters and clutter appear; lantern brightness is the energy passed to `_lantern`. Sky, fog and the dusk light are in `_build_environment()` in `game.gd`.
 - **Weapons:** `WEAPONS` at the top of `fps_player.gd` (damage, spread, rate as `cooldown`, magazine). The SMG: 21 damage, about 600 rounds a minute, 32-round magazine, 1.9 s reload (`SMG_RELOAD` in `view_model.gd`).
+- **Stake gun:** `SPEED`, `CARRY_SPEED`, `MAX_CARRY` in `stake.gd`; reload timing `STAKE_RELOAD` / `STAKE_SEAT` in `view_model.gd`.
 - **Explosions:** `RADIUS` and `PLAYER_DAMAGE` in `scripts/fx/explosion.gd`; `toughness` on the drum (`explosive_barrel.gd`); how hard and how messily clowns are thrown in `caught_in_blast()` and `_blast_gore()` in `clown.gd`; `crawl_chance` on the clown for being torn in half; `life` and `speed` in `clown_crawler.gd`; how many drums per floor in `_dress_bunker()` in `level_art.gd`.
 - **Blood budget:** `MAX_DECALS`, `MAX_POOLS`, `DRY_TIME` in `blood_manager.gd`.
 
@@ -107,6 +117,7 @@ These run without opening the editor:
 godot --headless --fixed-fps 60 res://scenes/test_joints.tscn   # every joint driven to both ends of every axis
 godot --headless --fixed-fps 60 res://scenes/test_death.tscn    # timeline of each death reaction
 godot --headless --fixed-fps 60 res://scenes/test_game.tscn     # 40 mazes checked, then one pass round the game loop
+godot --headless --fixed-fps 60 res://scenes/test_stake.tscn    # a clown staked to the wall; pistol rounds wearing a head and a chest open
 godot --headless --fixed-fps 60 res://scenes/test_smg.tscn      # SMG rate of fire, kill, reload; god mode
 godot --headless --fixed-fps 60 res://scenes/test_blast.tscn    # a drum among clowns at set distances: gore, throw, the crawler
 godot --path . res://scenes/render_level.tscn                  # saves views of a level to /tmp/lvl_*.png (needs a window)

@@ -1,7 +1,7 @@
 class_name FpsPlayer
 extends CharacterBody3D
 ## First-person player. WASD move, Shift sprint, mouse look, left click fire,
-## R reload, 1 pistol, 2 shotgun, 3 submachine gun, F flashlight,
+## R reload, 1 pistol, 2 shotgun, 3 submachine gun, 4 stake gun, F flashlight,
 ## G god mode (no damage; for testing).
 
 const LAYER_WORLD := 1
@@ -12,10 +12,12 @@ const WEAPONS := [
 	{name = "Pistol", damage = 34.0, pellets = 1, spread = 0.0, impulse = 14.0, heavy = false, can_dismember = false, cooldown = 0.22, falloff = 60.0, mag = 17},
 	{name = "Shotgun", damage = 16.0, pellets = 9, spread = 4.5, impulse = 16.0, heavy = true, can_dismember = true, cooldown = 0.8, falloff = 9.0, mag = 6},
 	{name = "SMG", damage = 21.0, pellets = 1, spread = 1.8, impulse = 8.0, heavy = false, can_dismember = false, cooldown = 0.085, falloff = 28.0, mag = 32},
+	{name = "Stake Gun", damage = 500.0, pellets = 1, spread = 0.0, impulse = 2.0, heavy = true, can_dismember = false, cooldown = 0.5, falloff = 100.0, mag = 1, projectile = true},
 ]
 const PISTOL := 0
 const SHOTGUN := 1
 const SMG := 2
+const STAKE := 3
 
 ## Testing aid: take no damage. Kept for the whole session, across runs.
 static var god_mode := false
@@ -42,7 +44,7 @@ var health := 100.0
 var dead := false
 var weapon := 0
 ## Rounds loaded in each gun. Spare ammunition is unlimited for now.
-var ammo: Array[int] = [17, 6, 32]
+var ammo: Array[int] = [17, 6, 32, 1]
 var view: ViewModel
 ## Key that asks for a reset in the test room (R is reload).
 var reset_key := KEY_BACKSPACE
@@ -141,6 +143,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_1: select_weapon(0)
 			KEY_2: select_weapon(1)
 			KEY_3: select_weapon(2)
+			KEY_4: select_weapon(3)
 			KEY_G:
 				god_mode = not god_mode
 				ammo_changed.emit()
@@ -153,6 +156,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	view.stake_ready = ammo[STAKE] > 0
 	view.animate(delta, Vector2(velocity.x, velocity.z).length() if is_on_floor() else 0.0, _look)
 	_look = Vector2.ZERO
 	_hurt.color.a = move_toward(_hurt.color.a, 0.0, delta * 1.2)
@@ -215,6 +219,8 @@ func reload() -> void:
 		_reload_left = ViewModel.PISTOL_RELOAD * 0.62      # the moment the magazine seats
 	elif weapon == SMG:
 		_reload_left = ViewModel.SMG_SEAT
+	elif weapon == STAKE:
+		_reload_left = ViewModel.STAKE_SEAT
 	else:
 		_shell_left = ViewModel.SHELL_INTRO + ViewModel.SHELL_TIME * 0.85
 
@@ -227,7 +233,8 @@ func _tick_reload(delta: float) -> void:
 				ammo[weapon] = WEAPONS[weapon].mag
 				ammo_changed.emit()
 				_update_label()
-		if view.reloading() and view._reload_t >= (ViewModel.PISTOL_RELOAD if weapon == PISTOL else ViewModel.SMG_RELOAD):
+		var total := ViewModel.PISTOL_RELOAD if weapon == PISTOL else (ViewModel.SMG_RELOAD if weapon == SMG else ViewModel.STAKE_RELOAD)
+		if view.reloading() and view._reload_t >= total:
 			view.stop_reload()
 			view.slide_locked = false
 	elif _shell_left >= 0.0:
@@ -264,6 +271,19 @@ func fire() -> void:
 	view.fire()
 	var from := camera.global_position
 	var aim := -camera.global_basis.z
+	if w.get("projectile", false):
+		# a stake, not a bullet: it flies, and loads again by itself
+		var world := get_tree().get_first_node_in_group(&"world_root")
+		Stake.launch(world if world else get_parent(), from + aim * 0.4, aim, _shot_id)
+		_kick = 0.35
+		shake(0.25)
+		get_tree().create_timer(0.45).timeout.connect(func() -> void:
+			if weapon == STAKE and ammo[STAKE] == 0:
+				reload())
+		fired.emit(weapon)
+		ammo_changed.emit()
+		_update_label()
+		return
 	var pellets: int = w.pellets + (stats.pellets if w.pellets > 1 else 0)
 	for i in pellets:
 		var d := aim
@@ -330,4 +350,4 @@ func heal(amount: float) -> void:
 
 
 func _update_label() -> void:
-	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [F] light  [G] god mode%s  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else ""]
+	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [F] light  [G] god mode%s  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else ""]

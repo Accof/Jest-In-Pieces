@@ -92,6 +92,7 @@ func next_floor() -> void:
 	floor_number += 1
 	_clear_floor()
 	_world = Node3D.new()
+	_world.add_to_group(&"world_root")
 	_world.process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_child(_world)
 	maze = Maze.new()
@@ -427,7 +428,7 @@ func _show_menu() -> void:
 		var label := "[%d]  %s  -  %s   (%d/%d)   %s" % [i + 1, p.name, p.desc, owned, p.max, "MAXED" if owned >= p.max else "%d tickets" % p.cost]
 		var b := _button(label, _buy_perk.bind(i))
 		b.disabled = owned >= p.max or int(save.tickets) < p.cost
-	_title("WASD move   Shift sprint   Mouse aim   Click fire   R reload   1/2/3 weapons   F light   G god mode", 16)
+	_title("WASD move   Shift sprint   Mouse aim   Click fire   R reload   1-4 weapons   F light   G god mode", 16)
 
 
 func _title(text: String, size: int) -> void:

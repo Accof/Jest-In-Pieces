@@ -150,6 +150,10 @@ func hit(info: Dictionary) -> void:
 		elif gore.can_sever(bone) and total >= dismember_damage:
 			severed = true
 
+	# Bullets add up: enough rounds into one part slowly tears it open.
+	if not info.get("can_dismember", false) and not info.get("stake", false):
+		_wear(zone, bone, info.position, dir, raw)
+
 	var was_dead := dead
 	if not dead:
 		health -= dmg
@@ -174,11 +178,11 @@ func hit(info: Dictionary) -> void:
 func _die(info: Dictionary, zone: StringName) -> void:
 	dead = true
 	var profile: Dictionary
-	var wall_gap := -1.0 if crawling or info.get("blast", false) else _wall_behind(info.direction)
+	var wall_gap := -1.0 if crawling or info.get("blast", false) or info.get("stake", false) else _wall_behind(info.direction)
 	if force_variant == "wall_slide" and wall_gap < 0.0:
 		wall_gap = 0.5
-	if info.get("blast", false):
-		profile = ClownRagdoll.profile_blast()
+	if info.get("blast", false) or info.get("stake", false):
+		profile = ClownRagdoll.profile_blast()      # no fight left: it goes where it is carried
 	elif crawling:
 		profile = ClownRagdoll.profile_limp()
 	elif not info.get("heavy", false) and wall_gap >= 0.0 and (force_variant == "wall_slide" or (force_variant == "" and randf() < 0.8)):
@@ -210,6 +214,49 @@ func _on_settled() -> void:
 	await get_tree().create_timer(freeze_after).timeout
 	if is_instance_valid(self) and ragdoll.is_settled:
 		ragdoll.freeze()
+
+
+# --- worn down by bullets --------------------------------------------------------------
+## Damage a part must have soaked up (across any number of pistol or SMG
+## rounds, alive or dead) for each further stage of it to be torn open.
+## Head: cracked open, then more skull gone, then mostly gone.
+## Chest: ribs showing, then a wider cavity. Belly: guts out, then more.
+const WEAR_STAGES := {
+	&"Head": [[55.0, 0.045], [115.0, 0.065], [190.0, 0.088]],
+	&"Chest": [[75.0, 0.06], [155.0, 0.085], [250.0, 0.115]],
+	&"Belly": [[65.0, 0.06], [145.0, 0.085], [235.0, 0.115]],
+}
+var _wear_dmg := {}
+var _wear_stage := {}
+
+
+func _wear(zone: StringName, bone: StringName, at: Vector3, dir: Vector3, raw: float) -> void:
+	var region := &""
+	var blast_bone := bone
+	if zone == &"Neck":
+		region = &"Head"
+	elif bone == &"Chest":
+		region = &"Chest"
+	elif bone == &"Spine" or bone == &"Hips":
+		region = &"Belly"
+		blast_bone = &"Spine"
+	if region == &"" or not ragdoll.bones.has(blast_bone):
+		return
+	if region == &"Head" and (gore.hidden_mask >> ClownGore.SEGMENTS.find(&"Head")) & 1 == 1:
+		return
+	_wear_dmg[region] = _wear_dmg.get(region, 0.0) + raw
+	var stages: Array = WEAR_STAGES[region]
+	var done: int = _wear_stage.get(region, 0)
+	while done < stages.size() and _wear_dmg[region] >= stages[done][0]:
+		var size: float = stages[done][1]
+		done += 1
+		if region == &"Head":
+			_head_open = true
+			knock_off_helmet(dir, at)
+			if done == stages.size():
+				Blood.mist(at, dir, 2.0)          # the last of the skull goes in a burst
+		gore.blast(blast_bone, at, dir, size)
+	_wear_stage[region] = done
 
 
 # --- explosions ---------------------------------------------------------------------
