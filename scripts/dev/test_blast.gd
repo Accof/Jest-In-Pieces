@@ -85,14 +85,14 @@ func _run() -> void:
 			cam.fov = 55
 			room.add_child(cam)
 			cam.make_current()
-			for k in 4:
+			for k in 6:
 				var f3 := crawler._forward()
 				var side := f3.cross(Vector3.UP)
-				var views := [cr.global_position + side * 1.6 + Vector3.UP * 0.7 + f3 * 0.2, cr.global_position + f3 * 1.9 + side * 0.5 + Vector3.UP * 1.0]
-				cam.global_position = views[k % 2]
-				cam.look_at(cr.global_position + Vector3.UP * 0.15)
+				var views := [cr.global_position + side * 1.5 + Vector3.UP * 0.55 + f3 * 0.3, cr.global_position - f3 * 1.3 - side * 0.9 + Vector3.UP * 1.1]
+				cam.global_position = views[0 if k < 3 else 1]
+				cam.look_at(cr.global_position + Vector3.UP * 0.15 + f3 * 0.25)
 				await _shot("crawl_%d" % k)
-				for f in 9:
+				for f in 14:
 					await get_tree().physics_frame
 		crawler.life = crawler.t + 1.0
 		for f in 120:

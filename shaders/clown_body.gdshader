@@ -16,6 +16,9 @@ uniform vec3 rest_size = vec3(1.906, 1.887, 0.353);
 
 // Bit n set = segment n is blown off (see clown_segments.json).
 uniform int hidden_mask = 0;
+// Segments whose stump faces must stay hidden: everything below the cut when a
+// whole chain comes off (otherwise the knee and ankle caps float in the air).
+uniform int cap_hide_mask = 0;
 
 const int MAX_WOUNDS = 16;
 uniform int wound_count = 0;
@@ -52,7 +55,8 @@ void vertex() {
 	// Stump faces: only drawn once the limb is gone. They are flagged 0.25 in
 	// Blender; the glTF export flips V, so accept either side of 0.5.
 	bool wound_cap = abs(UV2.y - 0.5) > 0.1;
-	hide = (wound_cap ? !gone : gone) ? 1.0 : 0.0;
+	bool cap_off = ((cap_hide_mask >> seg) & 1) == 1;
+	hide = (wound_cap ? (!gone || cap_off) : gone) ? 1.0 : 0.0;
 	if (hide > 0.5) {
 		VERTEX = vec3(0.0);
 	} else {

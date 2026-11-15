@@ -17,6 +17,8 @@ const CHAIN := {"UpperArm": ["UpperArm", "LowerArm", "Hand"], "LowerArm": ["Lowe
 
 var clown: Clown
 var hidden_mask := 0
+## Stump faces never to show: segments below the top of a cut.
+var cap_mask := 0
 
 var _materials: Array[ShaderMaterial] = []
 var _wound_pos: Array[Vector4] = []
@@ -128,7 +130,7 @@ func _throw_chunks(pos: Vector3, dir: Vector3, count: int, skull: bool) -> void:
 
 ## A loop of intestine spilling from a belly wound: a short chain of soft links
 ## pinned to the body, which hangs, swings and drags along the floor.
-func _hang_guts(pb: PhysicsBody3D, world_pos: Vector3, out: Vector3, links: int = 6) -> void:
+func _hang_guts(pb: PhysicsBody3D, world_pos: Vector3, out: Vector3, links: int = 6, keep: bool = false) -> void:
 	var prev: PhysicsBody3D = pb
 	var at := world_pos + out * 0.04
 	var mesh := _gut_mesh()
@@ -136,6 +138,8 @@ func _hang_guts(pb: PhysicsBody3D, world_pos: Vector3, out: Vector3, links: int 
 		var link := GoreBit.make(mesh, 0.024, 0.08, 0.1)
 		link.marks = i == links - 1
 		link.add_to_group(&"blast_movable")
+		if keep:
+			GoreBit._live.erase(link)        # never recycled while it is in use
 		link.collision_mask = 1
 		clown.get_parent().add_child(link)
 		var next_at := at + out * 0.03 + Vector3.DOWN * 0.085
@@ -488,8 +492,10 @@ func cut_waist(impulse: Vector3) -> RigidBody3D:
 	half.apply_torque_impulse(Vector3(_rng.randf_range(-1, 1), _rng.randf_range(-0.3, 0.3), _rng.randf_range(-1, 1)) * total * 1.2)
 	for s: StringName in parts:
 		hidden_mask |= 1 << SEGMENTS.find(s)
+		cap_mask |= 1 << SEGMENTS.find(s)
 	for sm in _materials:
 		sm.set_shader_parameter("hidden_mask", hidden_mask)
+		sm.set_shader_parameter("cap_hide_mask", cap_mask)
 	var legs: Array = [&"LeftUpperLeg", &"LeftLowerLeg", &"LeftFoot", &"RightUpperLeg", &"RightLowerLeg", &"RightFoot"]
 	clown.ragdoll.remove_bones(legs)
 	# The hip bone stays (the ragdoll hangs off it) but shrinks to a stub of
@@ -549,6 +555,8 @@ func sever(bone: StringName, impulse: Vector3) -> void:
 	for i in parts.size():
 		var s := parts[i]
 		var id := SEGMENTS.find(s)
+		if i > 0:
+			cap_mask |= 1 << id              # only the top of the cut gets a stump face
 		if (hidden_mask >> id) & 1 == 1:
 			continue
 		hidden_mask |= 1 << id
@@ -572,6 +580,7 @@ func sever(bone: StringName, impulse: Vector3) -> void:
 	clown.ragdoll.remove_bones(removed)
 	for sm in _materials:
 		sm.set_shader_parameter("hidden_mask", hidden_mask)
+		sm.set_shader_parameter("cap_hide_mask", cap_mask)
 	if removed.is_empty():
 		return
 	# The stump bleeds hard: a spurt now and a large pool where the body ends up.
