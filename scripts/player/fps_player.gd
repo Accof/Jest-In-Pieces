@@ -331,7 +331,8 @@ func shoot_ray(from: Vector3, dir: Vector3, w: Dictionary, shot_id: int) -> Dict
 	if hit.is_empty():
 		return hit
 	var c: Object = hit.collider
-	if c is ExplosiveBarrel:
+	if not (c is PhysicalBone3D) and c.has_method("shot"):
+		# drums, gallery targets: anything that reacts to being hit
 		c.shot(hit.position, dir, w.damage * stats.damage)
 		return hit
 	if c is PhysicalBone3D and c.has_meta(&"clown"):

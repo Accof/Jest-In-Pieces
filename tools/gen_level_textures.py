@@ -468,9 +468,85 @@ col = np.zeros((P, P, 3)) + np.array([0.03, 0.025, 0.02])
 col = mix(col, (0.12, 0.09, 0.07), np.clip(1 - fall * 1.5, 0, 1))
 save('fx_scorch', col, alpha=sstep(0.0, 0.5, fall) * (0.6 + 0.4 * wob))
 
+# =============================================================================
+# Shooting-gallery cutouts: painted plywood on a hinge, 256 x 512 with alpha
+# =============================================================================
+def cutout(name, draw_fn, paint, seed):
+    W, H = 256, 512
+    mask = Image.new('L', (W, H), 0)
+    col = Image.new('RGB', (W, H), (0, 0, 0))
+    draw_fn(ImageDraw.Draw(mask), ImageDraw.Draw(col))
+    arr = np.asarray(col).astype(float) / 255
+    grain = fbm(512, (4, 8, 16, 32), seed, aspect=(16, 1))[:H, :W]
+    arr = arr * (0.8 + 0.3 * grain[..., None])
+    chip = sstep(0.68, 0.72, fbm(512, (8, 16, 32), seed + 1)[:H, :W])
+    wood = np.dstack([0.45 + 0.1 * grain, 0.33 + 0.08 * grain, 0.2 + 0.05 * grain])
+    arr = arr * (1 - chip[..., None]) + wood * chip[..., None]
+    a = np.asarray(mask).astype(float) / 255
+    Image.fromarray((np.dstack([np.clip(arr, 0, 1), a]) * 255).astype(np.uint8), 'RGBA').save(os.path.join(OUT, name + '.png'))
+
+def bullseye(c, cx, cy, r):
+    for k, colr in enumerate([(240, 230, 210), (170, 25, 20), (240, 230, 210), (170, 25, 20)]):
+        rr = r * (1 - k * 0.25)
+        c.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], fill=colr)
+
+def clown_target(m, c):
+    # wild hair, round head, ruffle collar, body
+    for d in (m, c):
+        fill = 255 if d is m else (235, 225, 205)
+        d.ellipse([58, 40, 198, 180], fill=fill)
+        d.polygon([(40, 230), (216, 230), (236, 500), (20, 500)], fill=fill)
+    m.ellipse([20, 60, 90, 140], fill=255); m.ellipse([166, 60, 236, 140], fill=255)
+    c.ellipse([20, 60, 90, 140], fill=(190, 40, 30)); c.ellipse([166, 60, 236, 140], fill=(190, 40, 30))
+    m.ellipse([40, 175, 216, 245], fill=255)
+    c.ellipse([40, 175, 216, 245], fill=(210, 200, 180))
+    c.polygon([(40, 245), (216, 245), (236, 500), (20, 500)], fill=(150, 30, 25))
+    for y in (300, 360, 420):
+        c.ellipse([116, y, 140, y + 24], fill=(240, 220, 120))
+    c.ellipse([108, 100, 148, 140], fill=(200, 20, 15))              # nose
+    c.arc([80, 110, 176, 165], 10, 170, fill=(150, 10, 10), width=8)  # grin
+    c.line([(98, 80), (98, 98)], fill=(20, 20, 30), width=6); c.line([(158, 80), (158, 98)], fill=(20, 20, 30), width=6)
+    bullseye(c, 128, 360, 52)
+
+def soldier_target(m, c):
+    for d in (m, c):
+        fill = 255 if d is m else (80, 90, 70)
+        d.ellipse([78, 60, 178, 170], fill=fill)
+        d.polygon([(46, 50), (210, 50), (226, 96), (30, 96)], fill=fill)     # helmet brim
+        d.polygon([(40, 200), (216, 200), (240, 500), (16, 500)], fill=fill)
+        d.rectangle([108, 160, 148, 205], fill=fill)
+    c.polygon([(46, 50), (210, 50), (226, 96), (30, 96)], fill=(60, 66, 54))
+    c.ellipse([92, 100, 164, 160], fill=(150, 145, 130))               # gas mask
+    c.ellipse([100, 108, 122, 128], fill=(30, 30, 30)); c.ellipse([134, 108, 156, 128], fill=(30, 30, 30))
+    c.ellipse([116, 138, 140, 166], fill=(50, 50, 45))
+    bullseye(c, 128, 340, 56)
+
+def civilian_target(m, c):
+    # a little clown girl with a balloon: do not shoot
+    for d in (m, c):
+        fill = 255
+        if d is c:
+            fill = (245, 215, 225)
+        d.ellipse([88, 150, 168, 230], fill=fill)
+        d.polygon([(70, 240), (186, 240), (210, 470), (46, 470)], fill=fill)
+        d.line([(186, 250), (222, 60)], fill=fill, width=6)
+        d.ellipse([186, 10, 246, 80], fill=fill)
+    c.ellipse([186, 10, 246, 80], fill=(70, 150, 220))
+    c.polygon([(70, 240), (186, 240), (210, 470), (46, 470)], fill=(240, 170, 190))
+    for x in (100, 128, 156):
+        c.ellipse([x - 8, 300, x + 8, 316], fill=(255, 255, 255))
+    c.ellipse([120, 182, 136, 198], fill=(220, 40, 40))
+    c.arc([104, 190, 152, 218], 20, 160, fill=(150, 30, 40), width=4)
+    c.ellipse([104, 168, 114, 178], fill=(30, 30, 40)); c.ellipse([142, 168, 152, 178], fill=(30, 30, 40))
+    c.line([(70, 420), (186, 330)], fill=(200, 30, 20), width=12); c.line([(70, 330), (186, 420)], fill=(200, 30, 20), width=12)
+
+cutout('target_clown', clown_target, None, 70)
+cutout('target_soldier', soldier_target, None, 72)
+cutout('target_civilian', civilian_target, None, 74)
+
 # contact sheet
-names = ['planks', 'planks_dark', 'duckboard', 'mud', 'ground', 'sandbags', 'harlequin', 'canvas', 'concrete', 'metal', 'sunburst', 'crate', 'drum', 'pennant', 'camonet', 'poster', 'wall_conc', 'wall_low', 'floor_conc', 'harlequin_faded', 'door', 'sunburst_faded', 'timber', 'barrel_red', 'fx_fire', 'fx_smoke', 'fx_scorch']
-sheet = Image.new('RGB', (8 * 200, 3 * 200), (40, 40, 40))
+names = ['planks', 'planks_dark', 'duckboard', 'mud', 'ground', 'sandbags', 'harlequin', 'canvas', 'concrete', 'metal', 'sunburst', 'crate', 'drum', 'pennant', 'camonet', 'poster', 'wall_conc', 'wall_low', 'floor_conc', 'harlequin_faded', 'door', 'sunburst_faded', 'timber', 'barrel_red', 'fx_fire', 'fx_smoke', 'fx_scorch', 'target_clown', 'target_soldier', 'target_civilian']
+sheet = Image.new('RGB', (8 * 200, 4 * 200), (40, 40, 40))
 for i, n in enumerate(names):
     im = Image.open(os.path.join(OUT, n + '.png')).convert('RGBA').resize((200, 200))
     sheet.paste(im, ((i % 8) * 200, (i // 8) * 200), im)

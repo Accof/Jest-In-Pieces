@@ -42,7 +42,7 @@ func _run() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--only="):
 			only = a.trim_prefix("--only=")
-	for kind in ["mg_nest", "high_wire", "clown_car", "meat_locker"]:
+	for kind in ["mg_nest", "shooting_gallery", "card_game", "high_wire", "clown_car", "meat_locker"]:
 		if only != "" and kind != only:
 			continue
 		var d: EventDoor = doors[0] if not doors.is_empty() else null
@@ -58,6 +58,7 @@ func _run() -> void:
 		print("== %s: inside=%s, exit locked=%s, player at %s" % [kind, p.in_event, room.exit_door.locked, room.to_local(p.global_position).snapped(Vector3.ONE * 0.1)])
 		match kind:
 			"mg_nest": await _play_nest(room)
+			"shooting_gallery": await _play_gallery(room)
 			_: await _play_room(room, kind)
 		print("   finished=%s kills=%d tickets=%d health=%.0f exit locked=%s" % [room.done, room.kills, game.run_tickets, p.health, room.exit_door.locked])
 		await get_tree().create_timer(2.4).timeout
@@ -113,16 +114,53 @@ func _play_nest(room: MgNest) -> void:
 	await _shot("maxim_carried")
 
 
+func _play_gallery(room: ShootingGallery) -> void:
+	var w: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.PISTOL]
+	var t := 0.0
+	var cd := 0.0
+	var saved := 0
+	while not room.done and t < 60.0:
+		await get_tree().physics_frame
+		t += 1.0 / 60.0
+		cd -= 1.0 / 60.0
+		if cd > 0.0:
+			continue
+		var aim := Vector3.INF
+		for s: Array in room._soldiers:
+			var c: Clown = s[0]
+			if is_instance_valid(c) and not c.dead and c.crouch_amount < 0.3:
+				aim = c.ragdoll.bones[&"Neck"].global_position + Vector3.UP * 0.05
+		if aim == Vector3.INF:
+			for tg: GalleryTarget in room._targets:
+				if tg.state == 2 and tg.kind != "civilian":
+					aim = tg.to_global(Vector3(0, GalleryTarget.H * 0.78, 0))
+					break
+		if aim == Vector3.INF:
+			continue
+		cd = 0.3
+		p.camera.look_at(aim)
+		p.shoot_ray(p.camera.global_position, (aim - p.camera.global_position).normalized(), w, randi())
+		if render and saved == 0 and t > 8.0:
+			saved = 1
+			await _shot("shooting_gallery_1")
+	print("   gallery: score %d, soldier kills %d" % [room.score, room.kills])
+
+
 func _play_room(room: EventRoom, kind: String) -> void:
 	var t := 0.0
 	var w: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.SHOTGUN if kind == "clown_car" else FpsPlayer.PISTOL]
 	var cd := 0.0
 	var saved := 0
+	var shots_since_kill := 0
+	var last_kills := 0
 	if kind == "meat_locker":
 		# walk in among them
 		for f in 120:
 			p.global_position += Vector3(0, 0, -0.06).rotated(Vector3.UP, room.global_rotation.y)
 			await get_tree().physics_frame
+	if render and kind == "card_game":
+		p.camera.look_at(room.to_global(Vector3(0, 0.9, -2.5)))
+		await _shot("card_game_seated")
 	if render:
 		if kind == "high_wire":
 			p.camera.look_at(room.to_global(Vector3(0, HighWire.H, 0)))
@@ -141,7 +179,16 @@ func _play_room(room: EventRoom, kind: String) -> void:
 		if target == null:
 			continue
 		cd = 0.5 if kind == "high_wire" else 0.35
-		var aim: Vector3 = target.ragdoll.bones[&"Chest"].global_position
+		# a hanging body in the way: side-step, like a player would
+		shots_since_kill += 1
+		if room.kills != last_kills:
+			last_kills = room.kills
+			shots_since_kill = 0
+		if shots_since_kill > 8:
+			shots_since_kill = 0
+			p.global_position += p.global_basis.x * randf_range(-0.8, 0.8)
+		# in the meat locker the hanging bodies get in the way: go for the head
+		var aim: Vector3 = target.ragdoll.bones[&"Neck" if kind == "meat_locker" else &"Chest"].global_position
 		p.camera.look_at(aim)
 		var sid := randi()
 		for i in w.pellets:

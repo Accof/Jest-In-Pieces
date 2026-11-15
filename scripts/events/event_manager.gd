@@ -4,7 +4,7 @@ extends Node
 ## through (fade, into a pocket room built far from the level, door bolted),
 ## pays out when the room is done, and brings them back.
 
-const FEATURES := ["mg_nest"]                      # the big set-pieces, once a run each
+const FEATURES := ["mg_nest", "shooting_gallery", "card_game"]                      # the big set-pieces, once a run each
 const ODDITIES := ["high_wire", "clown_car", "meat_locker"]
 const POCKET := Vector3(4000, 0, 0)               # far from any level
 
@@ -46,7 +46,7 @@ func new_floor() -> void:
 	for d: EventDoor in doors:
 		var free := FEATURES.filter(func(f: String) -> bool: return not used_features.has(f))
 		if not feature_given and not free.is_empty():
-			d.set_kind(free[0])
+			d.set_kind(free.pick_random())
 			feature_given = true
 			continue
 		if odd.is_empty():
@@ -58,6 +58,8 @@ func new_floor() -> void:
 func make_room(kind: String) -> EventRoom:
 	match kind:
 		"mg_nest": return MgNest.new()
+		"shooting_gallery": return ShootingGallery.new()
+		"card_game": return CardGame.new()
 		"high_wire": return HighWire.new()
 		"clown_car": return ClownCar.new()
 		"meat_locker": return MeatLocker.new()

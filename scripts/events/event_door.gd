@@ -55,7 +55,7 @@ func _refresh() -> void:
 		c = Color(0.85, 0.15, 0.1) if locked else Color(0.25, 0.9, 0.3)
 	elif used:
 		c = Color(0.08, 0.08, 0.08)
-	elif kind != "mg_nest" and kind != "":
+	elif kind != "" and not (kind in EventManager.FEATURES):
 		c = Color(1.0, 0.6, 0.15)                     # amber: who knows
 	_sign_mat.albedo_color = c
 	_sign_mat.emission = c
