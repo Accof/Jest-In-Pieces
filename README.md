@@ -23,7 +23,8 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 
 ## The game
 
-- Each floor is a new funhouse maze. Kill every clown, then find the door (it turns green) to leave.
+- Each floor is a new maze of WW1 trenches and circus bunkers. The higher ground is open trench under a dusk sky (mud, duckboards, plank and sandbag walls, barbed wire, bunting); the lower ground is dug-in bunkers (harlequin and striped canvas walls, plank ceilings, lanterns). Every way down from a trench into a bunker is a dugout entrance with a timber frame and a clown's face over the door. Some bunker rooms are dormitories, messes or stores on painted sunburst floors.
+- Kill every clown, then find the door (it turns green) to leave.
 - After each floor you pick one of three upgrades. Floors get bigger, with more clowns and more gunmen.
 - Kills earn tickets (two for a headshot). When you die they are banked and can be spent on permanent perks on the menu.
 
@@ -51,10 +52,12 @@ Every body uses the same 21 bone names and 15 dismemberment segments, so the rag
 | `scripts/player/fps_player.gd` | Player, health and the two weapons |
 | `scripts/player/view_model.gd` | First-person hands and guns, recoil and reload animation |
 | `scripts/game/game.gd` | Run loop, floors, upgrades, perks, menu, saving |
-| `scripts/world/maze.gd` | Maze generator, stairs, pathfinding |
+| `scripts/world/maze.gd` | Maze generator, stairs, pathfinding, collision; `theme` picks trench or the old funhouse |
+| `scripts/world/level_art.gd` | The trench and bunker look: walls, floors, props, lanterns |
 | `scripts/clown/clown_brain.gd` | Clown AI: hunting, melee, gunmen |
 | `shaders/funhouse.gdshader` | Checker floors and striped walls |
 | `tools/gen_blood_textures.py` | Regenerates the splatter textures in `art/blood/` |
+| `tools/gen_level_textures.py` | Regenerates the level textures in `art/level/` (planks, mud, harlequin, poster...) |
 
 ## Tuning the feel
 
@@ -75,6 +78,7 @@ All of these are in `clown_ragdoll.gd`.
 - **WitzSoldat:** `helmet_pop_chance` in `clown.gd`; his rifle numbers are in `rifleman()` in `clown_brain.gd`; how many appear per floor is `soldier_share` in `game.gd`.
 - **How easily limbs come off:** `dismember_damage` on the clown, and `can_dismember` per weapon in `fps_player.gd`.
 - **What clowns notice** (in `clown_brain.gd`): `sight_range`, `sight_half_angle`, `hearing_cells` (how far a gunshot carries along the corridors), `witness_range` (how close a clown must be to notice another being shot), `give_up_after`.
+- **Level look:** in `maze.gd`, `theme` ("trench" or "funhouse"), `TRENCH_DEPTH` and `BUNKER_HEADROOM`. In `level_art.gd`, the chances in `_trench_wall_props`, `_dress_trench` and `_dress_bunker` set how much bunting, wire, posters and clutter appear; lantern brightness is the energy passed to `_lantern`. Sky, fog and the dusk light are in `_build_environment()` in `game.gd`.
 - **Blood budget:** `MAX_DECALS`, `MAX_POOLS`, `DRY_TIME` in `blood_manager.gd`.
 
 ## Checks
@@ -85,4 +89,5 @@ These run without opening the editor:
 godot --headless --fixed-fps 60 res://scenes/test_joints.tscn   # every joint driven to both ends of every axis
 godot --headless --fixed-fps 60 res://scenes/test_death.tscn    # timeline of each death reaction
 godot --headless --fixed-fps 60 res://scenes/test_game.tscn     # 40 mazes checked, then one pass round the game loop
+godot --path . res://scenes/render_level.tscn                  # saves views of a level to /tmp/lvl_*.png (needs a window)
 ```

@@ -16,8 +16,18 @@ const DIRS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), 
 const LAYER_WORLD := 1
 const LAYER_RAMP := 1 << 4   ## smooth ramps over the stairs, for the player only
 
+## "trench" (WW1 trenches and circus bunkers) or "funhouse" (the original look).
+var theme := "trench"
+## Cells at or above this height level are open-sky trench; below it, roofed bunker.
+var trench_level := 2
+## How deep the trenches are below the ground surface, at their highest.
+const TRENCH_DEPTH := 2.9
+## Bunker ceiling height above the highest floor it has to clear.
+const BUNKER_HEADROOM := 2.6
+
 var w := 6
 var d := 6
+var rooms: Array = []                   ## each an Array of 4 cells
 var level: PackedInt32Array            ## height level of each cell
 var links := {}                         ## "a|b" -> true for every open edge
 var start_cell := Vector2i.ZERO
@@ -90,7 +100,7 @@ func generate(width: int, depth: int, seed_value: int) -> void:
 			extra -= 1
 
 	# 3. A few open 2x2 rooms on one level.
-	var rooms: Array = []
+	rooms = []
 	for i in maxi(1, (w * d) / 18):
 		var c := Vector2i(rng.randi_range(0, w - 2), rng.randi_range(0, d - 2))
 		var cells: Array[Vector2i] = [c, c + Vector2i(1, 0), c + Vector2i(0, 1), c + Vector2i(1, 1)]
@@ -159,7 +169,22 @@ func generate(width: int, depth: int, seed_value: int) -> void:
 			_stair_at[id] = []
 		_stair_at[id].append(s)
 
-	# 6. Pathfinding graph, start and the farthest cell as the exit.
+	# 6. Split the floor into trench above and bunker below, as near half and
+	#    half as the heights allow. Every link between the zones changes level,
+	#    so every entrance from trench to bunker is a staircase.
+	var best := 99.0
+	for t in range(1, MAX_LEVEL + 1):
+		var n := 0
+		for i in level.size():
+			if level[i] >= t:
+				n += 1
+		var frac := float(n) / level.size()
+		var score := absf(frac - 0.5) + (1.0 if n == 0 or n == level.size() else 0.0)
+		if score < best:
+			best = score
+			trench_level = t
+
+	# 7. Pathfinding graph, start and the farthest cell as the exit.
 	_astar.clear()
 	for z in d:
 		for x in w:
@@ -195,6 +220,28 @@ func _all_reachable() -> bool:
 # --- queries ------------------------------------------------------------------
 func cell_of(pos: Vector3) -> Vector2i:
 	return Vector2i(clampi(int(floor(pos.x / CELL)), 0, w - 1), clampi(int(floor(pos.z / CELL)), 0, d - 1))
+
+
+func is_trench(c: Vector2i) -> bool:
+	return theme == "trench" and level[idx(c)] >= trench_level
+
+
+## Height of the ground surface (the top of every wall).
+func top_height() -> float:
+	var hi := 0
+	for v in level:
+		hi = maxi(hi, v)
+	return hi * LEVEL + TRENCH_DEPTH if theme == "trench" else MAX_LEVEL * LEVEL + HEADROOM
+
+
+## Bunker ceiling: clears its own floor and any floor it steps up to.
+func ceiling_height(c: Vector2i) -> float:
+	var hi := level[idx(c)]
+	for dir in DIRS:
+		var n := c + dir
+		if in_bounds(n) and linked(c, n):
+			hi = maxi(hi, level[idx(n)])
+	return hi * LEVEL + BUNKER_HEADROOM
 
 
 func cell_center(c: Vector2i) -> Vector3:
@@ -244,6 +291,93 @@ func cells_far_from(c: Vector2i, min_steps: int) -> Array[Vector2i]:
 func _build() -> void:
 	for n in get_children():
 		n.queue_free()
+	if theme == "trench":
+		_build_trench()
+	else:
+		_build_funhouse()
+
+
+## Collision for the trench theme; the look is built by LevelArt.
+func _build_trench() -> void:
+	var top := top_height()
+	var boxes: Array = []
+	for z in d:
+		for x in w:
+			var c := Vector2i(x, z)
+			var h := level[idx(c)] * LEVEL
+			boxes.append([Vector3((x + 0.5) * CELL, (h - 0.5) * 0.5, (z + 0.5) * CELL), Vector3(CELL, h + 0.5, CELL)])
+			for dir: Vector2i in [Vector2i(1, 0), Vector2i(0, 1)]:
+				var n := c + dir
+				if not in_bounds(n) or not linked(c, n):
+					var mid := Vector3((x + 0.5) * CELL, top * 0.5, (z + 0.5) * CELL) + Vector3(dir.x, 0, dir.y) * CELL * 0.5
+					var size := Vector3(WALL_T, top, CELL + WALL_T) if dir.x != 0 else Vector3(CELL + WALL_T, top, WALL_T)
+					boxes.append([mid, size])
+			if not is_trench(c):
+				# solid earth above the bunker ceiling
+				var ceil := ceiling_height(c)
+				boxes.append([Vector3((x + 0.5) * CELL, (ceil + top) * 0.5 + 0.0, (z + 0.5) * CELL), Vector3(CELL, top - ceil, CELL)])
+				# a lintel over every opening from this bunker cell out into a trench
+				for dir in DIRS:
+					var n := c + dir
+					if in_bounds(n) and linked(c, n) and is_trench(n):
+						var mid := Vector3((x + 0.5) * CELL, (ceil + top) * 0.5, (z + 0.5) * CELL) + Vector3(dir.x, 0, dir.y) * CELL * 0.5
+						var size := Vector3(WALL_T, top - ceil, CELL) if dir.x != 0 else Vector3(CELL, top - ceil, WALL_T)
+						boxes.append([mid, size])
+		boxes.append([Vector3(0, top * 0.5, (z + 0.5) * CELL), Vector3(WALL_T, top, CELL + WALL_T)])
+	for x in w:
+		boxes.append([Vector3((x + 0.5) * CELL, top * 0.5, 0), Vector3(CELL + WALL_T, top, WALL_T)])
+	_add_stairs(boxes)
+	var body := StaticBody3D.new()
+	body.collision_layer = LAYER_WORLD
+	body.collision_mask = 0
+	add_child(body)
+	for b: Array in boxes:
+		var cs := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = b[1]
+		cs.shape = shape
+		cs.position = b[0]
+		body.add_child(cs)
+	var art := LevelArt.new()
+	art.name = "Art"
+	add_child(art)
+	art.build(self)
+
+
+## Stair step boxes (added to `boxes`) and the smooth ramps the player walks on.
+func _add_stairs(boxes: Array) -> void:
+	var ramps := StaticBody3D.new()
+	ramps.collision_layer = LAYER_RAMP
+	ramps.collision_mask = 0
+	add_child(ramps)
+	var tread := STAIR_RUN / STEPS
+	var rise := LEVEL / STEPS
+	for s: Dictionary in stairs:
+		var base := level[idx(s.low)] * LEVEL
+		var dir := Vector3(s.dir.x, 0, s.dir.y)
+		var side := Vector3(dir.z, 0, -dir.x)
+		var edge := cell_center(s.low) + dir * CELL * 0.5
+		edge.y = base
+		for i in STEPS - 1:
+			var near := (STEPS - 1 - i) * tread
+			var centre := edge - dir * near * 0.5 + Vector3.UP * (i + 1) * rise * 0.5
+			var size := (dir.abs() * near + side.abs() * STAIR_WIDTH + Vector3.UP * (i + 1) * rise)
+			boxes.append([centre, size])
+		var cs := CollisionShape3D.new()
+		var slab := BoxShape3D.new()
+		var length := sqrt(STAIR_RUN * STAIR_RUN + LEVEL * LEVEL)
+		slab.size = Vector3(STAIR_WIDTH, 0.1, length)
+		cs.shape = slab
+		ramps.add_child(cs)
+		var mid := edge - dir * STAIR_RUN * 0.5 + Vector3.UP * LEVEL * 0.5
+		var slope := (dir * STAIR_RUN + Vector3.UP * LEVEL).normalized()
+		var up := side.cross(slope).normalized()
+		if up.y < 0.0:
+			up = -up
+		cs.transform = Transform3D(Basis(up.cross(slope).normalized(), up, slope), mid - up * 0.05)
+
+
+func _build_funhouse() -> void:
 	var top := MAX_LEVEL * LEVEL + HEADROOM
 	var boxes: Array = []           # [centre, size]
 	for z in d:

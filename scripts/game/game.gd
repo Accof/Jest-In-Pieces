@@ -258,20 +258,49 @@ func _buy_perk(i: int) -> void:
 
 # --- world dressing -------------------------------------------------------------
 func _build_environment() -> void:
+	# Overcast dusk over no man's land: a slate sky, a dim cold sun low behind
+	# the cloud, and smoky fog that swallows the far trenches.
+	var sky_mat := ProceduralSkyMaterial.new()
+	sky_mat.sky_top_color = Color(0.07, 0.075, 0.09)
+	sky_mat.sky_horizon_color = Color(0.32, 0.27, 0.25)
+	sky_mat.sky_curve = 0.12
+	sky_mat.ground_bottom_color = Color(0.04, 0.035, 0.03)
+	sky_mat.ground_horizon_color = Color(0.22, 0.18, 0.16)
+	sky_mat.sun_angle_max = 8.0
+	sky_mat.sky_energy_multiplier = 0.9
+	var sky := Sky.new()
+	sky.sky_material = sky_mat
 	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.0, 0.0, 0.0)
+	env.background_mode = Environment.BG_SKY
+	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.22, 0.18, 0.28)
-	env.ambient_light_energy = 0.35
+	env.ambient_light_color = Color(0.3, 0.32, 0.38)
+	env.ambient_light_energy = 0.42
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 1.1
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.05, 0.03, 0.07)
-	env.fog_density = 0.035
+	env.fog_light_color = Color(0.16, 0.14, 0.14)
+	env.fog_density = 0.028
+	env.fog_sky_affect = 0.35
 	env.ssao_enabled = true
+	env.glow_enabled = true
+	env.glow_intensity = 0.6
+	env.glow_bloom = 0.05
+	env.glow_hdr_threshold = 1.2
+	env.adjustment_enabled = true
+	env.adjustment_saturation = 0.85
+	env.adjustment_contrast = 1.08
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
+	var sun := DirectionalLight3D.new()
+	sun.light_color = Color(0.6, 0.63, 0.72)
+	sun.light_energy = 0.55
+	sun.shadow_enabled = true
+	sun.directional_shadow_max_distance = 40.0
+	sun.rotation = Vector3(deg_to_rad(-28.0), deg_to_rad(-140.0), 0.0)
+	add_child(sun)
 
 
 func _build_exit() -> void:
