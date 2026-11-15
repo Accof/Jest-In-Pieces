@@ -546,7 +546,10 @@ func break_knee(side: String, dir: Vector3 = Vector3.ZERO) -> void:
 	var pb: PhysicalBone3D = bones.get(name)
 	if pb == null:
 		return
-	var lims := {"x": [-55.0, 145.0], "y": [-35.0, 35.0], "z": [-45.0, 45.0]}
+	# Snapped: the shin is forced back past straight and out to the side, and
+	# held there (no muscle, so the joint limits alone decide where it sits).
+	var sd := 1.0 if side == "Left" else -1.0
+	var lims := {"x": [-62.0, -38.0], "y": [-12.0, 12.0], "z": [22.0 * sd, 40.0 * sd] if sd > 0.0 else [40.0 * sd, 22.0 * sd]}
 	for ax: String in lims:
 		var pre := "joint_constraints/%s/" % ax
 		pb.set(pre + "angular_limit_upper", -float(lims[ax][0]))

@@ -317,6 +317,7 @@ func _break_leg(side: String, at: Vector3, dir: Vector3) -> void:
 	broken_leg = side
 	Blood.spawn_hit(at, dir, 1.4)
 	gore.add_wound(StringName(side + "LowerLeg"), at, 40.0)
+	gore.show_broken_knee(side)
 	if dead:
 		if ragdoll.active:
 			ragdoll.break_knee(side, dir)
@@ -400,7 +401,7 @@ func _begin_getup() -> void:
 		var local: Transform3D = (g[p] as Transform3D).affine_inverse() * g[i] if p >= 0 else g[i]
 		_getup_from[i] = [local.basis.get_rotation_quaternion(), local.origin]
 	_getup_kneel = _capture_pose(_kneel_pose)
-	_getup_stand = _capture_pose(func() -> void: pass)
+	_getup_stand = _capture_pose(_broken_knee_pose)
 	_apply_pose(_getup_from, _getup_from, 0.0)
 	_down_stage = 1
 	_down_t = 0.0
@@ -421,6 +422,13 @@ func _capture_pose(pose: Callable) -> Dictionary:
 	return out
 
 
+## The snapped knee: shin bent back past straight and out to the side.
+func _broken_knee_pose() -> void:
+	var s := 1.0 if broken_leg == "Left" else -1.0
+	_turn(broken_leg + "LowerLeg", Vector3.RIGHT, deg_to_rad(-48.0))
+	_turn(broken_leg + "LowerLeg", Vector3.FORWARD, deg_to_rad(-30.0) * s)
+
+
 ## Down on the broken leg's knee, the good foot planted, a hand on the thigh.
 func _kneel_pose() -> void:
 	var sk := skeleton
@@ -429,8 +437,8 @@ func _kneel_pose() -> void:
 	var good := "Right" if broken_leg == "Left" else "Left"
 	_turn(good + "UpperLeg", Vector3.RIGHT, deg_to_rad(-80.0))
 	_turn(good + "LowerLeg", Vector3.RIGHT, deg_to_rad(85.0))
-	_turn(broken_leg + "UpperLeg", Vector3.RIGHT, deg_to_rad(5.0))
-	_turn(broken_leg + "LowerLeg", Vector3.RIGHT, deg_to_rad(95.0))
+	_turn(broken_leg + "UpperLeg", Vector3.RIGHT, deg_to_rad(35.0))
+	_broken_knee_pose()
 	_turn("Spine", Vector3.RIGHT, deg_to_rad(28.0))
 	_turn("Neck", Vector3.RIGHT, deg_to_rad(-20.0))
 
@@ -742,8 +750,7 @@ func _process(delta: float) -> void:
 	# A broken leg: knee bent the wrong way, and the body lurches down onto it.
 	if broken_leg != "":
 		var s := 1.0 if broken_leg == "Left" else -1.0
-		_turn(broken_leg + "LowerLeg", Vector3.FORWARD, deg_to_rad(24.0) * s)
-		_turn(broken_leg + "LowerLeg", Vector3.RIGHT, deg_to_rad(18.0))
+		_broken_knee_pose()
 		var on_bad := maxf(0.0, sin(walk_phase) * (-s)) * walk_amount
 		bob += on_bad * 0.09
 		_turn("Spine", Vector3.BACK, deg_to_rad(-10.0) * s * (0.4 + on_bad))

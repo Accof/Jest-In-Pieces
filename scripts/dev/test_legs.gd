@@ -73,6 +73,15 @@ func _run() -> void:
 		cam.look_at(c.global_position + Vector3.UP * 0.9)
 		await _shot("3_limp_%d" % k)
 	c.velocity = Vector3.ZERO
+	c.walk_amount = 0.0
+	await _frames(10)
+	var kp: Vector3 = c.skeleton.global_transform * c.skeleton.get_bone_global_pose(c.skeleton.find_bone("LeftLowerLeg")).origin
+	cam.global_position = kp + c.global_basis.z * 0.9 + c.global_basis.x * 0.5 + Vector3.UP * 0.25
+	cam.look_at(kp)
+	await _shot("5_knee_standing")
+	cam.global_position = kp - c.global_basis.x * 0.0 + c.global_basis.x * 1.1 + Vector3.UP * 0.3
+	cam.look_at(kp)
+	await _shot("6_knee_side")
 	# 3. shot again while limping: dies, with the knee bent wrong
 	var chest: Vector3 = c.ragdoll.bones[&"Chest"].global_position
 	for i in 4:
@@ -81,6 +90,10 @@ func _run() -> void:
 	var lo: PhysicalBone3D = c.ragdoll.bones[&"LeftLowerLeg"]
 	var up: PhysicalBone3D = c.ragdoll.bones[&"LeftUpperLeg"]
 	print("killed while limping: dead=%s; broken knee angle %.0f deg" % [c.dead, rad_to_deg(up.global_basis.y.angle_to(lo.global_basis.y))])
+	if render:
+		cam.global_position = lo.global_position + Vector3(0.6, 0.7, 0.6)
+		cam.look_at(lo.global_position + Vector3.UP * 0.1)
+		await _shot("7_knee_dead")
 	# 4. shotgun to the legs of five clowns: how many lose the leg, how many break it
 	var sg: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.SHOTGUN]
 	var lost := 0

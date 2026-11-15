@@ -515,6 +515,68 @@ func add_bleed(bone: StringName, world_pos: Vector3, amount: float) -> void:
 		_bleeds.append({bone = bone, local = pb.global_transform.affine_inverse() * world_pos, amount = amount, still = 0.0, pooled = false, drip = 0.0})
 
 
+## A smashed knee: the end of the thigh bone through the skin at the front,
+## the splintered top of the shin beside it, raw meat round both, and a hole
+## that keeps bleeding.
+func show_broken_knee(side: String) -> void:
+	var skel := clown.skeleton
+	var s := 1.0 if side == "Left" else -1.0
+	var knee: Vector3 = skel.get_bone_global_rest(skel.find_bone(side + "LowerLeg")).origin
+	for pair: Array in [[side + "UpperLeg", true], [side + "LowerLeg", false]]:
+		var att := BoneAttachment3D.new()
+		att.bone_name = pair[0]
+		skel.add_child(att)
+		var holder := Node3D.new()
+		att.add_child(holder)
+		holder.transform = skel.get_bone_global_rest(skel.find_bone(pair[0])).affine_inverse()
+		if pair[1]:
+			# femur end: driven forward and down out through the front of the knee
+			var p0 := knee + Vector3(s * 0.01, 0.07, -0.01)
+			var p1 := knee + Vector3(s * 0.025, -0.045, 0.17)
+			_part_between(holder, _mat("bone"), p0, p1, 0.036)
+			_part(holder, _blob_mesh(), _mat("bone"), p1, Vector3(0.03, 0.026, 0.03))           # the knuckle of it
+			for k in 3:
+				var q := p1 + Vector3(_rng.randf_range(-0.02, 0.02), _rng.randf_range(-0.02, 0.02), _rng.randf_range(0.0, 0.02))
+				_part_between(holder, _mat("bone"), q, q + Vector3(_rng.randf_range(-0.03, 0.03), _rng.randf_range(-0.04, 0.02), _rng.randf_range(0.02, 0.05)), 0.008)
+			_part(holder, _blob_mesh(), _mat("meat"), knee + Vector3(s * 0.015, 0.0, 0.085), Vector3(0.05, 0.05, 0.04))
+			_part(holder, _blob_mesh(), _mat("meat"), p1 + Vector3(0, 0.01, -0.03), Vector3(0.03, 0.03, 0.03))
+		else:
+			# shin top: snapped, splintered, out through the side
+			var p0 := knee + Vector3(s * 0.03, -0.1, 0.0)
+			var p1 := knee + Vector3(s * 0.14, -0.02, 0.07)
+			_part_between(holder, _mat("bone"), p0, p1, 0.028)
+			for k in 2:
+				_part_between(holder, _mat("bone"), p1, p1 + Vector3(s * _rng.randf_range(0.01, 0.04), _rng.randf_range(-0.02, 0.04), _rng.randf_range(-0.02, 0.03)), 0.007)
+			_part(holder, _blob_mesh(), _mat("meat"), knee + Vector3(s * 0.07, -0.06, 0.03), Vector3(0.045, 0.05, 0.04))
+
+	# the skin torn open round it, and blood that keeps coming
+	var bi := skel.find_bone(side + "LowerLeg")
+	var world := skel.global_transform * clown.ragdoll.bone_pose(bi) * skel.get_bone_global_rest(bi).affine_inverse()
+	var front := world * (knee + Vector3(s * 0.02, 0.0, 0.06))
+	_add_wound_entry(StringName(side + "LowerLeg"), front, 0.075, 0.03, 0.035)
+	_add_wound_entry(StringName(side + "LowerLeg"), world * (knee + Vector3(s * 0.065, -0.05, 0.02)), 0.05, 0.02, 0.02)
+	add_bleed(StringName(side + "LowerLeg"), front, 1.3)
+	Blood.spawn_hit(front, (world.basis * Vector3(0, 0.3, 1)).normalized(), 1.6)
+	set_process(true)
+	set_physics_process(true)
+	_bleeding = true
+
+
+## A length of bone running from `a` to `b` (rest space of the holder).
+func _part_between(parent: Node3D, mat: Material, a: Vector3, b: Vector3, thick: float) -> void:
+	var mi := MeshInstance3D.new()
+	mi.mesh = _box_mesh()
+	mi.material_override = mat
+	mi.layers = 2
+	var y := (b - a)
+	var len := y.length()
+	y = y.normalized()
+	var x := y.cross(Vector3.FORWARD if absf(y.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT).normalized()
+	var z := x.cross(y)
+	mi.transform = Transform3D(Basis(x * thick, y * len, z * thick * 0.85), (a + b) * 0.5)
+	parent.add_child(mi)
+
+
 func segment_of(bone: StringName) -> StringName:
 	return &"Head" if bone == &"Neck" else bone
 
