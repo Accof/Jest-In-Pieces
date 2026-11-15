@@ -24,6 +24,12 @@ const int MAX_WOUNDS = 16;
 uniform int wound_count = 0;
 uniform vec4 wounds[MAX_WOUNDS];    // xyz = rest-space position, w = radius (m)
 uniform vec4 wound_fx[MAX_WOUNDS];  // x = dent depth (m), y = soak 0..1, z = seed, w = blown-out hole radius (m)
+// Holes punched clean through the body (a shotgun at point blank): a ragged
+// tunnel along the shot, so you can see out the other side.
+const int MAX_TUNNELS = 4;
+uniform int tunnel_count = 0;
+uniform vec4 tunnels[MAX_TUNNELS];      // xyz = rest-space point on the line, w = radius (m)
+uniform vec4 tunnel_dirs[MAX_TUNNELS];  // xyz = rest-space direction, w = how far along it the hole reaches either way
 uniform vec3 blood_color : source_color = vec3(0.25, 0.012, 0.016);
 uniform vec3 hole_color : source_color = vec3(0.035, 0.0, 0.002);
 uniform vec3 meat_color : source_color = vec3(0.42, 0.035, 0.04);
@@ -79,6 +85,24 @@ void fragment() {
 	float blood = 0.0;
 	float hole = 0.0;
 	float torn = 0.0;       // ragged meat around a blown-out hole
+	for (int i = 0; i < tunnel_count; i++) {
+		vec3 d = rest_pos - tunnels[i].xyz;
+		vec3 ax = tunnel_dirs[i].xyz;
+		float along = dot(d, ax);
+		if (abs(along) > tunnel_dirs[i].w) {
+			continue;
+		}
+		float r = tunnels[i].w;
+		float off = length(d - ax * along);
+		float n = noise3(rest_pos * 38.0 + float(i) * 7.3);
+		float n2 = noise3(rest_pos * 120.0 + float(i) * 3.1);
+		// ragged: the edge wanders, and the exit side is torn wider than the entry
+		float ragged = off + (n - 0.5) * r * 0.55 + (n2 - 0.5) * r * 0.25 - max(along, 0.0) * 0.25;
+		if (ragged < r) {
+			discard;
+		}
+		torn = max(torn, 1.0 - smoothstep(r, r * 1.6, ragged));
+	}
 	for (int i = 0; i < wound_count; i++) {
 		vec3 d = rest_pos - wounds[i].xyz;
 		float r = wounds[i].w;

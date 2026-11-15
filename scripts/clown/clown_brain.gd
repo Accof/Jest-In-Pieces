@@ -13,7 +13,7 @@ const LAYER_WORLD := 1
 @export var run_rest := 1.4
 ## Range a gunman tries to hold.
 @export var keep_distance := 6.5
-@export var weave_rate := 3.2
+@export var weave_rate := 2.0
 @export var melee_range := 1.35
 @export var melee_damage := 10.0
 @export var gun_damage := 7.0
@@ -55,6 +55,7 @@ var _notice := 0.0              # builds while the player is in view
 var _react := 0.0               # startled pause before it gets moving
 var _strafe_dir := 1.0
 var _strafe_left := 0.0
+var _strafe_vel := Vector3.ZERO     # eased, so a side-step starts and stops like a person
 var _burst := 0.0
 var _weave := 0.0
 var _weave_offset := randf() * TAU
@@ -266,8 +267,8 @@ func _physics_process(delta: float) -> void:
 					_find_cover()
 		_strafe_left -= delta
 		if _strafe_left <= 0.0:
-			_strafe_left = randf_range(0.7, 1.6)
-			_strafe_dir = [-1.0, 1.0, 1.0, -1.0, 0.0].pick_random()
+			_strafe_left = randf_range(1.4, 3.0)
+			_strafe_dir = [-1.0, 1.0, 0.0, 0.0].pick_random()
 		var toward := flat.normalized()
 		var side := Vector3(toward.z, 0, -toward.x) * _strafe_dir
 		var want := side
@@ -278,7 +279,9 @@ func _physics_process(delta: float) -> void:
 		if want.length() > 0.05 and not _free(want):
 			_strafe_dir = -_strafe_dir                          # wall or ledge: go the other way
 			want = Vector3.ZERO
-		var gvel := want * move_speed * 0.85
+		var gvel := want * move_speed * 0.42
+		_strafe_vel = _strafe_vel.move_toward(gvel, delta * 2.5)
+		gvel = _strafe_vel
 		_step(gvel, delta)
 		clown.run_amount = move_toward(clown.run_amount, 0.0, delta * 3.0)
 		clown.walk_amount = move_toward(clown.walk_amount, clampf(gvel.length() / move_speed, 0.0, 1.0), delta * 5.0)
@@ -312,7 +315,7 @@ func _physics_process(delta: float) -> void:
 	# A melee clown charging down a straight line of fire jinks from side to side.
 	if running and seen and not clown.has_gun and dist > 3.0:
 		_weave += delta
-		var jink := Vector3(move.z, 0, -move.x) * sin(_weave * weave_rate + _weave_offset) * 0.75
+		var jink := Vector3(move.z, 0, -move.x) * sin(_weave * weave_rate + _weave_offset) * 0.35
 		if _free(jink.normalized()):
 			move = (move + jink).normalized()
 	# Keep a little room between clowns so they do not merge in a corridor.

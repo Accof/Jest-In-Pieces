@@ -142,6 +142,12 @@ func hit(info: Dictionary) -> void:
 			if total >= blast_damage and not _shot_blasted.has(seg):
 				_shot_blasted[seg] = true
 				gore.blast(bone, info.position, dir, clampf(0.07 + total * 0.0006, 0.08, 0.13))
+			# Point blank, most of the charge in the chest or belly: it goes
+			# straight through and leaves a hole you can see through.
+			if zone != &"Hips" and info.get("weapon", "") == "Shotgun" and float(info.get("dist", 99.0)) < punch_range \
+					and total >= punch_damage and not _shot_blasted.has(&"through"):
+				_shot_blasted[&"through"] = true
+				gore.punch_through(bone, info.position, dir, punch_radius)
 		elif zone == &"Neck":
 			if total >= dismember_damage and gore.can_sever(bone) and (_head_open or randf() < 0.5) and not _shot_blasted.has(&"off"):
 				severed = true
@@ -300,6 +306,11 @@ func _wear(zone: StringName, bone: StringName, at: Vector3, dir: Vector3, raw: f
 @export var knee_damage := 28.0
 ## Chance a shotgun blast that would take a leg off does so; otherwise it breaks it.
 @export var leg_off_chance := 0.25
+## A shotgun inside this range (m) that puts at least `punch_damage` into the
+## chest or belly in one blast punches a hole clean through (radius in m).
+@export var punch_range := 3.0
+@export var punch_damage := 95.0
+@export var punch_radius := 0.085
 const KNEE_RADIUS := 0.17
 var _leg_dmg := {}
 var _down_t := 0.0
@@ -728,10 +739,10 @@ func _process(delta: float) -> void:
 	var bob := 0.0
 	if walk_amount > 0.01:
 		var sw := sin(walk_phase)
-		var stride := lerpf(30.0, 50.0, run_amount) * clampf(fwd_amt + 0.25, 0.0, 1.0)
-		var knee := lerpf(40.0, 85.0, run_amount)
+		var stride := lerpf(30.0, 44.0 if has_rifle else 50.0, run_amount) * clampf(fwd_amt + 0.25, 0.0, 1.0)
+		var knee := lerpf(40.0, 62.0 if has_rifle else 85.0, run_amount)
 		var arm := lerpf(22.0, 48.0, run_amount)
-		_turn("Spine", Vector3.RIGHT, deg_to_rad(lerpf(7.0, 20.0, run_amount)) * walk_amount * fwd_amt * back)
+		_turn("Spine", Vector3.RIGHT, deg_to_rad(lerpf(5.0, 9.0 if has_rifle else 20.0, run_amount)) * walk_amount * fwd_amt * back)
 		_turn("Spine", Vector3.BACK, deg_to_rad(3.0) * sw * walk_amount)
 		var legs := {"Left": 1.0, "Right": -1.0}
 		for side: String in legs:
@@ -822,20 +833,29 @@ func _hold_rifle() -> void:
 			dir = Vector3.BACK                   # not facing it yet: hold straight ahead
 		dir.y = clampf(dir.y, -0.6, 0.6)
 		dir = dir.normalized()
-	var aim_xf := Transform3D(_basis_along(dir), eye + Vector3.DOWN * 0.075 - dir * 0.27)
+	var aim_xf := Transform3D(_basis_along(dir), eye + Vector3.DOWN * 0.075 - dir * 0.22)
 	var hips := sk.get_bone_global_pose(sk.find_bone("Hips")).origin
-	var carry_dir := Vector3(0.55, 0.82, 0.18).normalized()
-	var carry_xf := Transform3D(_basis_along(carry_dir, Vector3.BACK), hips + Vector3(-0.17, -0.05, 0.2))
+	# Port arms, held in close, and it moves: it swings a little with each
+	# stride and rides up and forward when running.
+	var sw := sin(walk_phase) * walk_amount
+	var carry_dir := Vector3(0.5 + 0.06 * sw, 0.84, 0.22 + 0.12 * run_amount).normalized()
+	var carry_at := hips + Vector3(-0.12 + 0.02 * sw, 0.08 + 0.04 * run_amount, 0.24 + 0.05 * run_amount)
+	var carry_xf := Transform3D(_basis_along(carry_dir, Vector3.BACK), carry_at)
 	var xf := carry_xf.interpolate_with(aim_xf, a * a * (3.0 - 2.0 * a))
+	# a bayonet thrust when it attacks: level, driven forward from the hip
+	if attack_amount > 0.01:
+		var lunge := Transform3D(_basis_along(Vector3(0, 0.12, 1).normalized()), hips + Vector3(-0.08, 0.34, 0.12 + 0.22 * attack_amount))
+		xf = xf.interpolate_with(lunge, smoothstep(0.0, 0.6, attack_amount))
 	var chest := sk.get_bone_global_pose(sk.find_bone("Chest"))
 	_rifle.transform = chest.affine_inverse() * xf
-	# hands: right on the wrist of the stock, left under the fore-end
+	# hands: right on the wrist of the stock, left under the fore-end, close
+	# enough that the elbows stay bent
 	var grip := xf * Vector3(0.0, -0.045, 0.2)
-	var fore := xf * Vector3(0.0, -0.035, 0.56)
+	var fore := xf * Vector3(0.0, -0.035, 0.44)
 	var rs := sk.get_bone_global_pose(sk.find_bone("RightUpperArm")).origin
 	var ls := sk.get_bone_global_pose(sk.find_bone("LeftUpperArm")).origin
-	reach("Right", grip, rs + Vector3(-0.45, -0.5, -0.15))
-	reach("Left", fore, ls + Vector3(0.1, -0.6, 0.05))
+	reach("Right", grip, rs + Vector3(-0.45, -0.55, -0.1))
+	reach("Left", fore, ls + Vector3(0.2, -0.65, 0.0))
 	point_bone("RightHand", xf.basis.z)
 	point_bone("LeftHand", xf.basis.z)
 

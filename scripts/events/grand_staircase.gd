@@ -76,10 +76,16 @@ func _stairs() -> void:
 		nose.material_override = LevelArt._mat("brass")
 		nose.position = Vector3(0, top + 0.005, z0 + 0.025)
 		add_child(nose)
-	# a smooth ramp over the steps for the player only (bodies get the edges)
-	var a := Vector3(0, 0.05, BOTTOM_Z - 0.1)
-	var b := Vector3(0, TOP - 0.1, 0.0)
-	beam(a, b, Vector2(HALF_W * 2.0, 0.2), "", true, FpsPlayer.LAYER_RAMP)
+	# A smooth ramp over the steps for the player only (bodies get the edges).
+	# Its top face runs exactly over the step nosings, from the foyer floor in
+	# front of the first step to the top tread, so no edge sticks up
+	# through it (it used to sag below the upper steps, which caught your feet).
+	var slope := RISE / RUN
+	var lo := Vector3(0, 0.0, BOTTOM_Z - RUN)                 # the line y = (z - lo.z) * slope
+	var hi := Vector3(0, TOP, -RUN)                            # the top tread, level with the landing
+	var up := Vector3(0, 1.0, -slope).normalized()
+	var thick := 0.3
+	beam(lo - up * (thick * 0.5 - 0.02), hi - up * (thick * 0.5 - 0.02), Vector2(HALF_W * 2.0, thick), "", true, FpsPlayer.LAYER_RAMP)
 	# banisters: posts, a rail just under hip height (bodies go over it now and then)
 	for sd: float in [-1.0, 1.0]:
 		var x := sd * (HALF_W + 0.1)

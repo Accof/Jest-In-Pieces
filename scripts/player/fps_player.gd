@@ -14,6 +14,10 @@ const WEAPONS := [
 	{name = "SMG", damage = 21.0, pellets = 1, spread = 1.8, impulse = 8.0, heavy = false, can_dismember = false, cooldown = 0.085, falloff = 28.0, mag = 32},
 	{name = "Stake Gun", damage = 500.0, pellets = 1, spread = 0.0, impulse = 2.0, heavy = true, can_dismember = false, cooldown = 0.5, falloff = 100.0, mag = 1, projectile = true},
 	{name = "Maxim", damage = 60.0, pellets = 1, spread = 2.4, impulse = 22.0, heavy = true, can_dismember = true, cooldown = 0.11, falloff = 80.0, mag = 250, belt = true},
+	# A WW1 bolt-action service rifle: one heavy round per pull of the bolt,
+	# and it carries on through: up to four bodies in a line, losing 15% of
+	# its punch in each.
+	{name = "Rifle", damage = 180.0, pellets = 1, spread = 0.0, impulse = 20.0, heavy = true, can_dismember = false, cooldown = 1.1, falloff = 220.0, mag = 5, pierce = 4},
 ]
 ## The machine gun on its mount in the nest: same rounds, steadier.
 const MOUNTED_MG := {name = "Maxim", damage = 60.0, pellets = 1, spread = 1.1, impulse = 22.0, heavy = true, can_dismember = true, cooldown = 0.11, falloff = 120.0, mag = 0}
@@ -22,11 +26,14 @@ const SHOTGUN := 1
 const SMG := 2
 const STAKE := 3
 const MAXIM := 4
+const RIFLE := 5
 
 ## Testing aid: take no damage. Kept for the whole session, across runs.
 static var god_mode := false
 
 signal reset_requested
+## A rifle round went through more than one body (how many it hit).
+signal pierced(count: int)
 signal health_changed(health: float, max_health: float)
 signal died
 signal fired(weapon: int)
@@ -48,7 +55,7 @@ var health := 100.0
 var dead := false
 var weapon := 0
 ## Rounds loaded in each gun. Spare ammunition is unlimited for now.
-var ammo: Array[int] = [17, 6, 32, 1, 0]
+var ammo: Array[int] = [17, 6, 32, 1, 0, 5]
 ## Inside an event room (gunshots are not heard in the level).
 var in_event := false
 ## The mounted gun the player is behind, if any.
@@ -159,6 +166,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_5:
 				if ammo[MAXIM] > 0:
 					select_weapon(MAXIM)
+			KEY_6: select_weapon(RIFLE)
 			KEY_E: _use()
 			KEY_G:
 				god_mode = not god_mode
@@ -242,6 +250,8 @@ func reload() -> void:
 		_reload_left = ViewModel.SMG_SEAT
 	elif weapon == STAKE:
 		_reload_left = ViewModel.STAKE_SEAT
+	elif weapon == RIFLE:
+		_reload_left = ViewModel.RIFLE_SEAT
 	else:
 		_shell_left = ViewModel.SHELL_INTRO + ViewModel.SHELL_TIME * 0.85
 
@@ -254,7 +264,7 @@ func _tick_reload(delta: float) -> void:
 				ammo[weapon] = WEAPONS[weapon].mag
 				ammo_changed.emit()
 				_update_label()
-		var total := ViewModel.PISTOL_RELOAD if weapon == PISTOL else (ViewModel.SMG_RELOAD if weapon == SMG else ViewModel.STAKE_RELOAD)
+		var total: float = {PISTOL: ViewModel.PISTOL_RELOAD, SMG: ViewModel.SMG_RELOAD, STAKE: ViewModel.STAKE_RELOAD, RIFLE: ViewModel.RIFLE_RELOAD}.get(weapon, ViewModel.STAKE_RELOAD)
 		if view.reloading() and view._reload_t >= total:
 			view.stop_reload()
 			view.slide_locked = false
@@ -338,16 +348,61 @@ func shoot_ray(from: Vector3, dir: Vector3, w: Dictionary, shot_id: int, also_ig
 		c.shot(hit.position, dir, w.damage * stats.damage)
 		return hit
 	if c is PhysicalBone3D and c.has_meta(&"clown"):
-		var dist: float = from.distance_to(hit.position)
-		var scale := clampf(1.0 - maxf(dist - w.falloff * 0.4, 0.0) / w.falloff, 0.2, 1.0)
-		(c.get_meta(&"clown") as Clown).hit({
-			collider = c, position = hit.position, direction = dir,
-			damage = w.damage * scale * stats.damage, impulse = w.impulse * scale,
-			heavy = w.heavy and scale > 0.5,
-			can_dismember = (w.can_dismember or (stats.pistol_dismember and w.name == "Pistol")) and scale > 0.6,
-			shot_id = shot_id, blood = stats.blood,
-		})
+		_hit_clown(c, hit.position, from, from.distance_to(hit.position), dir, w, shot_id, 1.0)
+		var pierce: int = w.get("pierce", 0)
+		if pierce > 0:
+			_pierce(c.get_meta(&"clown"), hit.position, from, dir, w, shot_id, pierce, ex)
 	return hit
+
+
+func _hit_clown(c: PhysicalBone3D, at: Vector3, from: Vector3, dist: float, dir: Vector3, w: Dictionary, shot_id: int, mult: float) -> void:
+	var scale := clampf(1.0 - maxf(dist - w.falloff * 0.4, 0.0) / w.falloff, 0.2, 1.0) * mult
+	(c.get_meta(&"clown") as Clown).hit({
+		collider = c, position = at, direction = dir,
+		damage = w.damage * scale * stats.damage, impulse = w.impulse * scale,
+		heavy = w.heavy and scale > 0.5,
+		can_dismember = (w.can_dismember or (stats.pistol_dismember and w.name == "Pistol")) and scale > 0.6,
+		shot_id = shot_id, blood = stats.blood, dist = dist, weapon = w.name,
+	})
+
+
+## A round that goes on through: out the back of this one (blood and all),
+## into whoever is behind, up to `left` more bodies or a wall.
+func _pierce(first: Clown, at: Vector3, origin: Vector3, dir: Vector3, w: Dictionary, shot_id: int, left: int, ex: Array[RID]) -> void:
+	var ss := get_world_3d().direct_space_state
+	var victim := first
+	var pos := at
+	var mult := 1.0
+	var through := 0
+	while left > 0 and victim:
+		for pb: PhysicalBone3D in victim.ragdoll.bones.values():
+			ex.append(pb.get_rid())
+		# where it comes out of this body: the far side along the line
+		var out := pos + dir * 0.3
+		var back := PhysicsRayQueryParameters3D.create(pos + dir * 0.7, pos, LAYER_RAGDOLL)
+		back.exclude = [get_rid()]
+		var exit_hit := ss.intersect_ray(back)
+		if not exit_hit.is_empty() and exit_hit.collider is PhysicalBone3D and exit_hit.collider.get_meta(&"clown", null) == victim:
+			out = exit_hit.position
+		Blood.spawn_hit(out, dir, 1.3 * stats.blood)
+		mult *= 0.85
+		left -= 1
+		var q := PhysicsRayQueryParameters3D.create(out, out + dir * 120.0, LAYER_WORLD | LAYER_RAGDOLL)
+		q.exclude = ex
+		var h := ss.intersect_ray(q)
+		victim = null
+		if h.is_empty():
+			break
+		var c: Object = h.collider
+		if c is PhysicalBone3D and c.has_meta(&"clown"):
+			through += 1
+			_hit_clown(c, h.position, origin, origin.distance_to(h.position), dir, w, shot_id + 1000 * through, mult)
+			victim = c.get_meta(&"clown")
+			pos = h.position
+		elif c.has_method("shot"):
+			c.shot(h.position, dir, w.damage * mult * stats.damage)
+	if through > 0:
+		pierced.emit(through + 1)
 
 
 ## [E]: open a door, take a mounted gun, whatever is in front of you.
@@ -444,4 +499,4 @@ func heal(amount: float) -> void:
 
 
 func _update_label() -> void:
-	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [F] light  [G] god mode%s  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else ""]
+	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [F] light  [G] god mode%s  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else ""]

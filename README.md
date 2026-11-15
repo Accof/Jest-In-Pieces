@@ -18,6 +18,7 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 | 1 / 2 / 3 / 4 | Pistol / shotgun / submachine gun / stake gun |
 | E | Use: open a steel door, man a mounted gun, rip it off its mount |
 | 5 | The Maxim, once you have torn it off its mount |
+| 6 | Bolt-action rifle |
 | G | God mode on/off (take no damage; for testing, stays on across runs until you turn it off or quit the game) |
 | F | Flashlight |
 | Enter | Start a run, or leave the death screen |
@@ -47,6 +48,14 @@ Every steel door in the bunkers (up to four a floor) leads somewhere. A red sign
 
 Key 4. A compressed-air launcher that fires one iron-tipped stake. It goes straight through any clown (always a kill), carries the body with it and nails it to the next wall, where it hangs; with no wall within about 9 m the stake stays in the body and it drops. Reloading is slow (2.9 s: fetch a stake, lay it on the rail, three strokes of the pump while the gauge climbs) and starts by itself after each shot. A stake into a fuel drum sets it off.
 
+## Bolt-action rifle
+
+Key 6. A WW1 service rifle: five rounds, one shot per pull of the bolt (you see the right hand go up to it after every shot, about a second), reloaded from a stripper clip thumbed into the open breech (2.5 s). Each round is 180 damage and carries on through: it comes out the back of the first body with a spray of blood and goes into whoever is behind, up to four more, losing 15% each time. Line them up in a corridor. Tuning: `pierce` and `damage` in the Rifle entry of `WEAPONS` in `fps_player.gd`.
+
+## Point-blank shotgun
+
+Inside 3 m, a shotgun blast that puts most of its charge into the chest or belly (95 damage or more on that part) goes straight through and leaves a ragged hole you can see daylight through, front to back. What was inside in the way goes with it (the ribs and guts show round the rim), and it all comes out the back in a spray of blood and meat. Tuning: `punch_range`, `punch_damage` and `punch_radius` on the clown. The hole is a tunnel along the shot drawn by the body shader (`tunnels` in `clown_body.gdshader`), up to four per body.
+
 ## Broken legs
 
 A round in the knee (28 damage or more, within 17 cm of the joint), or enough rounds in one leg, breaks it. A living clown or WitzSoldat drops, writhes on the floor clutching the knee for a few seconds, gets up on one knee and then stands, and comes after you limping: slow, no running, the knee bent the wrong way and the body lurching down onto it every step. Shoot it again and it dies with that knee flopping wrong.
@@ -59,7 +68,7 @@ Pistol and SMG rounds wear a body down. Enough of them into one part, alive or d
 
 ## WitzSoldat
 
-Carries the rifle across the chest at port arms with both hands on it, and shoulders it to aim: butt in the shoulder, cheek down on the stock, sights to the eye, both hands placed by a two-bone reach every frame. Its steps follow how fast and which way it is really moving (backing off steps backwards, sidestepping steps sideways) and the body dips onto each foot.
+Carries the rifle across the chest at port arms with both hands on it, held in close with the elbows bent; it swings a little with each stride and rides up when running. Shoulders it to aim: butt in the shoulder, cheek down on the stock, sights to the eye, both hands placed by a two-bone reach every frame. Up close it drives the bayonet forward from the hip. It runs upright (a soldier's run, not a crouched sprint). Its steps follow how fast and which way it is really moving (backing off steps backwards, sidestepping steps sideways) and the body dips onto each foot. Lining up a shot in the open it side-steps slowly and smoothly, pausing now and then.
 
 It fights from cover: after a shot in the open it looks within two corridor cells for a spot the player cannot see a crouched head at, with a firing spot a step away. It runs there, crouches (working the bolt), steps out, aims, fires once and ducks back. It gives the cover up if the player gets within 4 m or can see the hiding place.
 
@@ -152,5 +161,9 @@ godot --headless --fixed-fps 60 res://scenes/test_cover.tscn    # a WitzSoldat i
 godot --headless --fixed-fps 60 res://scenes/test_stake.tscn    # a clown staked to the wall; pistol rounds wearing a head and a chest open
 godot --headless --fixed-fps 60 res://scenes/test_smg.tscn      # SMG rate of fire, kill, reload; god mode
 godot --headless --fixed-fps 60 res://scenes/test_blast.tscn    # a drum among clowns at set distances: gore, throw, the crawler
+godot --headless --fixed-fps 60 res://scenes/test_rifle.tscn    # one rifle round through four clowns in a line; bolt; reload (--render for images)
+godot --headless --fixed-fps 60 res://scenes/test_stairs_walk.tscn  # walks the player down the Grand Staircase and back up, five lanes
+godot --path . res://scenes/test_punch.tscn                    # point-blank shotgun hole: renders /tmp/punch_*.png (needs a window)
+godot --path . res://scenes/test_soldier_pose.tscn             # WitzSoldat stand/walk/run/aim/thrust from the side, /tmp/pose_*.png (needs a window)
 godot --path . res://scenes/render_level.tscn                  # saves views of a level to /tmp/lvl_*.png (needs a window)
 ```

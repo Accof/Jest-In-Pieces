@@ -26,6 +26,8 @@ var _wound_fx: Array[Vector4] = []
 var _wound_age: Array[float] = []
 var _bleeds: Array = []         # {bone, local, amount, still, pooled, drip}
 var _spurts: Array = []         # {bone, local, dir, left, next}
+var _tunnels: Array[Vector4] = []      # rest-space point + radius
+var _tunnel_dirs: Array[Vector4] = []  # rest-space direction + reach
 var _innards := {}              # region -> Node3D of exposed insides, shown once blown open
 var _gutted := false
 var _smear_last := {}           # bone -> last point smeared on a wall
@@ -88,6 +90,58 @@ func _add_wound_entry(bone: StringName, world_pos: Vector3, radius: float, depth
 	_wound_fx.append(Vector4(depth, 0.0, _rng.randf() * 40.0, hole))
 	_wound_age.append(0.0)
 	_push_wounds()
+
+
+# --- a hole clean through ------------------------------------------------------------
+## A shotgun at point blank: the charge goes through as one, and leaves a
+## ragged hole right through the body that you can see daylight through.
+## `dir` is the way the shot was travelling. Returns false if it has no room.
+func punch_through(bone: StringName, world_pos: Vector3, dir: Vector3, radius: float) -> bool:
+	if _tunnels.size() >= 4:
+		return false
+	var skel := clown.skeleton
+	var idx := skel.find_bone(bone)
+	var in_skel := skel.global_transform.affine_inverse() * world_pos
+	var back := skel.get_bone_global_rest(idx) * clown.ragdoll.bone_pose(idx).affine_inverse()
+	var rest_pos := back * in_skel
+	var rest_dir := (back.basis * (skel.global_transform.basis.inverse() * dir)).normalized()
+	_tunnels.append(Vector4(rest_pos.x, rest_pos.y, rest_pos.z, radius))
+	_tunnel_dirs.append(Vector4(rest_dir.x, rest_dir.y, rest_dir.z, 0.32))
+	for sm in _materials:
+		var t := _tunnels.duplicate()
+		var td := _tunnel_dirs.duplicate()
+		while t.size() < 4:
+			t.append(Vector4.ZERO)
+			td.append(Vector4.ZERO)
+		sm.set_shader_parameter("tunnel_count", _tunnels.size())
+		sm.set_shader_parameter("tunnels", t)
+		sm.set_shader_parameter("tunnel_dirs", td)
+	# What was in the way inside goes too: the insides show round the rim,
+	# but the middle is gone.
+	var region := &"chest" if bone == &"Chest" else &"belly"
+	_show_innards(region)
+	var holder: Node3D = _innards[region]
+	for part in holder.get_children():
+		var d: Vector3 = (part as Node3D).position - rest_pos
+		var off := (d - rest_dir * d.dot(rest_dir)).length()
+		if off < radius * 1.25:
+			part.queue_free()
+	# everything that was in there goes out the back
+	var out := world_pos + dir * 0.28
+	Blood.spawn_hit(world_pos, -dir, 1.2)
+	for k in 3:
+		Blood.spawn_hit(out + Vector3(_rng.randf_range(-0.05, 0.05), _rng.randf_range(-0.05, 0.05), _rng.randf_range(-0.05, 0.05)), (dir + Vector3(_rng.randf_range(-0.3, 0.3), _rng.randf_range(-0.1, 0.4), _rng.randf_range(-0.3, 0.3))).normalized(), 2.4)
+	Blood.mist(out, dir, 2.0)
+	_throw_chunks(out, dir, 9, false)
+	var pb: PhysicalBone3D = clown.ragdoll.bones.get(bone)
+	if pb:
+		var inv := pb.global_transform.affine_inverse()
+		for at: Vector3 in [world_pos, out]:
+			_bleeds.append({bone = bone, local = inv * at, amount = 1.6, still = 0.0, pooled = false, drip = 0.0})
+		_spurts.append({bone = bone, local = inv * out, dir = inv.basis * (dir + Vector3.UP * 0.3).normalized(), left = 6, next = 0.0})
+		set_physics_process(true)
+	set_process(true)
+	return true
 
 
 # --- shotgun damage -------------------------------------------------------------

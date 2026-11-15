@@ -14,6 +14,7 @@ const SHOTGUN := 1
 const SMG := 2
 const STAKE := 3
 const MAXIM := 4
+const RIFLE := 5
 
 ## Seconds the reload animations take. The player script reads these.
 const PISTOL_RELOAD := 1.55
@@ -24,6 +25,9 @@ const SMG_RELOAD := 1.9
 const SMG_SEAT := 1.12          # the new magazine clicks home
 const STAKE_RELOAD := 2.9
 const STAKE_SEAT := 1.5         # the new stake is on the rail
+const RIFLE_CYCLE := 0.95       # working the bolt after a shot
+const RIFLE_RELOAD := 2.5       # bolt open, a stripper clip of five thumbed in, bolt shut
+const RIFLE_SEAT := 1.55        # the rounds are in the magazine
 
 var weapon := PISTOL
 var slide_locked := false       # pistol ran dry: slide stays back until reloaded
@@ -41,6 +45,10 @@ var _stake_loaded: Node3D
 var _stake_in_hand: Node3D
 var _stake_lever: Node3D
 var _gauge_needle: Node3D
+var _rifle_bolt: Node3D
+var _rifle_rhand: Node3D
+var _rifle_clip: Node3D
+var _cycle_t := -1.0            # >= 0 while the bolt is being worked after a shot
 var stake_ready := true         # set by the player: is a stake on the rail
 var _left: Array[Node3D] = []   # per gun: the left arm
 var _flash: OmniLight3D
@@ -65,6 +73,7 @@ func _ready() -> void:
 	_build_smg()
 	_build_stake()
 	_build_maxim()
+	_build_rifle()
 	for gi in range(1, _guns.size()):
 		_guns[gi].visible = false
 	_flash = OmniLight3D.new()
@@ -105,9 +114,11 @@ func fire() -> void:
 	_since_shot = 0.0
 	var muzzle := _muzzle()
 	_flash.position = muzzle
-	_flash.light_energy = [5.0, 9.0, 4.0, 1.5, 8.0][weapon]
+	_flash.light_energy = [5.0, 9.0, 4.0, 1.5, 8.0, 8.0][weapon]
 	_flash_mesh.position = muzzle
-	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9, 2.4, 2.2][weapon] * randf_range(0.7, 1.25)
+	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9, 2.4, 2.2, 2.0][weapon] * randf_range(0.7, 1.25)
+	if weapon == RIFLE:
+		_cycle_t = 0.0
 	_flash_mesh.rotation.z = randf() * TAU
 	if weapon == SMG or weapon == MAXIM:
 		_jitter = Vector2(randf_range(-1, 1), randf_range(-0.3, 1))
@@ -142,7 +153,11 @@ func swapping() -> bool:
 func animate(delta: float, speed: float, look: Vector2) -> void:
 	_time += delta
 	_since_shot += delta
-	_kick = move_toward(_kick, 0.0, delta * [7.0, 3.2, 14.0, 2.2, 11.0][weapon])
+	_kick = move_toward(_kick, 0.0, delta * [7.0, 3.2, 14.0, 2.2, 11.0, 3.0][weapon])
+	if _cycle_t >= 0.0:
+		_cycle_t += delta
+		if _cycle_t > RIFLE_CYCLE:
+			_cycle_t = -1.0
 	_slide_back = move_toward(_slide_back, 0.0, delta * 14.0)
 	_flash.light_energy = move_toward(_flash.light_energy, 0.0, delta * 90.0)
 	if _since_shot > 0.045:
@@ -182,6 +197,8 @@ func animate(delta: float, speed: float, look: Vector2) -> void:
 		_animate_smg()
 	elif weapon == STAKE:
 		_animate_stake()
+	elif weapon == RIFLE:
+		_animate_rifle()
 	else:
 		_animate_maxim()
 
@@ -616,8 +633,126 @@ func _build_maxim() -> void:
 	root.visible = false
 
 
+# --- the bolt-action rifle --------------------------------------------------------
+# Long, wooden, a turned-down bolt handle on the right. After every shot the
+# right hand goes up to the bolt: up, back (the case flies), forward, down.
+const R_HOME := Vector3(0.105, -0.155, -0.5)
+const R_BOLT_KNOB := Vector3(0.055, 0.022, 0.07)    # where the right hand takes the bolt
+
+func _animate_rifle() -> void:
+	var pose := _pose[RIFLE]
+	var left := _left[RIFLE]
+	var k := _kick * _kick
+	var pos := R_HOME + Vector3(0, 0.012 * k, 0.045 * k)
+	var rot := Vector3(deg_to_rad(7.0) * k, 0, 0)
+	var lift := 0.0          # bolt handle up (0..1)
+	var draw := 0.0          # bolt back (0..1)
+	var to_bolt := 0.0       # right hand off the grip and on the bolt
+	var left_pos := Vector3.ZERO
+	var clip := false
+	var clip_pos := Vector3.ZERO
+	if _cycle_t >= 0.0 and _reload_t < 0.0:
+		var t := _cycle_t
+		# 0.10-0.22 hand to the bolt; 0.22-0.32 up; 0.32-0.48 back; 0.48-0.64 home; 0.64-0.74 down; back to the grip
+		to_bolt = smoothstep(0.08, 0.22, t) * (1.0 - smoothstep(0.74, 0.9, t))
+		lift = smoothstep(0.22, 0.32, t) * (1.0 - smoothstep(0.64, 0.74, t))
+		draw = smoothstep(0.32, 0.46, t) * (1.0 - smoothstep(0.48, 0.62, t))
+		rot += Vector3(0, 0, deg_to_rad(-9.0)) * to_bolt          # rolled over a little to work it
+		pos += Vector3(0, 0, 0.012) * (smoothstep(0.32, 0.4, t) - smoothstep(0.4, 0.5, t))
+	if _reload_t >= 0.0:
+		var t := _reload_t
+		# 0.00-0.30 rifle rolled over, bolt up and back
+		# 0.30-0.80 left hand down to the pouch for a clip and back up
+		# 0.80-1.55 clip into the guide, thumb strips the rounds down
+		# 1.55-1.85 empty clip flicked away
+		# 1.85-2.15 bolt home and down
+		# 2.15-2.50 back on target
+		var tilt := smoothstep(0.0, 0.3, t) * (1.0 - smoothstep(2.15, RIFLE_RELOAD, t))
+		pos += Vector3(-0.05, 0.05, 0.06) * tilt
+		rot += Vector3(deg_to_rad(10.0), deg_to_rad(12.0), deg_to_rad(-28.0)) * tilt
+		to_bolt = smoothstep(0.0, 0.15, t) * (1.0 - smoothstep(2.15, 2.35, t))
+		lift = smoothstep(0.1, 0.2, t) * (1.0 - smoothstep(2.0, 2.12, t))
+		draw = smoothstep(0.2, 0.3, t) * (1.0 - smoothstep(1.85, 2.0, t))
+		var guide := Vector3(0.0, 0.06, 0.12)                     # just above the open breech
+		if t < 0.8:
+			var down := sin(clampf((t - 0.3) / 0.5, 0.0, 1.0) * PI)
+			left_pos = Vector3(-0.04, -0.3, 0.2) * down + (guide - Vector3(-0.012, -0.05, -0.32)) * smoothstep(0.62, 0.8, t)
+			clip = t > 0.52
+			clip_pos = Vector3.ZERO
+		elif t < RIFLE_SEAT:
+			left_pos = guide - Vector3(-0.012, -0.05, -0.32) + Vector3(0, -0.035 * smoothstep(0.95, 1.45, t), 0)
+			clip = true
+			clip_pos = Vector3(0, -0.035 * smoothstep(0.95, 1.45, t), 0)
+		elif t < 1.85:
+			var off := smoothstep(RIFLE_SEAT, 1.8, t)
+			left_pos = (guide - Vector3(-0.012, -0.05, -0.32)) * (1.0 - off)
+			clip = t < 1.62
+			clip_pos = Vector3(-0.08, 0.06, 0) * off
+	pose.position = pos
+	pose.rotation = rot
+	_rifle_bolt.rotation.z = deg_to_rad(80.0) * lift
+	_rifle_bolt.position.z = 0.09 * draw
+	_rifle_rhand.position = (R_BOLT_KNOB + Vector3(0.0, 0.05 * lift, 0.09 * draw) - Vector3(0.0, -0.07, 0.2)) * to_bolt
+	left.position = left_pos
+	_rifle_clip.visible = clip
+	_rifle_clip.position = clip_pos
+
+
+func _build_rifle() -> void:
+	var root := Node3D.new()
+	add_child(root)
+	_guns.append(root)
+	var pose := Node3D.new()
+	root.add_child(pose)
+	_pose.append(pose)
+	var steel := _mat(Color(0.09, 0.09, 0.1), 0.38, 0.8)
+	var blued := _mat(Color(0.06, 0.065, 0.08), 0.3, 0.85)
+	var wood := _mat(Color(0.33, 0.17, 0.07), 0.55, 0.0)
+	var brass := _mat(Color(0.6, 0.45, 0.18), 0.3, 0.9)
+	# the stock runs the length of it: butt, wrist, fore-end, a hand guard on top
+	_box(pose, Vector3(0.04, 0.1, 0.24), Vector3(0, -0.055, 0.33), Vector3(-6, 0, 0), wood)            # butt
+	_box(pose, Vector3(0.034, 0.05, 0.14), Vector3(0, -0.03, 0.17), Vector3(10, 0, 0), wood)           # wrist
+	_box(pose, Vector3(0.038, 0.045, 0.62), Vector3(0, -0.012, -0.34), Vector3.ZERO, wood)             # fore-end
+	_box(pose, Vector3(0.03, 0.016, 0.42), Vector3(0, 0.022, -0.36), Vector3.ZERO, wood)               # hand guard
+	_box(pose, Vector3(0.042, 0.012, 0.03), Vector3(0, -0.012, -0.1), Vector3.ZERO, steel)             # band
+	_box(pose, Vector3(0.042, 0.012, 0.03), Vector3(0, -0.012, -0.58), Vector3.ZERO, steel)            # band
+	# receiver, barrel, front sight, the magazine well and trigger guard
+	_cyl(pose, 0.017, 0.2, Vector3(0, 0.02, 0.04), Vector3(90, 0, 0), blued)
+	_cyl(pose, 0.009, 0.4, Vector3(0, 0.03, -0.73), Vector3(90, 0, 0), blued)
+	_box(pose, Vector3(0.004, 0.02, 0.012), Vector3(0, 0.048, -0.9), Vector3.ZERO, steel)
+	_box(pose, Vector3(0.026, 0.008, 0.05), Vector3(0, 0.044, -0.06), Vector3.ZERO, steel)             # rear sight
+	_box(pose, Vector3(0.03, 0.04, 0.07), Vector3(0, -0.03, 0.02), Vector3.ZERO, steel)
+	_box(pose, Vector3(0.008, 0.03, 0.06), Vector3(0, -0.06, 0.08), Vector3(0, 0, 0), steel)
+	# the bolt: a sleeve along the receiver and the turned-down handle
+	_rifle_bolt = Node3D.new()
+	_rifle_bolt.position = Vector3(0.0, 0.022, 0.07)
+	pose.add_child(_rifle_bolt)
+	_cyl(_rifle_bolt, 0.013, 0.1, Vector3(0, 0, 0.0), Vector3(90, 0, 0), steel)
+	_cyl(_rifle_bolt, 0.005, 0.055, Vector3(0.028, -0.012, 0.0), Vector3(0, 0, 65), steel)
+	_add(_rifle_bolt, SphereMesh.new(), Vector3(0.052, -0.024, 0.0), Vector3.ZERO, steel).scale = Vector3.ONE * 0.022
+	# a sling swivel and a bit of sling
+	_box(pose, Vector3(0.012, 0.004, 0.3), Vector3(-0.022, -0.05, -0.15), Vector3(0, 0, 0), _mat(Color(0.28, 0.2, 0.1), 0.85, 0.0))
+	# right hand on the wrist (it goes up to the bolt between shots)
+	_rifle_rhand = Node3D.new()
+	pose.add_child(_rifle_rhand)
+	_hand(_rifle_rhand, Vector3(0, -0.07, 0.2), Vector3(0.1, -0.3, 0.52), false)
+	# left hand under the fore-end, with a stripper clip of five when reloading
+	var left := Node3D.new()
+	pose.add_child(left)
+	_hand(left, Vector3(-0.004, -0.06, -0.32), Vector3(-0.28, -0.33, 0.06), true)
+	_rifle_clip = Node3D.new()
+	left.add_child(_rifle_clip)
+	# the clip sits in the fingertips, rounds standing up out of it
+	_box(_rifle_clip, Vector3(0.016, 0.006, 0.062), Vector3(0.0, 0.0, -0.345), Vector3.ZERO, steel)
+	for i in 5:
+		_cyl(_rifle_clip, 0.0045, 0.06, Vector3(0.0, 0.03, -0.369 + i * 0.012), Vector3.ZERO, brass)
+	_rifle_clip.visible = false
+	_left.append(left)
+	root.visible = false
+
+
 func _muzzle() -> Vector3:
-	var local := [Vector3(0, 0.02, -0.19), Vector3(0, 0.018, -0.64), Vector3(0, 0.012, -0.445), Vector3(0, 0.03, -0.6), Vector3(0, 0.0, -0.76)][weapon] as Vector3
+	var local := [Vector3(0, 0.02, -0.19), Vector3(0, 0.018, -0.64), Vector3(0, 0.012, -0.445), Vector3(0, 0.03, -0.6), Vector3(0, 0.0, -0.76), Vector3(0, 0.03, -0.93)][weapon] as Vector3
 	return to_local(_pose[weapon].to_global(local))
 
 

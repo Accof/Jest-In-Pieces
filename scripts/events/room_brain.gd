@@ -61,6 +61,7 @@ func _physics_process(delta: float) -> void:
 		set_physics_process(false)
 		return
 	_cooldown -= delta
+	clown.crouch_amount = move_toward(clown.crouch_amount, 0.0, delta * 3.0)
 	var to := player.global_position - clown.global_position
 	var flat := Vector3(to.x, 0, to.z)
 	var dist := flat.length()
@@ -108,7 +109,7 @@ func _physics_process(delta: float) -> void:
 		var left := Vector3(goal.x - clown.global_position.x, 0, goal.z - clown.global_position.z)
 		if left.length() < 0.5:
 			# in cover: crouch, take a shot or two, then on to the next
-			clown.crouch_amount = move_toward(clown.crouch_amount, 0.7, delta * 3.0)
+			clown.crouch_amount = move_toward(clown.crouch_amount, 0.7, delta * 6.0)
 			_face(flat, delta, 6.0)
 			clown.aim_point = player.global_position + Vector3.UP * 1.3
 			clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 3.0)
@@ -133,8 +134,8 @@ func _physics_process(delta: float) -> void:
 	if dir.length() > 0.05:
 		dir = dir.normalized()
 	if mode == "charge" and dist > 4.0:
-		_weave += delta * 2.6
-		dir = (dir + Vector3(dir.z, 0, -dir.x) * sin(_weave) * 0.45).normalized()
+		_weave += delta * 1.8
+		dir = (dir + Vector3(dir.z, 0, -dir.x) * sin(_weave) * 0.25).normalized()
 	if dist < melee_range * 0.8:
 		dir = Vector3.ZERO
 	_move(dir * speed, delta)
