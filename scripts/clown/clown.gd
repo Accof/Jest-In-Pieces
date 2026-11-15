@@ -239,6 +239,16 @@ func _die(info: Dictionary, zone: StringName) -> void:
 		var side := "Left" if String(info.collider.bone_name).begins_with("Left") else "Right"
 		for part in ["UpperLeg", "LowerLeg", "Foot"]:
 			ragdoll.weaken(StringName(side + part), 0.15)
+	if has_rifle and not profile.is_empty():
+		# The hands come off the rifle: the dying arm muscles pull toward arms
+		# hanging at the sides (then thrown wide), not the grip they died in.
+		profile = profile.duplicate()
+		profile["arms_wide"] = true
+		for side: String in ["Left", "Right"]:
+			for part: String in ["UpperArm", "LowerArm", "Hand"]:
+				var bi := skeleton.find_bone(side + part)
+				if _base_rot.has(bi):
+					ragdoll.eq_override[StringName(side + part)] = Basis(_base_rot[bi])
 	if ragdoll.active:
 		ragdoll.restart(profile)          # already on the floor (shot while down)
 	else:
@@ -732,34 +742,48 @@ func _process(delta: float) -> void:
 		fwd_amt = absf(f)
 		side_amt = absf(sd)
 		back = -1.0 if f < -0.25 else 1.0
-		var stride_len := lerpf(1.3, 1.9, run_amount) * (0.55 if broken_leg != "" else 1.0)
+		# slower walking takes shorter steps rather than slower ones
+		var stride_len := lerpf(lerpf(0.85, 1.3, clampf(speed / 1.5, 0.0, 1.0)), 1.9, run_amount) * (0.55 if broken_leg != "" else 1.0)
 		walk_phase += speed * delta * TAU / stride_len * back
 	elif walk_amount > 0.01:
 		walk_phase += delta * 4.0            # marking time
 	var bob := 0.0
-	if walk_amount > 0.01:
+	# How much the legs swing: any real movement gets a full step (the step
+	# rate already follows the speed), so a slow side-step still lifts its feet.
+	var gait := maxf(walk_amount, clampf(speed / 0.9, 0.0, 1.0)) if speed > 0.05 else walk_amount
+	if gait > 0.01:
 		var sw := sin(walk_phase)
-		var stride := lerpf(30.0, 44.0 if has_rifle else 50.0, run_amount) * clampf(fwd_amt + 0.25, 0.0, 1.0)
-		var knee := lerpf(40.0, 62.0 if has_rifle else 85.0, run_amount)
+		var stride := lerpf(27.0, 44.0 if has_rifle else 50.0, run_amount) * clampf(fwd_amt + 0.3, 0.0, 1.0)
+		var knee := lerpf(62.0, 75.0 if has_rifle else 90.0, run_amount)
 		var arm := lerpf(22.0, 48.0, run_amount)
-		_turn("Spine", Vector3.RIGHT, deg_to_rad(lerpf(5.0, 9.0 if has_rifle else 20.0, run_amount)) * walk_amount * fwd_amt * back)
-		_turn("Spine", Vector3.BACK, deg_to_rad(3.0) * sw * walk_amount)
+		_turn("Spine", Vector3.RIGHT, deg_to_rad(lerpf(4.0, 9.0 if has_rifle else 20.0, run_amount)) * gait * fwd_amt * back)
+		_turn("Spine", Vector3.BACK, deg_to_rad(3.0) * sw * gait)
+		_turn("Spine", Vector3.UP, deg_to_rad(5.0) * sw * gait * fwd_amt)        # hips and shoulders counter-turn
 		var legs := {"Left": 1.0, "Right": -1.0}
 		for side: String in legs:
 			var s: float = legs[side]
 			var limp := side == broken_leg
 			var k := 0.35 if limp else 1.0
-			_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-stride) * sw * s * walk_amount * k)
-			_turn(side + "UpperLeg", Vector3.BACK, deg_to_rad(12.0) * maxf(0.0, sw * s) * side_amt * walk_amount * s)
-			_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(knee) * maxf(0.0, cos(walk_phase) * s) * walk_amount * (0.3 if limp else 1.0))
+			var swing := maxf(0.0, cos(walk_phase) * s)          # this leg is coming through
+			var stance := maxf(0.0, -cos(walk_phase) * s)        # this leg is carrying the body
+			var behind := maxf(0.0, -sw * s)                      # trailing, about to push off
+			# thigh forward and back; out to the side when side-stepping
+			_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-stride) * sw * s * gait * k)
+			_turn(side + "UpperLeg", Vector3.BACK, deg_to_rad(15.0) * sw * side_amt * gait)
+			# knee: folds high as the foot comes through, gives a little under the
+			# weight, never quite locks straight
+			var knee_deg := knee * pow(swing, 1.4) + 9.0 * stance + 5.0
+			_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(knee_deg) * gait * (0.3 if limp else 1.0))
+			# ankle: toe pushes off behind, lifts clear coming through, lands heel first
+			_turn(side + "Foot", Vector3.RIGHT, deg_to_rad(-22.0 * pow(behind, 2.0) * stance + 14.0 * swing) * gait * k)
 		if not has_rifle:
-			_turn("LeftUpperArm", Vector3.RIGHT, deg_to_rad(arm) * sw * walk_amount)
-		_turn("LeftLowerArm", Vector3.RIGHT, deg_to_rad(-55.0) * run_amount * walk_amount)
+			_turn("LeftUpperArm", Vector3.RIGHT, deg_to_rad(arm) * sw * gait)
+			_turn("LeftLowerArm", Vector3.RIGHT, deg_to_rad(-55.0) * run_amount * gait)
 		if attack_amount < 0.01 and aim_amount < 0.01 and not has_rifle:
-			_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-arm) * sw * walk_amount)
-			_turn("RightLowerArm", Vector3.RIGHT, deg_to_rad(-55.0) * run_amount * walk_amount)
+			_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-arm) * sw * gait)
+			_turn("RightLowerArm", Vector3.RIGHT, deg_to_rad(-55.0) * run_amount * gait)
 		# the body drops a little onto each foot as it lands
-		bob = (0.5 + 0.5 * cos(walk_phase * 2.0)) * lerpf(0.035, 0.07, run_amount) * walk_amount
+		bob = (0.5 + 0.5 * cos(walk_phase * 2.0)) * lerpf(0.035, 0.07, run_amount) * gait
 	# A broken leg: knee bent the wrong way, and the body lurches down onto it.
 	if broken_leg != "":
 		var s := 1.0 if broken_leg == "Left" else -1.0
@@ -835,12 +859,13 @@ func _hold_rifle() -> void:
 		dir = dir.normalized()
 	var aim_xf := Transform3D(_basis_along(dir), eye + Vector3.DOWN * 0.075 - dir * 0.22)
 	var hips := sk.get_bone_global_pose(sk.find_bone("Hips")).origin
-	# Port arms, held in close, and it moves: it swings a little with each
-	# stride and rides up and forward when running.
+	# Low ready: butt by the right hip, muzzle forward and down across the
+	# body, both arms out in front. It swings a little with each stride and
+	# comes up higher when running.
 	var sw := sin(walk_phase) * walk_amount
-	var carry_dir := Vector3(0.5 + 0.06 * sw, 0.84, 0.22 + 0.12 * run_amount).normalized()
-	var carry_at := hips + Vector3(-0.12 + 0.02 * sw, 0.08 + 0.04 * run_amount, 0.24 + 0.05 * run_amount)
-	var carry_xf := Transform3D(_basis_along(carry_dir, Vector3.BACK), carry_at)
+	var carry_dir := Vector3(0.45 + 0.04 * sw, -0.18 + 0.2 * run_amount, 1.0).normalized()
+	var carry_at := hips + Vector3(-0.12 + 0.015 * sw, 0.32 + 0.05 * run_amount, 0.02)
+	var carry_xf := Transform3D(_basis_along(carry_dir), carry_at)
 	var xf := carry_xf.interpolate_with(aim_xf, a * a * (3.0 - 2.0 * a))
 	# a bayonet thrust when it attacks: level, driven forward from the hip
 	if attack_amount > 0.01:
@@ -851,11 +876,14 @@ func _hold_rifle() -> void:
 	# hands: right on the wrist of the stock, left under the fore-end, close
 	# enough that the elbows stay bent
 	var grip := xf * Vector3(0.0, -0.045, 0.2)
-	var fore := xf * Vector3(0.0, -0.035, 0.44)
+	var fore := xf * Vector3(0.0, -0.035, lerpf(0.33, 0.4, a))
 	var rs := sk.get_bone_global_pose(sk.find_bone("RightUpperArm")).origin
 	var ls := sk.get_bone_global_pose(sk.find_bone("LeftUpperArm")).origin
-	reach("Right", grip, rs + Vector3(-0.45, -0.55, -0.1))
-	reach("Left", fore, ls + Vector3(0.2, -0.65, 0.0))
+	# elbows: down and a little out when carrying; the right one comes up and
+	# out to the side when the rifle is shouldered
+	var ab := a * a * (3.0 - 2.0 * a)
+	reach("Right", grip, rs + Vector3(-0.4, -0.55, -0.15).lerp(Vector3(-0.6, -0.12, -0.05), ab))
+	reach("Left", fore, ls + Vector3(0.3, -0.6, 0.05).lerp(Vector3(0.15, -0.65, 0.0), ab))
 	point_bone("RightHand", xf.basis.z)
 	point_bone("LeftHand", xf.basis.z)
 

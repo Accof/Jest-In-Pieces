@@ -56,6 +56,10 @@ const FALL_CAP := 55.0
 ## True once there is nothing under the body: the balance "strings" let go,
 ## it falls at plain 1 g, and it lands with a slight bounce.
 var airborne := false
+## Joints whose dying muscles should pull toward a given local rotation
+## instead of the pose the body died in (bone name -> Basis). Used once by
+## start(), then cleared. A soldier's arms let go of the rifle this way.
+var eq_override := {}
 var _fall_peak := 0.0
 var _landed_t := -1.0
 @export var max_bone_spin := 24.0
@@ -607,6 +611,8 @@ func start(profile: Dictionary, hit_dir: Vector3 = Vector3.ZERO, velocity: Vecto
 			continue
 		var frame: Basis = _info[d.n].frame
 		var rel: Basis = (bones[d.p].global_basis.inverse() * pb.global_basis).orthonormalized()
+		if eq_override.has(d.n):
+			rel = (eq_override[d.n] as Basis).orthonormalized()
 		var eq := -(frame.inverse() * rel * frame).get_euler(EULER_ORDER_ZYX)
 		var axes := ["x", "y", "z"]
 		for i in 3:
@@ -630,6 +636,7 @@ func start(profile: Dictionary, hit_dir: Vector3 = Vector3.ZERO, velocity: Vecto
 			pb.set("joint_constraints/y/angular_equilibrium_point", eq.y)
 		_info[d.n].tone = -1.0
 		_info[d.n].eq_x = eq.x
+	eq_override.clear()
 	_root_target = bones[&"Hips"].global_position
 	_chest_offset = bones[&"Chest"].global_position - _root_target if bones.has(&"Chest") else Vector3.ZERO
 	var flat := Vector3(hit_dir.x, 0, hit_dir.z)

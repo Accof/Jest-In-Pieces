@@ -68,7 +68,9 @@ Pistol and SMG rounds wear a body down. Enough of them into one part, alive or d
 
 ## WitzSoldat
 
-Carries the rifle across the chest at port arms with both hands on it, held in close with the elbows bent; it swings a little with each stride and rides up when running. Shoulders it to aim: butt in the shoulder, cheek down on the stock, sights to the eye, both hands placed by a two-bone reach every frame. Up close it drives the bayonet forward from the hip. It runs upright (a soldier's run, not a crouched sprint). Its steps follow how fast and which way it is really moving (backing off steps backwards, sidestepping steps sideways) and the body dips onto each foot. Lining up a shot in the open it side-steps slowly and smoothly, pausing now and then.
+Carries the rifle at low ready: butt by the right hip, muzzle forward and a little down across the body, right hand on the wrist and left under the fore-end, both elbows easy. It swings a little with each stride and comes up when running. Shoulders it to aim: butt in the shoulder, cheek down on the stock, sights to the eye, right elbow out; both hands placed by a two-bone reach every frame. Up close it drives the bayonet forward from the hip. It runs upright (a soldier's run, not a crouched sprint). When it dies its hands come off the rifle: the dying arm muscles pull toward arms hanging free (and are flung wide), not the grip it died in. Lining up a shot in the open it side-steps slowly and smoothly, pausing now and then.
+
+Everyone's walk (clowns too): the stepping knee folds up to about 60 degrees as the foot comes through, the planted knee gives a little under the weight and never locks, the foot pushes off with the toe and comes down heel first, and hips and shoulders counter-turn. Any real movement gets a full step (slow walking takes shorter steps, not smaller leg movements), so a slow side-step still lifts its feet, and side-steps swing the legs out sideways.
 
 It fights from cover: after a shot in the open it looks within two corridor cells for a spot the player cannot see a crouched head at, with a firing spot a step away. It runs there, crouches (working the bolt), steps out, aims, fires once and ducks back. It gives the cover up if the player gets within 4 m or can see the hiding place.
 
@@ -165,5 +167,6 @@ godot --headless --fixed-fps 60 res://scenes/test_rifle.tscn    # one rifle roun
 godot --headless --fixed-fps 60 res://scenes/test_stairs_walk.tscn  # walks the player down the Grand Staircase and back up, five lanes
 godot --path . res://scenes/test_punch.tscn                    # point-blank shotgun hole: renders /tmp/punch_*.png (needs a window)
 godot --path . res://scenes/test_soldier_pose.tscn             # WitzSoldat stand/walk/run/aim/thrust from the side, /tmp/pose_*.png (needs a window)
+godot --path . res://scenes/test_soldier_anim.tscn             # WitzSoldat walk cycle, side-step, carry/aim front and 3/4, three deaths; /tmp/sa_*.png and joint angles
 godot --path . res://scenes/render_level.tscn                  # saves views of a level to /tmp/lvl_*.png (needs a window)
 ```
