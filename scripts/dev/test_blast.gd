@@ -79,6 +79,15 @@ func _run() -> void:
 		var crawler: ClownCrawler = cr.get_node("Crawler")
 		for f in 240:
 			await get_tree().physics_frame
+		var fastest := 0.0
+		var far := 0.0
+		var n_gibs := 0
+		for g in room.get_children():
+			if g is Gib:
+				n_gibs += 1
+				fastest = maxf(fastest, g.linear_velocity.length())
+				far = maxf(far, g.global_position.distance_to(centre))
+		print("gibs: %d, fastest still moving %.2f m/s, furthest %.1fm from the drum" % [n_gibs, fastest, far])
 		print("crawler moved %.2fm in 4s, still alive=%s, decals so far=%d" % [cr.global_position.distance_to(p0), not cr.dead, Blood._decals.size()])
 		if render:
 			var cam := Camera3D.new()

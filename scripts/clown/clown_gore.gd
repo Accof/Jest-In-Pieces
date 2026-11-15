@@ -451,45 +451,35 @@ func _impacts(delta: float) -> void:
 		Blood.spawn_hit(hit.position + n * 0.05, (n + slide.normalized() * 0.5).normalized(), clampf(sp / 6.0, 0.6, 1.8))
 
 
-## Torn in half at the waist: the pelvis and legs come away as one piece, the
-## torso is left open at the bottom with its guts hanging out. Returns the
-## lower half (already flying with `impulse`).
-func cut_waist(impulse: Vector3) -> RigidBody3D:
+## Torn in half at the waist: the pelvis and each leg piece come away as
+## separate gibs, like any other blown-off part, and the torso is left open at
+## the bottom with its guts hanging out. `impulse` is the blast's push (m/s).
+func cut_waist(impulse: Vector3) -> void:
 	var parts: Array[StringName] = [&"Pelvis", &"LeftUpperLeg", &"LeftLowerLeg", &"LeftFoot", &"RightUpperLeg", &"RightLowerLeg", &"RightFoot"]
 	var skel := clown.skeleton
 	var gib_scene := (load(clown.spec.gibs) as PackedScene).instantiate()
 	var xfs := {}
-	var srcs := {}
+	var away := impulse.normalized() if impulse.length() > 0.01 else Vector3.UP
+	var speed := impulse.length()
+	var spawned: Array = []
 	for s: StringName in parts:
 		var bone_name: StringName = SEGMENT_BONE.get(s, s)
 		var bi := skel.find_bone(bone_name)
 		var src := gib_scene.get_node("Gib_" + String(s)) as MeshInstance3D
-		srcs[s] = src
-		xfs[s] = skel.global_transform * clown.ragdoll.bone_pose(bi) * skel.get_bone_global_rest(bi).affine_inverse() * Transform3D(Basis.IDENTITY, src.position)
-	var base: Transform3D = xfs[&"Pelvis"]
-	var half := Gib.new()
-	half.setup(srcs[&"Pelvis"].mesh, _shape_for(&"Hips", srcs[&"Pelvis"].position), _mass_for(&"Hips"))
-	var total := _mass_for(&"Hips")
-	for s: StringName in parts:
-		if s == &"Pelvis":
-			continue
-		var local: Transform3D = base.affine_inverse() * xfs[s]
-		var mi := MeshInstance3D.new()
-		mi.mesh = srcs[s].mesh
-		mi.layers = 2
-		mi.transform = local
-		half.add_child(mi)
-		var cs := _shape_for(s, srcs[s].position)
-		cs.transform = local * cs.transform
-		half.add_child(cs)
-		total += _mass_for(s)
-	half.mass = total
-	half.add_to_group(&"blast_movable")
+		var xf := skel.global_transform * clown.ragdoll.bone_pose(bi) * skel.get_bone_global_rest(bi).affine_inverse() * Transform3D(Basis.IDENTITY, src.position)
+		xfs[s] = xf
+		var gib := Gib.new()
+		gib.setup(src.mesh, _shape_for(bone_name, src.position), _mass_for(bone_name))
+		gib.add_to_group(&"blast_movable")
+		clown.get_parent().add_child(gib)
+		gib.global_transform = xf
+		# thrown with the blast, each piece its own way, tumbling but not spinning wildly
+		var scatter := Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0.2, 1.0), _rng.randf_range(-1, 1)) * speed * 0.3
+		gib.linear_velocity = away * speed * _rng.randf_range(0.5, 0.9) + scatter
+		gib.angular_velocity = Vector3(_rng.randf_range(-1, 1), _rng.randf_range(-1, 1), _rng.randf_range(-1, 1)) * _rng.randf_range(2.0, 6.0)
+		spawned.append(gib)
 	gib_scene.free()
-	clown.get_parent().add_child(half)
-	half.global_transform = base
-	half.apply_central_impulse(impulse * total)
-	half.apply_torque_impulse(Vector3(_rng.randf_range(-1, 1), _rng.randf_range(-0.3, 0.3), _rng.randf_range(-1, 1)) * total * 1.2)
+	_no_self_collide(spawned)
 	for s: StringName in parts:
 		hidden_mask |= 1 << SEGMENTS.find(s)
 		cap_mask |= 1 << SEGMENTS.find(s)
@@ -515,9 +505,7 @@ func cut_waist(impulse: Vector3) -> RigidBody3D:
 	for i in 4:
 		Blood.spawn_hit(cut, (impulse.normalized() + Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0, 1), _rng.randf_range(-1, 1))).normalized(), 1.8)
 	_throw_chunks(cut, impulse.normalized(), 7, false)
-	_hang_guts(half, cut, Vector3.UP, 3)
 	set_process(true)
-	return half
 
 
 ## Add a heavy, lasting bleed at a point on a bone (the open end of a torso).
@@ -551,6 +539,7 @@ func sever(bone: StringName, impulse: Vector3) -> void:
 	var skel := clown.skeleton
 	var gib_scene := (load(clown.spec.gibs) as PackedScene).instantiate()
 	var removed: Array = []
+	var spawned: Array = []
 	var stump_pos := Vector3.ZERO
 	for i in parts.size():
 		var s := parts[i]
@@ -576,7 +565,9 @@ func sever(bone: StringName, impulse: Vector3) -> void:
 		gib.apply_central_impulse(impulse * (0.35 if i == 0 else 0.12) + Vector3.UP * gib.mass * _rng.randf_range(0.5, 1.6))
 		gib.apply_torque_impulse(Vector3(_rng.randf_range(-1, 1), _rng.randf_range(-1, 1), _rng.randf_range(-1, 1)) * gib.mass * 0.12)
 		removed.append(bone_name)
+		spawned.append(gib)
 	gib_scene.free()
+	_no_self_collide(spawned)
 	clown.ragdoll.remove_bones(removed)
 	for sm in _materials:
 		sm.set_shader_parameter("hidden_mask", hidden_mask)
@@ -590,6 +581,14 @@ func sever(bone: StringName, impulse: Vector3) -> void:
 	if ppb:
 		_bleeds.append({bone = parent_bone, local = ppb.global_transform.affine_inverse() * stump_pos, amount = 1.5, still = 0.0, pooled = false, drip = 0.0})
 		set_physics_process(true)
+
+
+## Pieces cut from the same body start out overlapping at the joints; left to
+## collide they would kick each other apart. They only hit the world.
+func _no_self_collide(gibs: Array) -> void:
+	for a in gibs.size():
+		for b in range(a + 1, gibs.size()):
+			(gibs[a] as PhysicsBody3D).add_collision_exception_with(gibs[b])
 
 
 func _stump_parent(seg: StringName) -> StringName:

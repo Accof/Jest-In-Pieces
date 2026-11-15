@@ -350,8 +350,7 @@ func _tear_in_half(center: Vector3, dir: Vector3, s: float) -> void:
 	aim_amount = 0.0
 	if has_helmet and randf() < 0.5:
 		knock_off_helmet(dir, _bone_world(&"Neck"))
-	var lower := gore.cut_waist(dir * lerpf(5.0, 9.0, s) + Vector3.UP * 2.0)
-	lower.add_to_group(&"blast_movable")
+	gore.cut_waist(dir * lerpf(4.0, 7.0, s) + Vector3.UP * 1.5)
 	var torso_hits := [&"Chest", &"Spine", &"LeftUpperArm", &"RightUpperArm", &"Neck"]
 	for i in 5:
 		var bn: StringName = torso_hits.pick_random()
