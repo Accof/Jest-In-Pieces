@@ -13,6 +13,7 @@ const PISTOL := 0
 const SHOTGUN := 1
 const SMG := 2
 const STAKE := 3
+const MAXIM := 4
 
 ## Seconds the reload animations take. The player script reads these.
 const PISTOL_RELOAD := 1.55
@@ -63,6 +64,7 @@ func _ready() -> void:
 	_build_shotgun()
 	_build_smg()
 	_build_stake()
+	_build_maxim()
 	for gi in range(1, _guns.size()):
 		_guns[gi].visible = false
 	_flash = OmniLight3D.new()
@@ -103,11 +105,11 @@ func fire() -> void:
 	_since_shot = 0.0
 	var muzzle := _muzzle()
 	_flash.position = muzzle
-	_flash.light_energy = [5.0, 9.0, 4.0, 1.5][weapon]
+	_flash.light_energy = [5.0, 9.0, 4.0, 1.5, 8.0][weapon]
 	_flash_mesh.position = muzzle
-	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9, 2.4][weapon] * randf_range(0.7, 1.25)
+	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9, 2.4, 2.2][weapon] * randf_range(0.7, 1.25)
 	_flash_mesh.rotation.z = randf() * TAU
-	if weapon == SMG:
+	if weapon == SMG or weapon == MAXIM:
 		_jitter = Vector2(randf_range(-1, 1), randf_range(-0.3, 1))
 	_flash_mesh.visible = true
 
@@ -140,7 +142,7 @@ func swapping() -> bool:
 func animate(delta: float, speed: float, look: Vector2) -> void:
 	_time += delta
 	_since_shot += delta
-	_kick = move_toward(_kick, 0.0, delta * [7.0, 3.2, 14.0, 2.2][weapon])
+	_kick = move_toward(_kick, 0.0, delta * [7.0, 3.2, 14.0, 2.2, 11.0][weapon])
 	_slide_back = move_toward(_slide_back, 0.0, delta * 14.0)
 	_flash.light_energy = move_toward(_flash.light_energy, 0.0, delta * 90.0)
 	if _since_shot > 0.045:
@@ -178,8 +180,10 @@ func animate(delta: float, speed: float, look: Vector2) -> void:
 		_animate_shotgun()
 	elif weapon == SMG:
 		_animate_smg()
-	else:
+	elif weapon == STAKE:
 		_animate_stake()
+	else:
+		_animate_maxim()
 
 
 # --- pistol ---------------------------------------------------------------------
@@ -575,8 +579,45 @@ func _build_stake() -> void:
 	_left.append(left)
 
 
+# --- the Maxim, torn off its mount ------------------------------------------------
+# Carried at the hip: right hand on a spade grip, left under the water jacket,
+# bucking hard with every round.
+const X_HOME := Vector3(0.2, -0.26, -0.22)
+
+func _animate_maxim() -> void:
+	var pose := _pose[MAXIM]
+	var k := _kick * _kick
+	pose.position = X_HOME + Vector3(0.008 * _jitter.x * k, 0.012 * k, 0.05 * k)
+	pose.rotation = Vector3(deg_to_rad(3.0) + deg_to_rad(4.0 + 3.0 * _jitter.y) * k, deg_to_rad(5.0) + deg_to_rad(2.5 * _jitter.x) * k, deg_to_rad(2.0 * _jitter.x) * k)
+
+
+func _build_maxim() -> void:
+	var root := Node3D.new()
+	add_child(root)
+	_guns.append(root)
+	var pose := Node3D.new()
+	root.add_child(pose)
+	_pose.append(pose)
+	var holder := Node3D.new()
+	holder.scale = Vector3.ONE * 0.6
+	pose.add_child(holder)
+	MountedGun.build_gun(holder)
+	for mi in holder.get_children():
+		if mi is MeshInstance3D:
+			mi.layers = 2
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# a leather sling over the shoulder, and the hands
+	_box(pose, Vector3(0.02, 0.006, 0.5), Vector3(-0.06, 0.05, 0.1), Vector3(-40, 20, 0), _mat(Color(0.25, 0.16, 0.08), 0.8, 0.0))
+	_hand(pose, Vector3(0.07, -0.05, 0.19), Vector3(0.1, -0.3, 0.5), false)
+	var left := Node3D.new()
+	pose.add_child(left)
+	_hand(left, Vector3(-0.01, -0.09, -0.3), Vector3(-0.3, -0.32, 0.12), true)
+	_left.append(left)
+	root.visible = false
+
+
 func _muzzle() -> Vector3:
-	var local := [Vector3(0, 0.02, -0.19), Vector3(0, 0.018, -0.64), Vector3(0, 0.012, -0.445), Vector3(0, 0.03, -0.6)][weapon] as Vector3
+	var local := [Vector3(0, 0.02, -0.19), Vector3(0, 0.018, -0.64), Vector3(0, 0.012, -0.445), Vector3(0, 0.03, -0.6), Vector3(0, 0.0, -0.76)][weapon] as Vector3
 	return to_local(_pose[weapon].to_global(local))
 
 

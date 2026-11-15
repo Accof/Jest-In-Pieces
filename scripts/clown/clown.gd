@@ -773,6 +773,8 @@ func _process(delta: float) -> void:
 		for b: Array in FLINCH_BONES:
 			_turn(b[0], _flinch.normalized(), _flinch.length() * b[1])
 	_model.position = _stagger + Vector3.DOWN * (bob + 0.47 * crouch_amount)
+	if extra_pose.is_valid():
+		extra_pose.call()
 	if has_rifle and _rifle and is_instance_valid(_rifle):
 		_hold_rifle()
 	if not always_pose and _flinch.length() < 0.002 and _flinch_vel.length() < 0.02 and _stagger.length() < 0.002 and _stagger_vel.length() < 0.02:
@@ -780,6 +782,18 @@ func _process(delta: float) -> void:
 		_stagger = Vector3.ZERO
 		_model.position = Vector3.ZERO
 		set_process(false)
+
+
+## Extra posing laid over the living pose each frame (event rooms: a
+## tightrope walker's arms, a clown playing dead).
+var extra_pose: Callable
+
+
+## Already dead when the player finds it: a limp ragdoll, no death to count.
+func make_corpse() -> void:
+	dead = true
+	set_process(false)
+	ragdoll.start(ClownRagdoll.profile_limp(), Vector3.ZERO, Vector3.ZERO)
 
 
 ## Where a rifleman is aiming (world space), set by its brain while aiming.

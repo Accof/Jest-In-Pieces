@@ -13,11 +13,15 @@ const WEAPONS := [
 	{name = "Shotgun", damage = 16.0, pellets = 9, spread = 4.5, impulse = 16.0, heavy = true, can_dismember = true, cooldown = 0.8, falloff = 9.0, mag = 6},
 	{name = "SMG", damage = 21.0, pellets = 1, spread = 1.8, impulse = 8.0, heavy = false, can_dismember = false, cooldown = 0.085, falloff = 28.0, mag = 32},
 	{name = "Stake Gun", damage = 500.0, pellets = 1, spread = 0.0, impulse = 2.0, heavy = true, can_dismember = false, cooldown = 0.5, falloff = 100.0, mag = 1, projectile = true},
+	{name = "Maxim", damage = 60.0, pellets = 1, spread = 2.4, impulse = 22.0, heavy = true, can_dismember = true, cooldown = 0.11, falloff = 80.0, mag = 250, belt = true},
 ]
+## The machine gun on its mount in the nest: same rounds, steadier.
+const MOUNTED_MG := {name = "Maxim", damage = 60.0, pellets = 1, spread = 1.1, impulse = 22.0, heavy = true, can_dismember = true, cooldown = 0.11, falloff = 120.0, mag = 0}
 const PISTOL := 0
 const SHOTGUN := 1
 const SMG := 2
 const STAKE := 3
+const MAXIM := 4
 
 ## Testing aid: take no damage. Kept for the whole session, across runs.
 static var god_mode := false
@@ -44,7 +48,12 @@ var health := 100.0
 var dead := false
 var weapon := 0
 ## Rounds loaded in each gun. Spare ammunition is unlimited for now.
-var ammo: Array[int] = [17, 6, 32, 1]
+var ammo: Array[int] = [17, 6, 32, 1, 0]
+## Inside an event room (gunshots are not heard in the level).
+var in_event := false
+## The mounted gun the player is behind, if any.
+var mount: Node = null
+var _prompt: Label
 var view: ViewModel
 ## Key that asks for a reset in the test room (R is reload).
 var reset_key := KEY_BACKSPACE
@@ -129,6 +138,9 @@ func _draw_crosshair(c: Control) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if dead:
 		return
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and mount:
+		mount.look(event.relative * mouse_sensitivity)
+		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_look += event.relative
 		rotate_y(-event.relative.x * mouse_sensitivity)
@@ -144,6 +156,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_2: select_weapon(1)
 			KEY_3: select_weapon(2)
 			KEY_4: select_weapon(3)
+			KEY_5:
+				if ammo[MAXIM] > 0:
+					select_weapon(MAXIM)
+			KEY_E: _use()
 			KEY_G:
 				god_mode = not god_mode
 				ammo_changed.emit()
@@ -157,6 +173,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	view.stake_ready = ammo[STAKE] > 0
+	_update_prompt()
 	view.animate(delta, Vector2(velocity.x, velocity.z).length() if is_on_floor() else 0.0, _look)
 	_look = Vector2.ZERO
 	_hurt.color.a = move_toward(_hurt.color.a, 0.0, delta * 1.2)
@@ -190,8 +207,10 @@ func _physics_process(delta: float) -> void:
 	if Input.is_key_pressed(KEY_S): input.z += 1.0
 	if Input.is_key_pressed(KEY_A): input.x -= 1.0
 	if Input.is_key_pressed(KEY_D): input.x += 1.0
+	if mount:
+		input = Vector3.ZERO                     # hands on the gun
 	var dir := (global_basis * input.normalized())
-	var s: float = (sprint_speed if Input.is_key_pressed(KEY_SHIFT) else speed) * stats.speed
+	var s: float = (sprint_speed if Input.is_key_pressed(KEY_SHIFT) else speed) * stats.speed * (0.75 if weapon == MAXIM else 1.0)
 	velocity.x = dir.x * s
 	velocity.z = dir.z * s
 	velocity.y = velocity.y - 9.8 * delta if not is_on_floor() else 0.0
@@ -199,7 +218,7 @@ func _physics_process(delta: float) -> void:
 
 
 func select_weapon(w: int) -> void:
-	if w == weapon or dead:
+	if w == weapon or dead or mount:
 		return
 	_reload_left = -1.0
 	_shell_left = -1.0
@@ -212,6 +231,8 @@ func select_weapon(w: int) -> void:
 
 ## Start reloading the gun in hand, if it has room.
 func reload() -> void:
+	if WEAPONS[weapon].get("belt", false):
+		return                                   # a belt: what you have is what you get
 	if dead or view.swapping() or view.reloading() or ammo[weapon] >= WEAPONS[weapon].mag:
 		return
 	view.start_reload()
@@ -252,7 +273,13 @@ func _tick_reload(delta: float) -> void:
 
 
 func fire() -> void:
+	if mount:
+		mount.trigger()
+		return
 	if _cooldown > 0.0 or dead or view.swapping():
+		return
+	if WEAPONS[weapon].get("belt", false) and ammo[weapon] <= 0:
+		select_weapon(PISTOL)                    # belt empty: the gun is thrown away
 		return
 	if weapon != SHOTGUN and view.reloading():
 		return
@@ -318,6 +345,70 @@ func shoot_ray(from: Vector3, dir: Vector3, w: Dictionary, shot_id: int) -> Dict
 			shot_id = shot_id, blood = stats.blood,
 		})
 	return hit
+
+
+## [E]: open a door, take a mounted gun, whatever is in front of you.
+func _use() -> void:
+	if mount:
+		if mount.has_method("can_leave") and not mount.can_leave():
+			return
+		dismount()
+		return
+	var u := _usable()
+	if u:
+		u.use(self)
+
+
+func _usable() -> Object:
+	var from := camera.global_position
+	var q := PhysicsRayQueryParameters3D.create(from, from - camera.global_basis.z * 2.4, LAYER_WORLD)
+	q.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return null
+	var c: Object = hit.collider
+	return c if c.has_method("use") else null
+
+
+func _update_prompt() -> void:
+	if _prompt == null:
+		_prompt = Label.new()
+		_prompt.add_theme_font_size_override("font_size", 20)
+		_prompt.add_theme_color_override("font_outline_color", Color.BLACK)
+		_prompt.add_theme_constant_override("outline_size", 6)
+		_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_prompt.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+		_prompt.position.y += 60
+		_prompt.size.x = 400
+		_prompt.position.x -= 200
+		_label.get_parent().add_child(_prompt)
+	var text := ""
+	if mount:
+		text = mount.prompt() if mount.has_method("prompt") else ""
+	else:
+		var u := _usable()
+		if u and u.has_method("prompt"):
+			text = u.prompt()
+	_prompt.text = text
+
+
+## Take a mounted gun: the body stays put and the mouse swings the gun.
+func take_mount(m: Node, stand_at: Transform3D) -> void:
+	mount = m
+	global_transform = stand_at
+	velocity = Vector3.ZERO
+	camera.rotation = Vector3.ZERO
+	view.visible = false
+
+
+func dismount() -> void:
+	if mount == null:
+		return
+	var m := mount
+	mount = null
+	view.visible = true
+	if m.has_method("released"):
+		m.released()
 
 
 ## Rattle the view (explosions). 1.0 is a drum going up a few metres away.

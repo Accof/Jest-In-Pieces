@@ -16,6 +16,8 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 | Left click (hold) | Fire |
 | R | Reload |
 | 1 / 2 / 3 / 4 | Pistol / shotgun / submachine gun / stake gun |
+| E | Use: open a steel door, man a mounted gun, rip it off its mount |
+| 5 | The Maxim, once you have torn it off its mount |
 | G | God mode on/off (take no damage; for testing, stays on across runs until you turn it off or quit the game) |
 | F | Flashlight |
 | Enter | Start a run, or leave the death screen |
@@ -28,6 +30,15 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 - Kill every clown, then find the door (it turns green) to leave.
 - After each floor you pick one of three upgrades. Floors get bigger, with more clowns and more gunmen.
 - Kills earn tickets (two for a headshot). When you die they are banked and can be spent on permanent perks on the menu.
+
+## Steel doors
+
+Every steel door in the bunkers (up to four a floor) leads somewhere. A red sign means a set piece; amber means something odd. [E] to go in: the screen fades, the door bolts behind you, and the exit stays shut until the room is done. Rewards are tickets, health and sometimes an upgrade; doing badly just means no prize.
+
+- **Machine-gun nest** (red, once a run): a sandbagged parapet over no man's land at dusk, with wire, craters, burning wrecks, flares and fog. Man the Maxim ([E] at the gun) and hold for 90 seconds while three waves of clowns and WitzSoldats come out of the fog (shamblers, runners, riflemen working forward crater to crater). The gun overheats if you hold the trigger too long; steam pours off it and it stops until it cools. Bronze 16 kills (5 tickets, 30 health), silver 26 (10, 60, an upgrade), gold 36 (15, full health, an upgrade), and 5 more tickets if nothing reached the trench. Survive it and you can rip the gun off its mount: key 5, 250 rounds on the belt, no reload, slows you down, and it takes people apart.
+- **The High Wire**: a tall shaft lit like a big top. Clowns walk a tightrope eleven metres up, arms out, wobbling; two WitzSoldats shoot down from the platforms. Whatever you hit comes all the way down.
+- **The Clown Car**: a long garage with a tiny red car at the end. The door creaks open and they keep coming out. Sixteen of them.
+- **The Meat Locker**: a cold store full of clowns hanging from hooks, swinging when you shoot them or push through. Four of them are not dead, and drop off when you get close.
 
 ## Stake gun
 
@@ -88,6 +99,7 @@ Every body uses the same 21 bone names and 15 dismemberment segments, so the rag
 | `scripts/game/game.gd` | Run loop, floors, upgrades, perks, menu, saving |
 | `scripts/world/maze.gd` | Maze generator, stairs, pathfinding, collision; `theme` picks the linear bunker (default), the trench maze, or the old funhouse |
 | `scripts/world/explosive_barrel.gd`, `scripts/fx/explosion.gd` | Fuel drums and the blast (fire, smoke, sparks, scorch, shock wave) |
+| `scripts/events/` | Event doors, the event manager, the rooms (machine-gun nest, high wire, clown car, meat locker), the mounted gun, and the simple AI used in them |
 | `scripts/weapons/stake.gd` | The stake in flight: skewering, carrying the body, pinning it to a wall |
 | `scripts/clown/clown_crawler.gd` | A clown torn in half, crawling away until it bleeds out |
 | `scripts/world/level_art.gd` | The trench and bunker look: walls, floors, props, lanterns |
@@ -119,6 +131,7 @@ All of these are in `clown_ragdoll.gd`.
 - **Weapons:** `WEAPONS` at the top of `fps_player.gd` (damage, spread, rate as `cooldown`, magazine). The SMG: 21 damage, about 600 rounds a minute, 32-round magazine, 1.9 s reload (`SMG_RELOAD` in `view_model.gd`).
 - **Stake gun:** `SPEED`, `CARRY_SPEED`, `MAX_CARRY` in `stake.gd`; reload timing `STAKE_RELOAD` / `STAKE_SEAT` in `view_model.gd`.
 - **Legs and cover:** `knee_damage`, `KNEE_RADIUS`, `leg_off_chance` and the get-up timing (`GETUP_KNEEL`, `GETUP_STAND`) in `clown.gd`; how slow a limper is in `limp()` in `clown_brain.gd`; cover search and timings in `_find_cover()` and `_cover_fight()` there.
+- **Events:** which rooms exist and how they are dealt out in `event_manager.gd` (`FEATURES`, `ODDITIES`); doors per floor `MAX_EVENT_DOORS` in `level_art.gd`; the nest's waves, time and prize tiers at the top of `mg_nest.gd`; the gun's heat in `mounted_gun.gd`; the Maxim's numbers in `WEAPONS` / `MOUNTED_MG` in `fps_player.gd`.
 - **Explosions:** `RADIUS` and `PLAYER_DAMAGE` in `scripts/fx/explosion.gd`; `toughness` on the drum (`explosive_barrel.gd`); how hard and how messily clowns are thrown in `caught_in_blast()` and `_blast_gore()` in `clown.gd`; `crawl_chance` on the clown for being torn in half; `life` and `speed` in `clown_crawler.gd`; how many drums per floor in `_dress_bunker()` in `level_art.gd`.
 - **Blood budget:** `MAX_DECALS`, `MAX_POOLS`, `DRY_TIME` in `blood_manager.gd`.
 
@@ -130,6 +143,7 @@ These run without opening the editor:
 godot --headless --fixed-fps 60 res://scenes/test_joints.tscn   # every joint driven to both ends of every axis
 godot --headless --fixed-fps 60 res://scenes/test_death.tscn    # timeline of each death reaction
 godot --headless --fixed-fps 60 res://scenes/test_game.tscn     # 40 mazes checked, then one pass round the game loop
+godot --headless --fixed-fps 60 res://scenes/test_events.tscn   # a bot plays every event room (add -- --only=mg_nest to pick one)
 godot --headless --fixed-fps 60 res://scenes/test_legs.tscn     # knee shot: down, writhe, up, limp; shotgun to the shins
 godot --headless --fixed-fps 60 res://scenes/test_cover.tscn    # a WitzSoldat in a level taking cover and peeking out
 godot --headless --fixed-fps 60 res://scenes/test_stake.tscn    # a clown staked to the wall; pistol rounds wearing a head and a chest open

@@ -23,6 +23,9 @@ var _t := 0.0
 ## Concrete dieselpunk bunkers (bunker theme) or the painted circus dugouts.
 var bunker_style := true
 var explosive_count := 0
+## Every steel door leads somewhere; a floor has at most this many.
+const MAX_EVENT_DOORS := 4
+var event_door_count := 0
 var _route_index := {}
 
 static var _mats := {}
@@ -242,7 +245,7 @@ func _bunker_wall_detail(c: Vector2i, dir: Vector2i, face: Vector3, along: Vecto
 		var u := w * 2.0 / 1.2
 		var v := (y1 - y0) / 1.2
 		_quad("harlequin_faded", a, b, Vector3(b.x, y1, b.z), Vector3(a.x, y1, a.z), [Vector2(0, v), Vector2(u, v), Vector2(u, 0), Vector2(0, 0)])
-	elif roll < 0.32:
+	elif roll < 0.32 and event_door_count < MAX_EVENT_DOORS:
 		_steel_door(face + out * 0.004, along, out, f, rng.randf_range(-0.5, 0.5))
 	elif roll < 0.38:
 		_poster(face - dv * 0.012 + along * rng.randf_range(-0.6, 0.6), Basis(along, Vector3.UP, out), f + 1.55, 0.5)
@@ -261,6 +264,11 @@ func _steel_door(p: Vector3, along: Vector3, out: Vector3, f: float, offset: flo
 		_add_multi("steel_box", Transform3D(fb.scaled_local(Vector3(0.1, h + 0.1, 0.08)), Vector3(c.x, f + (h + 0.1) * 0.5, c.z) + along * side * (hw + 0.05) + out * 0.04))
 	_add_multi("steel_box", Transform3D(fb.scaled_local(Vector3(hw * 2 + 0.2, 0.1, 0.08)), Vector3(c.x, f + h + 0.05, c.z) + out * 0.04))
 	_add_multi("steel_box", Transform3D(fb.scaled_local(Vector3(0.05, 0.3, 0.06)), Vector3(c.x, f + 1.0, c.z) + along * (hw - 0.15) + out * 0.03))
+	var door := EventDoor.new()
+	add_child(door)
+	door.position = Vector3(c.x, f, c.z)
+	door.basis = fb
+	event_door_count += 1
 
 
 func _stairs() -> void:

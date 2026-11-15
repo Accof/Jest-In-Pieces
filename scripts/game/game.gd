@@ -51,6 +51,8 @@ var _banner: Label
 var _panel: VBoxContainer
 var _offer: Array = []
 var _slow_until := 0
+var events: EventManager
+var _event_upgrade := false
 
 
 func _ready() -> void:
@@ -62,6 +64,10 @@ func _ready() -> void:
 	_load()
 	_build_environment()
 	_build_ui()
+	events = EventManager.new()
+	events.name = "Events"
+	events.game = self
+	add_child(events)
 	_show_menu()
 
 
@@ -83,6 +89,8 @@ func start_run() -> void:
 	player.died.connect(_on_player_died)
 	player.fired.connect(_on_player_fired)
 	player.ammo_changed.connect(_refresh_hud)
+	events.player = player
+	events.new_run()
 	if int(save.perks.get("start", 0)) > 0:
 		_apply_upgrade(UPGRADES[rng.randi() % UPGRADES.size()].id)
 	next_floor()
@@ -103,6 +111,7 @@ func next_floor() -> void:
 	player.global_position = spawn + Vector3.UP * 0.1
 	player.velocity = Vector3.ZERO
 	_build_exit()
+	events.new_floor()
 
 	var count := mini(4 + floor_number * 2, 18)
 	var gun_share := clampf(0.12 + 0.06 * floor_number, 0.0, 0.5)
@@ -145,6 +154,12 @@ func next_floor() -> void:
 
 
 func _clear_floor() -> void:
+	if events and events.room and is_instance_valid(events.room):
+		events.room.queue_free()
+		events.room = null
+	if is_instance_valid(player):
+		player.in_event = false
+		player.dismount()
 	if is_instance_valid(_world):
 		_world.queue_free()
 	clowns.clear()
@@ -171,6 +186,8 @@ func _on_clown_died(c: Clown) -> void:
 
 ## Gunshots carry along the corridors; clowns close enough come looking.
 func _on_player_fired(weapon: int) -> void:
+	if player.in_event:
+		return
 	for c: Clown in clowns:
 		if is_instance_valid(c) and not c.dead:
 			var b := c.get_node_or_null("Brain") as ClownBrain
@@ -233,7 +250,41 @@ func _pick_upgrade(i: int) -> void:
 	if i < 0 or i >= _offer.size():
 		return
 	_apply_upgrade(_offer[i].id)
+	if _event_upgrade:
+		_event_upgrade = false
+		_set_state(State.PLAYING)
+		return
 	next_floor()
+
+
+## An event room paid out an upgrade: choose one, then carry on.
+func offer_event_upgrade() -> void:
+	if state != State.PLAYING:
+		return
+	_event_upgrade = true
+	_offer_upgrades()
+
+
+## A kill inside an event room: counts for the run, not for the floor.
+func event_kill(c: Clown) -> void:
+	kills += 1
+	run_tickets += 2 if c.last_hit_zone == &"Neck" else 1
+	if player.stats.lifesteal > 0.0:
+		player.heal(player.stats.lifesteal)
+	_refresh_hud()
+
+
+func world() -> Node3D:
+	return _world
+
+
+## A longer, bigger message than _flash, for event results.
+func event_banner(text: String) -> void:
+	_banner.text = text
+	_banner.modulate.a = 1.0
+	var tw := create_tween()
+	tw.tween_interval(3.2)
+	tw.tween_property(_banner, "modulate:a", 0.0, 1.0)
 
 
 func _apply_upgrade(id: String) -> void:
@@ -401,7 +452,7 @@ func _set_state(s: State) -> void:
 	_health_bar.visible = _hud.visible
 	match s:
 		State.UPGRADE:
-			_title("FLOOR %d CLEARED" % floor_number, 34)
+			_title("YOUR PRIZE" if _event_upgrade else "FLOOR %d CLEARED" % floor_number, 34)
 			_title("Pick one", 20)
 			for i in _offer.size():
 				_button("[%d]  %s  -  %s" % [i + 1, _offer[i].name, _offer[i].desc], _pick_upgrade.bind(i))
