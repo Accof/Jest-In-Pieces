@@ -61,6 +61,16 @@ var _weave_offset := randf() * TAU
 var _wander_to := Vector3.ZERO
 var _wander_wait := 0.0
 var _search_left := 0.0
+## Riflemen fight from cover: duck behind something, pop out to a firing
+## spot beside it, take one aimed shot, duck back.
+var use_cover := false
+var debug_cover := false
+var _cover := Vector3.INF          # where it hides (floor point)
+var _peek := Vector3.INF           # where it steps out to shoot from
+var _cover_state := 0              # 0 none, 1 going to cover, 2 hiding, 3 peeking
+var _cover_t := 0.0
+var _cover_cooldown := 0.0
+var _hide_for := 2.0
 
 
 func _ready() -> void:
@@ -99,8 +109,8 @@ func _on_hurt(_c: Clown) -> void:
 		return
 	if not clown.dead:
 		alert(player.global_position, false)
-	for o: Clown in others:
-		if o == clown or not is_instance_valid(o) or o.dead:
+	for o in others:
+		if not is_instance_valid(o) or o == clown or o.dead:
 			continue
 		var b := o.get_node_or_null("Brain") as ClownBrain
 		if b == null or b.mind == Mind.HUNT:
@@ -150,7 +160,6 @@ func _idle(delta: float) -> void:
 	_face(vel, delta, 4.0)
 	clown.walk_amount = move_toward(clown.walk_amount, 0.45, delta * 3.0)
 	clown.run_amount = move_toward(clown.run_amount, 0.0, delta * 3.0)
-	clown.walk_phase += delta * 4.2
 
 
 func _physics_process(delta: float) -> void:
@@ -158,6 +167,8 @@ func _physics_process(delta: float) -> void:
 		set_physics_process(false)
 		return
 	_cooldown -= delta
+	_cover_cooldown -= delta
+	clown.crouch_amount = move_toward(clown.crouch_amount, 1.0 if _cover_state == 2 else 0.0, delta * 3.5)
 	if player == null or player.dead:
 		_settle(delta)
 		return
@@ -233,10 +244,14 @@ func _physics_process(delta: float) -> void:
 		_settle(delta, false)
 		return
 
+	if use_cover and _cover_state != 0:
+		if _cover_fight(delta, dist, seen, flat):
+			return
 	# Gunmen fight on the move: sidestep while lining up a shot, back off if the
 	# player closes in, push up if they are too far to hit much.
 	if clown.has_gun and dist < gun_range and dist > melee_range and seen:
 		_face(flat, delta, 7.0)
+		clown.aim_point = player.global_position + Vector3.UP * 1.3
 		clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 4.0)
 		if _aim_t < 0.0 and _cooldown <= 0.0:
 			_aim_t = 0.0
@@ -246,6 +261,9 @@ func _physics_process(delta: float) -> void:
 				_fire(dist)
 				_aim_t = -1.0
 				_cooldown = randf_range(shot_gap.x, shot_gap.y)
+				# after a shot in the open, a rifleman looks for something to get behind
+				if use_cover and _cover_cooldown <= 0.0 and dist > 4.5 and randf() < 0.7:
+					_find_cover()
 		_strafe_left -= delta
 		if _strafe_left <= 0.0:
 			_strafe_left = randf_range(0.7, 1.6)
@@ -264,7 +282,6 @@ func _physics_process(delta: float) -> void:
 		_step(gvel, delta)
 		clown.run_amount = move_toward(clown.run_amount, 0.0, delta * 3.0)
 		clown.walk_amount = move_toward(clown.walk_amount, clampf(gvel.length() / move_speed, 0.0, 1.0), delta * 5.0)
-		clown.walk_phase += delta * 7.5
 		return
 	_aim_t = -1.0
 	clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 4.0)
@@ -299,10 +316,10 @@ func _physics_process(delta: float) -> void:
 		if _free(jink.normalized()):
 			move = (move + jink).normalized()
 	# Keep a little room between clowns so they do not merge in a corridor.
-	for o: Clown in others:
-		if o == clown or not is_instance_valid(o) or o.dead:
+	for o in others:
+		if not is_instance_valid(o) or o == clown or o.dead:
 			continue
-		var away := clown.global_position - o.global_position
+		var away: Vector3 = clown.global_position - o.global_position
 		away.y = 0.0
 		if away.length() < 0.75 and away.length() > 0.01:
 			move += away.normalized() * (0.75 - away.length()) * 2.0
@@ -318,7 +335,135 @@ func _physics_process(delta: float) -> void:
 	_face(vel, delta, 8.0)
 	clown.run_amount = move_toward(clown.run_amount, 1.0 if speed > move_speed * 1.2 else 0.0, delta * 4.0)
 	clown.walk_amount = move_toward(clown.walk_amount, clampf(vel.length() / move_speed, 0.0, 1.0), delta * 5.0)
-	clown.walk_phase += delta * (3.2 + speed * 1.6)
+
+
+# --- cover -------------------------------------------------------------------------
+## Fight from cover. Returns true while it is handling this frame.
+func _cover_fight(delta: float, dist: float, seen: bool, flat: Vector3) -> bool:
+	var eye := player.global_position + Vector3.UP * 1.5
+	# Too close, or the hiding place can be seen from where the player is now:
+	# give it up and fight in the open.
+	if dist < 4.0 or (_cover_state == 2 and _clear(eye, _cover + Vector3.UP * 0.95)):
+		_drop_cover()
+		return false
+	_cover_t += delta
+	match _cover_state:
+		1:   # running for it
+			if _go_to(_cover, delta, run_speed):
+				_cover_state = 2
+				_cover_t = 0.0
+				_hide_for = randf_range(1.4, 2.8)
+				_aim_t = -1.0
+			clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 4.0)
+			return true
+		2:   # crouched behind it, working the bolt
+			_settle(delta)
+			_face(flat, delta, 4.0)
+			if _cover_t > _hide_for and _cooldown <= 0.0:
+				_cover_state = 3
+				_cover_t = 0.0
+			return true
+		3:   # step out, aim, fire, step back
+			_face(flat, delta, 8.0)
+			clown.aim_point = player.global_position + Vector3.UP * 1.3
+			if not _go_to(_peek, delta, move_speed):
+				clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 3.0)
+				return true
+			_face(flat, delta, 8.0)
+			clown.aim_point = player.global_position + Vector3.UP * 1.3
+			clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 5.0)
+			if not seen:
+				if _cover_t > 1.5:
+					_drop_cover()                 # nothing to shoot at from here
+					return false
+				return true
+			if _aim_t < 0.0:
+				_aim_t = 0.0
+			_aim_t += delta
+			if _aim_t > aim_time * 0.85:
+				_fire(dist)
+				_aim_t = -1.0
+				_cooldown = randf_range(shot_gap.x, shot_gap.y)
+				_cover_state = 1                  # back in
+				_cover_t = 0.0
+			return true
+	return false
+
+
+func _drop_cover() -> void:
+	_cover_state = 0
+	_cover = Vector3.INF
+	_peek = Vector3.INF
+	_cover_cooldown = randf_range(3.0, 6.0)
+
+
+## Look nearby (this cell and the next two along the corridors) for a spot
+## the player cannot see a crouched head at, with a spot within a step or two
+## from which it can see the player standing.
+func _find_cover() -> void:
+	var eye := player.global_position + Vector3.UP * 1.5
+	var start := maze.cell_of(clown.global_position)
+	var cells := {start: 0}
+	var frontier := [start]
+	while not frontier.is_empty():
+		var c: Vector2i = frontier.pop_front()
+		if cells[c] >= 2:
+			continue
+		for dir in Maze.DIRS:
+			var n: Vector2i = c + dir
+			if maze.in_bounds(n) and maze.linked(c, n) and not cells.has(n):
+				cells[n] = cells[c] + 1
+				frontier.append(n)
+	var best := INF
+	var offs := [Vector3.ZERO, Vector3(0.85, 0, 0.85), Vector3(-0.85, 0, 0.85), Vector3(0.85, 0, -0.85), Vector3(-0.85, 0, -0.85)]
+	var steps := [Vector3(1, 0, 0), Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 0, -1)]
+	for c: Vector2i in cells:
+		var centre := maze.cell_center(c)
+		for o: Vector3 in offs:
+			var p := centre + o
+			p.y = maze.floor_height(p)
+			if p.distance_to(player.global_position) < 5.0:
+				continue
+			if _clear(eye, p + Vector3.UP * 0.95):
+				continue                          # it would be seen crouching here
+			for st: Vector3 in steps:
+				var q := p + st * 1.0
+				q.y = maze.floor_height(q)
+				if absf(q.y - p.y) > 0.3 or not _clear(p + Vector3.UP * 0.9, q + Vector3.UP * 0.9):
+					continue
+				if not _clear(eye, q + Vector3.UP * 1.5):
+					continue                      # no shot from there either
+				var score := clown.global_position.distance_to(p) + randf() * 0.5
+				if score < best:
+					best = score
+					_cover = p
+					_peek = q
+	if OS.is_debug_build() and debug_cover:
+		print("find_cover: %d cells, found=%s" % [cells.size(), best < INF])
+	if best < INF:
+		_cover_state = 1
+		_cover_t = 0.0
+
+
+## Move toward `to` (by the corridors if need be). True once it is there.
+func _go_to(to: Vector3, delta: float, speed: float) -> bool:
+	var flat := Vector3(to.x - clown.global_position.x, 0, to.z - clown.global_position.z)
+	if flat.length() < 0.2:
+		_settle(delta, false)
+		return true
+	var target := to
+	if maze.cell_of(to) != maze.cell_of(clown.global_position):
+		var p := maze.path(clown.global_position, to)
+		if p.size() > 1 or not _clear(clown.global_position + Vector3.UP * 0.9, to + Vector3.UP * 0.9):
+			target = p[0] if not p.is_empty() else to
+	var move := Vector3(target.x - clown.global_position.x, 0, target.z - clown.global_position.z)
+	var vel := move.normalized() * minf(speed, move.length() / maxf(delta, 0.001))
+	_step(vel, delta)
+	if _cover_state != 3:
+		_face(vel, delta, 8.0)
+	clown.run_amount = move_toward(clown.run_amount, 1.0 if speed > move_speed * 1.2 else 0.0, delta * 4.0)
+	clown.walk_amount = move_toward(clown.walk_amount, clampf(vel.length() / move_speed, 0.0, 1.0), delta * 5.0)
+	return false
 
 
 ## True if it can take a step that way: no wall in the way and no ledge to walk off.
@@ -368,9 +513,18 @@ func _sees_player() -> bool:
 	return clown.get_world_3d().direct_space_state.intersect_ray(q).is_empty()
 
 
+## Back up on a broken leg: slow, no running, but still coming.
+func limp() -> void:
+	move_speed *= 0.38
+	run_speed = move_speed
+	run_burst = 0.0
+	alert(player.global_position if player else clown.global_position, false)
+
+
 ## WitzSoldat settings: a bolt-action rifle. Slower to aim and to work the
 ## bolt, but it reaches further, hits more often and hurts a lot more.
 func rifleman() -> void:
+	use_cover = true
 	gun_damage = 24.0
 	gun_range = 24.0
 	aim_time = 0.95
@@ -381,6 +535,8 @@ func rifleman() -> void:
 
 
 func _fire(dist: float) -> void:
+	if debug_cover:
+		print("fire at %.1fm" % dist)
 	var from := clown.muzzle_position()
 	var aim_at := player.global_position + Vector3.UP * 1.25
 	# Further away, or a player on the move, is harder to hit.

@@ -503,6 +503,60 @@ static func profile_limp() -> Dictionary:
 	}
 
 
+static func profile_kneecapped() -> Dictionary:
+	# A knee shot out from under it: drops fast, but stays alive on the
+	# floor, tense and moving, rather than going slack.
+	return {
+		support = [Vector2(0, 0.45), Vector2(0.25, 0.0)],
+		sink = [Vector2(0, 0.0), Vector2(0.3, 0.5)],
+		legs = [Vector2(0, 0.3), Vector2(0.4, 0.22)],
+		spine = [Vector2(0, 0.4), Vector2(0.5, 0.3)],
+		neck = [Vector2(0, 0.4), Vector2(0.5, 0.32)],
+		arms = [Vector2(0, 0.4), Vector2(0.5, 0.3)],
+		drift = 0.15, drift_time = 0.3,
+	}
+
+
+## Take the body back off the physics (it is getting up again).
+func stop() -> void:
+	if not active:
+		return
+	simulator.physical_bones_stop_simulation()
+	active = false
+	limp = false
+	is_settled = false
+	set_physics_process(false)
+	for pb: PhysicalBone3D in bones.values():
+		pb.gravity_scale = 1.0
+
+
+## Switch to another death curve while already simulating.
+func restart(profile: Dictionary) -> void:
+	_profile = _vary(profile)
+	time = 0.0
+	limp = false
+	is_settled = false
+	_still_time = 0.0
+	set_physics_process(true)
+
+
+## A smashed knee: it bends backwards and sideways, with no muscle left in it.
+func break_knee(side: String, dir: Vector3 = Vector3.ZERO) -> void:
+	var name := StringName(side + "LowerLeg")
+	var pb: PhysicalBone3D = bones.get(name)
+	if pb == null:
+		return
+	var lims := {"x": [-55.0, 145.0], "y": [-35.0, 35.0], "z": [-45.0, 45.0]}
+	for ax: String in lims:
+		var pre := "joint_constraints/%s/" % ax
+		pb.set(pre + "angular_limit_upper", -float(lims[ax][0]))
+		pb.set(pre + "angular_limit_lower", -float(lims[ax][1]))
+	_tone_scale[name] = 0.0
+	if active:
+		var kick := (dir.cross(Vector3.UP) if dir.length() > 0.01 else Vector3.RIGHT).normalized() + Vector3(randf_range(-0.4, 0.4), 0, randf_range(-0.4, 0.4))
+		PhysicsServer3D.body_apply_torque_impulse(pb.get_rid(), kick.normalized() * pb.mass * 0.9)
+
+
 ## A frozen corpse comes back to life as a ragdoll (an explosion reached it).
 func wake() -> void:
 	if active:

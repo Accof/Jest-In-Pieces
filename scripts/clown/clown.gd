@@ -43,6 +43,10 @@ var spec: Dictionary
 @export var crawl_chance := 0.4
 ## True while this clown is a torso dragging itself along the floor.
 var crawling := false
+## "Left" or "Right" once that leg is broken: it limps, and the knee bends wrong.
+var broken_leg := ""
+## On the floor after a knee shot, writhing, then getting back up.
+var downed := false
 
 ## Damage multiplier for each hit zone (keyed by physical bone).
 const ZONE_DAMAGE := {
@@ -114,6 +118,7 @@ func hit(info: Dictionary) -> void:
 	var raw: float = info.damage
 	var dmg: float = raw * ZONE_DAMAGE.get(zone, 1.0)
 	var amount := clampf(raw / 35.0, 0.3, 1.6) * float(info.get("blood", 1.0))
+	var break_leg := false
 
 	# A headshot may knock the helmet clean off; it still goes through.
 	if zone == &"Neck" and has_helmet and randf() < helmet_pop_chance:
@@ -148,7 +153,26 @@ func hit(info: Dictionary) -> void:
 				knock_off_helmet(dir, info.position)
 				gore.blast(bone, info.position, dir, clampf(0.045 + total * 0.0006, 0.05, 0.085))
 		elif gore.can_sever(bone) and total >= dismember_damage:
-			severed = true
+			var leg := zone in [&"UpperLeg", &"LowerLeg"]
+			if not leg:
+				severed = true
+			elif not _shot_blasted.has(&"leg"):
+				# decided once per blast: usually the bone goes and the leg stays on
+				_shot_blasted[&"leg"] = true
+				if randf() < leg_off_chance:
+					severed = true
+				elif broken_leg == "":
+					break_leg = true
+
+	# A round in the knee, or enough of them in one leg, breaks it.
+	if not info.get("can_dismember", false) and broken_leg == "" and zone in [&"UpperLeg", &"LowerLeg"]:
+		var side := "Left" if String(bone).begins_with("Left") else "Right"
+		_leg_dmg[side] = _leg_dmg.get(side, 0.0) + raw
+		var knee := _bone_world(StringName(side + "LowerLeg"))
+		var kb := skeleton.find_bone(side + "LowerLeg")
+		knee = skeleton.global_transform * skeleton.get_bone_global_pose(kb).origin if not dead else knee
+		if (raw >= knee_damage and info.position.distance_to(knee) < KNEE_RADIUS) or _leg_dmg[side] >= 85.0:
+			break_leg = true
 
 	# Bullets add up: enough rounds into one part slowly tears it open.
 	if not info.get("can_dismember", false) and not info.get("stake", false):
@@ -160,8 +184,12 @@ func hit(info: Dictionary) -> void:
 		if health <= 0.0 or _head_open or (severed and zone in [&"UpperLeg", &"LowerLeg", &"Neck"]):
 			_die(info, zone)
 	hurt.emit(self)
-	if not dead and not crawling:
+	if not dead and not crawling and not downed:
 		_flinch_from(info.position, dir, raw * (1.8 if severed else 1.0))
+	if downed and not dead and ragdoll.active:
+		ragdoll.apply_hit(bone, dir * float(info.get("impulse", 12.0)) * 0.5, info.position)
+	if break_leg and not severed:
+		_break_leg("Left" if String(bone).begins_with("Left") else "Right", info.position, dir)
 	if dead:
 		var impulse: Vector3 = dir * float(info.get("impulse", 12.0))
 		if was_dead:
@@ -203,7 +231,13 @@ func _die(info: Dictionary, zone: StringName) -> void:
 		var side := "Left" if String(info.collider.bone_name).begins_with("Left") else "Right"
 		for part in ["UpperLeg", "LowerLeg", "Foot"]:
 			ragdoll.weaken(StringName(side + part), 0.15)
-	ragdoll.start(profile, info.direction, info.get("fling", velocity))
+	if ragdoll.active:
+		ragdoll.restart(profile)          # already on the floor (shot while down)
+	else:
+		ragdoll.start(profile, info.direction, info.get("fling", velocity))
+	downed = false
+	if broken_leg != "":
+		ragdoll.break_knee(broken_leg, info.direction)
 	_drop_rifle()
 	gore.start_bleeding()
 	last_hit_zone = zone
@@ -259,6 +293,182 @@ func _wear(zone: StringName, bone: StringName, at: Vector3, dir: Vector3, raw: f
 	_wear_stage[region] = done
 
 
+# --- broken legs, and going down ----------------------------------------------------
+## One round this strong landing this close to a knee breaks the leg.
+@export var knee_damage := 28.0
+## Chance a shotgun blast that would take a leg off does so; otherwise it breaks it.
+@export var leg_off_chance := 0.25
+const KNEE_RADIUS := 0.17
+var _leg_dmg := {}
+var _down_t := 0.0
+var _down_stage := 0                # 0 writhing on the floor, 1 getting up
+var _writhe_for := 3.0
+var _writhe_next := 0.0
+var _getup_from := {}
+var _getup_kneel := {}
+var _getup_stand := {}
+const GETUP_KNEEL := 0.75
+const GETUP_STAND := 0.95
+
+
+func _break_leg(side: String, at: Vector3, dir: Vector3) -> void:
+	if broken_leg != "":
+		return
+	broken_leg = side
+	Blood.spawn_hit(at, dir, 1.4)
+	gore.add_wound(StringName(side + "LowerLeg"), at, 40.0)
+	if dead:
+		if ragdoll.active:
+			ragdoll.break_knee(side, dir)
+	elif not downed and not crawling:
+		_go_down(side, dir)
+
+
+## The knee gives: the body drops, writhes on the floor clutching it, then
+## drags itself back up and limps on.
+func _go_down(side: String, dir: Vector3) -> void:
+	downed = true
+	_down_stage = 0
+	_down_t = 0.0
+	_writhe_for = randf_range(2.4, 3.8)
+	attack_amount = 0.0
+	aim_amount = 0.0
+	crouch_amount = 0.0
+	var b := get_node_or_null("Brain")
+	if b:
+		b.process_mode = Node.PROCESS_MODE_DISABLED
+	ragdoll.start(ClownRagdoll.profile_kneecapped(), dir, velocity * 0.5)
+	for part in ["UpperLeg", "LowerLeg", "Foot"]:
+		ragdoll.weaken(StringName(side + part), 0.1 if part == "UpperLeg" else 0.0)
+	ragdoll.break_knee(side, dir)
+	gore.start_bleeding()
+	set_process(true)
+
+
+func _downed_process(delta: float) -> void:
+	_down_t += delta
+	if _down_stage == 0:
+		# writhing: the body twists, the good leg kicks, a hand goes to the knee
+		_writhe_next -= delta
+		if _writhe_next <= 0.0:
+			_writhe_next = randf_range(0.18, 0.5)
+			var good := "Right" if broken_leg == "Left" else "Left"
+			var parts := [&"Spine", &"Chest", &"Neck", StringName(good + "UpperLeg"), StringName(good + "LowerLeg"), &"LeftUpperArm", &"RightUpperArm"]
+			var pb: PhysicalBone3D = ragdoll.bones.get(parts.pick_random())
+			if pb:
+				var kick := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)).normalized()
+				PhysicsServer3D.body_apply_torque_impulse(pb.get_rid(), kick * pb.mass * randf_range(0.25, 0.6))
+		var hand: PhysicalBone3D = ragdoll.bones.get(StringName(broken_leg + "Hand"))
+		var knee: PhysicalBone3D = ragdoll.bones.get(StringName(broken_leg + "LowerLeg"))
+		if hand and knee:
+			PhysicsServer3D.body_apply_central_impulse(hand.get_rid(), (knee.global_position - hand.global_position).limit_length(0.5) * hand.mass * 6.0 * delta)
+		var chest: PhysicalBone3D = ragdoll.bones.get(&"Chest")
+		var slow := chest == null or (PhysicsServer3D.body_get_state(chest.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY) as Vector3).length() < 1.2
+		if _down_t > _writhe_for and slow:
+			_begin_getup()
+	else:
+		_getup()
+
+
+func _begin_getup() -> void:
+	var sk := skeleton
+	var count := sk.get_bone_count()
+	var world := []
+	for i in count:
+		world.append(sk.global_transform * ragdoll.bone_pose(i))
+	ragdoll.stop()
+	# stand up where the hips came to rest, facing the player
+	var hips: Vector3 = (world[sk.find_bone("Hips")] as Transform3D).origin
+	var b := get_node_or_null("Brain")
+	var floor_y := global_position.y
+	if b and b.maze:
+		floor_y = b.maze.floor_height(hips)
+	global_position = Vector3(hips.x, floor_y, hips.z)
+	var player := get_tree().get_first_node_in_group(&"player") as Node3D
+	if player:
+		var to := player.global_position - global_position
+		rotation = Vector3(0, atan2(to.x, to.z), 0)
+	_model.position = Vector3.ZERO
+	_model.rotation = Vector3.ZERO
+	var inv := sk.global_transform.affine_inverse()
+	var g := []
+	for i in count:
+		g.append(inv * (world[i] as Transform3D))
+	_getup_from = {}
+	for i in count:
+		var p := sk.get_bone_parent(i)
+		var local: Transform3D = (g[p] as Transform3D).affine_inverse() * g[i] if p >= 0 else g[i]
+		_getup_from[i] = [local.basis.get_rotation_quaternion(), local.origin]
+	_getup_kneel = _capture_pose(_kneel_pose)
+	_getup_stand = _capture_pose(func() -> void: pass)
+	_apply_pose(_getup_from, _getup_from, 0.0)
+	_down_stage = 1
+	_down_t = 0.0
+
+
+## The pose a function leaves the skeleton in, starting from standing.
+func _capture_pose(pose: Callable) -> Dictionary:
+	var sk := skeleton
+	for i in sk.get_bone_count():
+		sk.set_bone_pose_rotation(i, sk.get_bone_rest(i).basis.get_rotation_quaternion())
+		sk.set_bone_pose_position(i, sk.get_bone_rest(i).origin)
+	for bi: int in _base_rot:
+		sk.set_bone_pose_rotation(bi, _base_rot[bi])
+	pose.call()
+	var out := {}
+	for i in sk.get_bone_count():
+		out[i] = [sk.get_bone_pose_rotation(i), sk.get_bone_pose_position(i)]
+	return out
+
+
+## Down on the broken leg's knee, the good foot planted, a hand on the thigh.
+func _kneel_pose() -> void:
+	var sk := skeleton
+	var hips := sk.find_bone("Hips")
+	sk.set_bone_pose_position(hips, sk.get_bone_rest(hips).origin + Vector3(0, -0.42, -0.08))
+	var good := "Right" if broken_leg == "Left" else "Left"
+	_turn(good + "UpperLeg", Vector3.RIGHT, deg_to_rad(-80.0))
+	_turn(good + "LowerLeg", Vector3.RIGHT, deg_to_rad(85.0))
+	_turn(broken_leg + "UpperLeg", Vector3.RIGHT, deg_to_rad(5.0))
+	_turn(broken_leg + "LowerLeg", Vector3.RIGHT, deg_to_rad(95.0))
+	_turn("Spine", Vector3.RIGHT, deg_to_rad(28.0))
+	_turn("Neck", Vector3.RIGHT, deg_to_rad(-20.0))
+
+
+func _apply_pose(a: Dictionary, b: Dictionary, w: float) -> void:
+	var sk := skeleton
+	var hips := sk.find_bone("Hips")
+	for i: int in a:
+		var qa: Quaternion = a[i][0]
+		var qb: Quaternion = b[i][0]
+		sk.set_bone_pose_rotation(i, qa.slerp(qb, w))
+		if i == hips:
+			sk.set_bone_pose_position(i, (a[i][1] as Vector3).lerp(b[i][1], w))
+
+
+func _getup() -> void:
+	var t := _down_t
+	if t < GETUP_KNEEL:
+		var w := smoothstep(0.0, 1.0, t / GETUP_KNEEL)
+		_apply_pose(_getup_from, _getup_kneel, w)
+	else:
+		var w := smoothstep(0.0, 1.0, (t - GETUP_KNEEL) / GETUP_STAND)
+		_apply_pose(_getup_kneel, _getup_stand, w)
+	if t >= GETUP_KNEEL + GETUP_STAND:
+		downed = false
+		_flinch = Vector3.ZERO
+		_flinch_vel = Vector3.ZERO
+		_stagger = Vector3.ZERO
+		_stagger_vel = Vector3.ZERO
+		velocity = Vector3.ZERO
+		var b := get_node_or_null("Brain")
+		if b:
+			b.process_mode = Node.PROCESS_MODE_INHERIT
+			if b.has_method("limp"):
+				b.limp()
+		always_pose = true
+
+
 # --- explosions ---------------------------------------------------------------------
 const BLAST_LIMBS := [&"LeftUpperArm", &"RightUpperArm", &"LeftLowerArm", &"RightLowerArm",
 	&"LeftUpperLeg", &"RightUpperLeg", &"LeftLowerLeg", &"RightLowerLeg", &"LeftHand", &"RightHand"]
@@ -294,7 +504,8 @@ func caught_in_blast(center: Vector3, radius: float) -> void:
 	var limbs := _blast_gore(center, dir, s)
 	if not dead:
 		health -= 320.0 * pow(s, 1.3)
-		if health <= 0.0 or limbs.size() > 0:
+		var tears := limbs.filter(func(l: StringName) -> bool: return not String(l).ends_with("Leg"))
+		if health <= 0.0 or tears.size() > 0:
 			last_hit_zone = &"Chest"
 			var fling := dir * lerpf(2.0, 15.0, s * s) * randf_range(0.85, 1.1)
 			ragdoll.max_bone_speed = 26.0
@@ -313,6 +524,11 @@ func caught_in_blast(center: Vector3, radius: float) -> void:
 			PhysicsServer3D.body_set_state(pb.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY, dir * lerpf(1.5, 11.0, s * s))
 		_throw_bones(dir, s)
 	for limb: StringName in limbs:
+		var ls := String(limb)
+		if (ls.ends_with("UpperLeg") or ls.ends_with("LowerLeg")) and randf() < 0.7:
+			# more often the leg is smashed than torn off
+			_break_leg("Left" if ls.begins_with("Left") else "Right", _bone_world(limb), dir)
+			continue
 		if gore.can_sever(limb):
 			gore.sever(limb, dir * lerpf(10.0, 30.0, s) + Vector3(randf_range(-4, 4), randf_range(0, 6), randf_range(-4, 4)))
 	gore.watch_impacts(2.2)
@@ -470,6 +686,9 @@ func _process(delta: float) -> void:
 	if dead or crawling:
 		set_process(false)
 		return
+	if downed:
+		_downed_process(delta)
+		return
 	delta = minf(delta, 1.0 / 30.0)         # the springs below go unstable on a long frame
 	stagger_time = maxf(stagger_time - delta, 0.0)
 	_flinch_vel += (-_flinch * 120.0 - _flinch_vel * 13.0) * delta
@@ -478,57 +697,189 @@ func _process(delta: float) -> void:
 	_stagger += _stagger_vel * delta
 	for bi: int in _base_rot:
 		skeleton.set_bone_pose_rotation(bi, _base_rot[bi])
-	# Walk: a heavy-footed shamble, leaning into it.
+	# Feet: the stride follows how fast and which way the body is really
+	# moving, so the feet do not skate. Backing off steps backwards; moving
+	# sideways is a side-step.
+	var flat := Vector3(velocity.x, 0, velocity.z)
+	var speed := flat.length()
+	var fwd_amt := 1.0
+	var side_amt := 0.0
+	var back := 1.0
+	if speed > 0.05:
+		var f := flat.dot(global_basis.z.normalized()) / speed
+		var sd := flat.dot(global_basis.x.normalized()) / speed
+		fwd_amt = absf(f)
+		side_amt = absf(sd)
+		back = -1.0 if f < -0.25 else 1.0
+		var stride_len := lerpf(1.3, 1.9, run_amount) * (0.55 if broken_leg != "" else 1.0)
+		walk_phase += speed * delta * TAU / stride_len * back
+	elif walk_amount > 0.01:
+		walk_phase += delta * 4.0            # marking time
+	var bob := 0.0
 	if walk_amount > 0.01:
 		var sw := sin(walk_phase)
-		var stride := lerpf(30.0, 50.0, run_amount)
-		var knee := lerpf(48.0, 85.0, run_amount)
+		var stride := lerpf(30.0, 50.0, run_amount) * clampf(fwd_amt + 0.25, 0.0, 1.0)
+		var knee := lerpf(40.0, 85.0, run_amount)
 		var arm := lerpf(22.0, 48.0, run_amount)
-		_turn("Spine", Vector3.RIGHT, deg_to_rad(lerpf(7.0, 20.0, run_amount)) * walk_amount)
+		_turn("Spine", Vector3.RIGHT, deg_to_rad(lerpf(7.0, 20.0, run_amount)) * walk_amount * fwd_amt * back)
 		_turn("Spine", Vector3.BACK, deg_to_rad(3.0) * sw * walk_amount)
-		_turn("LeftUpperLeg", Vector3.RIGHT, deg_to_rad(-stride) * sw * walk_amount)
-		_turn("RightUpperLeg", Vector3.RIGHT, deg_to_rad(stride) * sw * walk_amount)
-		_turn("LeftLowerLeg", Vector3.RIGHT, deg_to_rad(knee) * maxf(0.0, cos(walk_phase)) * walk_amount)
-		_turn("RightLowerLeg", Vector3.RIGHT, deg_to_rad(knee) * maxf(0.0, -cos(walk_phase)) * walk_amount)
+		var legs := {"Left": 1.0, "Right": -1.0}
+		for side: String in legs:
+			var s: float = legs[side]
+			var limp := side == broken_leg
+			var k := 0.35 if limp else 1.0
+			_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-stride) * sw * s * walk_amount * k)
+			_turn(side + "UpperLeg", Vector3.BACK, deg_to_rad(12.0) * maxf(0.0, sw * s) * side_amt * walk_amount * s)
+			_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(knee) * maxf(0.0, cos(walk_phase) * s) * walk_amount * (0.3 if limp else 1.0))
 		if not has_rifle:
 			_turn("LeftUpperArm", Vector3.RIGHT, deg_to_rad(arm) * sw * walk_amount)
 		_turn("LeftLowerArm", Vector3.RIGHT, deg_to_rad(-55.0) * run_amount * walk_amount)
 		if attack_amount < 0.01 and aim_amount < 0.01 and not has_rifle:
 			_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-arm) * sw * walk_amount)
 			_turn("RightLowerArm", Vector3.RIGHT, deg_to_rad(-55.0) * run_amount * walk_amount)
-	# Right arm: swung overhead to hit, or held out to aim.
+		# the body drops a little onto each foot as it lands
+		bob = (0.5 + 0.5 * cos(walk_phase * 2.0)) * lerpf(0.035, 0.07, run_amount) * walk_amount
+	# A broken leg: knee bent the wrong way, and the body lurches down onto it.
+	if broken_leg != "":
+		var s := 1.0 if broken_leg == "Left" else -1.0
+		_turn(broken_leg + "LowerLeg", Vector3.FORWARD, deg_to_rad(24.0) * s)
+		_turn(broken_leg + "LowerLeg", Vector3.RIGHT, deg_to_rad(18.0))
+		var on_bad := maxf(0.0, sin(walk_phase) * (-s)) * walk_amount
+		bob += on_bad * 0.09
+		_turn("Spine", Vector3.BACK, deg_to_rad(-10.0) * s * (0.4 + on_bad))
+		_turn("Spine", Vector3.RIGHT, deg_to_rad(12.0))
+	# Crouched behind cover.
+	if crouch_amount > 0.01:
+		var c := crouch_amount
+		for side: String in ["Left", "Right"]:
+			_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-80.0) * c)
+			_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(120.0) * c)
+		_turn("Spine", Vector3.RIGHT, deg_to_rad(14.0) * c)
+	# Right arm: swung overhead to hit, or held out to aim (pistol gunmen).
 	if attack_amount > 0.01:
 		_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-135.0) * attack_amount)
 		_turn("RightLowerArm", Vector3.RIGHT, deg_to_rad(-35.0) * attack_amount)
 		_turn("Chest", Vector3.RIGHT, deg_to_rad(12.0) * attack_amount)
-	elif aim_amount > 0.01:
+	elif aim_amount > 0.01 and not has_rifle:
 		_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-84.0) * aim_amount)
-		if has_rifle:
-			# Rifle shouldered: right hand at the grip, left hand out under the fore-end.
-			_turn("RightUpperArm", Vector3.UP, deg_to_rad(14.0) * aim_amount)
-			_turn("RightLowerArm", Vector3.UP, deg_to_rad(38.0) * aim_amount)
-			_turn("LeftUpperArm", Vector3.RIGHT, deg_to_rad(-82.0) * aim_amount)
-			_turn("LeftUpperArm", Vector3.UP, deg_to_rad(-22.0) * aim_amount)
-			_turn("LeftLowerArm", Vector3.UP, deg_to_rad(-12.0) * aim_amount)
-			_turn("Neck", Vector3.UP, deg_to_rad(-8.0) * aim_amount)
-	if has_rifle and aim_amount < 0.99:
-		# Carrying: both hands on the rifle across the chest.
-		var carry := 1.0 - aim_amount
-		_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-30.0) * carry)
-		_turn("RightLowerArm", Vector3.UP, deg_to_rad(70.0) * carry)
-		_turn("LeftUpperArm", Vector3.RIGHT, deg_to_rad(-40.0) * carry)
-		_turn("LeftLowerArm", Vector3.UP, deg_to_rad(-95.0) * carry)
-	if _rifle and is_instance_valid(_rifle):
-		_rifle.transform = _rifle_carried.interpolate_with(_rifle_aimed, aim_amount)
 	if _flinch.length() > 0.0005:
 		for b: Array in FLINCH_BONES:
 			_turn(b[0], _flinch.normalized(), _flinch.length() * b[1])
-	_model.position = _stagger
+	_model.position = _stagger + Vector3.DOWN * (bob + 0.47 * crouch_amount)
+	if has_rifle and _rifle and is_instance_valid(_rifle):
+		_hold_rifle()
 	if not always_pose and _flinch.length() < 0.002 and _flinch_vel.length() < 0.02 and _stagger.length() < 0.002 and _stagger_vel.length() < 0.02:
 		_flinch = Vector3.ZERO
 		_stagger = Vector3.ZERO
 		_model.position = Vector3.ZERO
 		set_process(false)
+
+
+## Where a rifleman is aiming (world space), set by its brain while aiming.
+var aim_point := Vector3.INF
+var crouch_amount := 0.0
+
+
+## Put the rifle where it belongs (slung across the chest at port arms, or
+## shouldered with the cheek on the stock), then both hands onto it.
+func _hold_rifle() -> void:
+	var sk := skeleton
+	var to_skel := (sk.global_transform).affine_inverse()
+	var a := aim_amount
+	# head down onto the stock when aiming
+	_turn("Neck", Vector3.RIGHT, deg_to_rad(14.0) * a)
+	_turn("Neck", Vector3.FORWARD, deg_to_rad(-9.0) * a)
+	var head := sk.get_bone_global_pose(sk.find_bone("Head")).origin
+	var eye := head + Vector3(-0.035, 0.07, 0.1)
+	var dir := Vector3.BACK
+	if aim_point != Vector3.INF:
+		dir = (to_skel * aim_point - eye).normalized()
+		var flat := Vector3(dir.x, 0, dir.z)
+		if flat.length() < 0.2 or flat.normalized().dot(Vector3.BACK) < 0.5:
+			dir = Vector3.BACK                   # not facing it yet: hold straight ahead
+		dir.y = clampf(dir.y, -0.6, 0.6)
+		dir = dir.normalized()
+	var aim_xf := Transform3D(_basis_along(dir), eye + Vector3.DOWN * 0.075 - dir * 0.27)
+	var hips := sk.get_bone_global_pose(sk.find_bone("Hips")).origin
+	var carry_dir := Vector3(0.55, 0.82, 0.18).normalized()
+	var carry_xf := Transform3D(_basis_along(carry_dir, Vector3.BACK), hips + Vector3(-0.17, -0.05, 0.2))
+	var xf := carry_xf.interpolate_with(aim_xf, a * a * (3.0 - 2.0 * a))
+	var chest := sk.get_bone_global_pose(sk.find_bone("Chest"))
+	_rifle.transform = chest.affine_inverse() * xf
+	# hands: right on the wrist of the stock, left under the fore-end
+	var grip := xf * Vector3(0.0, -0.045, 0.2)
+	var fore := xf * Vector3(0.0, -0.035, 0.56)
+	var rs := sk.get_bone_global_pose(sk.find_bone("RightUpperArm")).origin
+	var ls := sk.get_bone_global_pose(sk.find_bone("LeftUpperArm")).origin
+	reach("Right", grip, rs + Vector3(-0.45, -0.5, -0.15))
+	reach("Left", fore, ls + Vector3(0.1, -0.6, 0.05))
+	point_bone("RightHand", xf.basis.z)
+	point_bone("LeftHand", xf.basis.z)
+
+
+## A basis whose +Z runs along `dir`, as level as it can be.
+static func _basis_along(dir: Vector3, up_hint: Vector3 = Vector3.UP) -> Basis:
+	var z := dir.normalized()
+	var x := up_hint.cross(z)
+	if x.length() < 0.01:
+		x = Vector3.RIGHT
+	x = x.normalized()
+	return Basis(x, z.cross(x), z)
+
+
+## Two-bone reach (skeleton space): point the upper arm and forearm so the
+## wrist lands on `target`, the elbow bowed toward `pole`.
+func reach(side: String, target: Vector3, pole: Vector3) -> void:
+	var sk := skeleton
+	var ua := sk.find_bone(side + "UpperArm")
+	var la := sk.find_bone(side + "LowerArm")
+	var hb := sk.find_bone(side + "Hand")
+	var s_pos := sk.get_bone_global_pose(ua).origin
+	var e_pos := sk.get_bone_global_pose(la).origin
+	var w_pos := sk.get_bone_global_pose(hb).origin
+	var a := s_pos.distance_to(e_pos)
+	var b := e_pos.distance_to(w_pos)
+	var to_t := target - s_pos
+	var d := clampf(to_t.length(), absf(a - b) + 0.01, (a + b) * 0.995)
+	var dir := to_t.normalized()
+	var cos_a := clampf((a * a + d * d - b * b) / (2.0 * a * d), -1.0, 1.0)
+	var bend := (pole - s_pos) - dir * (pole - s_pos).dot(dir)
+	if bend.length() < 0.001:
+		bend = Vector3.DOWN
+	bend = bend.normalized()
+	var elbow := s_pos + dir * (a * cos_a) + bend * (a * sqrt(1.0 - cos_a * cos_a))
+	aim_bone(ua, la, elbow)
+	aim_bone(la, hb, s_pos + dir * d)
+
+
+## Rotate `bone` so its child lies toward `target` (skeleton space).
+func aim_bone(bone: int, child: int, target: Vector3) -> void:
+	var sk := skeleton
+	var gp := sk.get_bone_global_pose(bone)
+	var cur := sk.get_bone_global_pose(child).origin - gp.origin
+	var want := target - gp.origin
+	if cur.length() < 0.0001 or want.length() < 0.0001:
+		return
+	_rotate_global(bone, Quaternion(cur.normalized(), want.normalized()))
+
+
+## Turn a bone (usually a hand) so it points along `dir` (skeleton space).
+func point_bone(bone_name: String, dir: Vector3) -> void:
+	var bi := skeleton.find_bone(bone_name)
+	var gp := skeleton.get_bone_global_pose(bi)
+	var cur := gp.basis.y.normalized()
+	if dir.length() < 0.0001:
+		return
+	_rotate_global(bi, Quaternion(cur, dir.normalized()))
+
+
+func _rotate_global(bone: int, q: Quaternion) -> void:
+	var sk := skeleton
+	var gp := sk.get_bone_global_pose(bone)
+	var wanted := Basis(q) * gp.basis
+	var parent := sk.get_bone_parent(bone)
+	var pg := sk.get_bone_global_pose(parent).basis if parent >= 0 else Basis.IDENTITY
+	sk.set_bone_pose_rotation(bone, (pg.inverse() * wanted).get_rotation_quaternion())
 
 
 # --- helmet -----------------------------------------------------------------------
@@ -643,6 +994,8 @@ func give_rifle() -> void:
 	var x := Vector3.BACK.cross(up).normalized()
 	_rifle_carried = chest_rest.affine_inverse() * Transform3D(Basis(x, up.cross(x), up).orthonormalized(), Vector3(-0.2, 0.98, 0.2))
 	_rifle.transform = _rifle_carried
+	always_pose = true                  # the hands stay on the rifle every frame
+	set_process(true)
 
 
 ## Drop the rifle where it is (on death).

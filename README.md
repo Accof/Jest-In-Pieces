@@ -33,9 +33,21 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 
 Key 4. A compressed-air launcher that fires one iron-tipped stake. It goes straight through any clown (always a kill), carries the body with it and nails it to the next wall, where it hangs; with no wall within about 9 m the stake stays in the body and it drops. Reloading is slow (2.9 s: fetch a stake, lay it on the rail, three strokes of the pump while the gauge climbs) and starts by itself after each shot. A stake into a fuel drum sets it off.
 
+## Broken legs
+
+A round in the knee (28 damage or more, within 17 cm of the joint), or enough rounds in one leg, breaks it. A living clown or WitzSoldat drops, writhes on the floor clutching the knee for a few seconds, gets up on one knee and then stands, and comes after you limping: slow, no running, the knee bent the wrong way and the body lurching down onto it every step. Shoot it again and it dies with that knee flopping wrong.
+
+The shotgun and explosions now usually break legs instead of taking them off: a blast that would sever a leg breaks it three times in four (`leg_off_chance` on the clown, 0.25), and a living clown it does not kill goes down the same way.
+
 ## Rounds add up
 
 Pistol and SMG rounds wear a body down. Enough of them into one part, alive or dead, tears it open in stages: the head cracks open, then more of the skull goes, then most of it; the chest opens to the ribs, then wider; the belly opens and the guts come out, then more. The thresholds are `WEAR_STAGES` in `clown.gd` (damage soaked up, and hole size, per stage). The shotgun still does it all in one blast.
+
+## WitzSoldat
+
+Carries the rifle across the chest at port arms with both hands on it, and shoulders it to aim: butt in the shoulder, cheek down on the stock, sights to the eye, both hands placed by a two-bone reach every frame. Its steps follow how fast and which way it is really moving (backing off steps backwards, sidestepping steps sideways) and the body dips onto each foot.
+
+It fights from cover: after a shot in the open it looks within two corridor cells for a spot the player cannot see a crouched head at, with a firing spot a step away. It runs there, crouches (working the bolt), steps out, aims, fires once and ducks back. It gives the cover up if the player gets within 4 m or can see the hiding place.
 
 ## Fuel drums
 
@@ -106,6 +118,7 @@ All of these are in `clown_ragdoll.gd`.
 - **Level layout:** in `maze.gd` `_generate_linear()`: route length (`w * d * 0.42`), number of stairwells, halls and side rooms. **Level look:** `theme` ("bunker", "trench" or "funhouse"), `TRENCH_DEPTH` and `BUNKER_HEADROOM`. In `level_art.gd`, `_bunker_wall_detail` sets how often walls get paint, doors or posters, and `_bulb` the light brightness, range and how many are dead or flickering. In `level_art.gd`, the chances in `_trench_wall_props`, `_dress_trench` and `_dress_bunker` set how much bunting, wire, posters and clutter appear; lantern brightness is the energy passed to `_lantern`. Sky, fog and the dusk light are in `_build_environment()` in `game.gd`.
 - **Weapons:** `WEAPONS` at the top of `fps_player.gd` (damage, spread, rate as `cooldown`, magazine). The SMG: 21 damage, about 600 rounds a minute, 32-round magazine, 1.9 s reload (`SMG_RELOAD` in `view_model.gd`).
 - **Stake gun:** `SPEED`, `CARRY_SPEED`, `MAX_CARRY` in `stake.gd`; reload timing `STAKE_RELOAD` / `STAKE_SEAT` in `view_model.gd`.
+- **Legs and cover:** `knee_damage`, `KNEE_RADIUS`, `leg_off_chance` and the get-up timing (`GETUP_KNEEL`, `GETUP_STAND`) in `clown.gd`; how slow a limper is in `limp()` in `clown_brain.gd`; cover search and timings in `_find_cover()` and `_cover_fight()` there.
 - **Explosions:** `RADIUS` and `PLAYER_DAMAGE` in `scripts/fx/explosion.gd`; `toughness` on the drum (`explosive_barrel.gd`); how hard and how messily clowns are thrown in `caught_in_blast()` and `_blast_gore()` in `clown.gd`; `crawl_chance` on the clown for being torn in half; `life` and `speed` in `clown_crawler.gd`; how many drums per floor in `_dress_bunker()` in `level_art.gd`.
 - **Blood budget:** `MAX_DECALS`, `MAX_POOLS`, `DRY_TIME` in `blood_manager.gd`.
 
@@ -117,6 +130,8 @@ These run without opening the editor:
 godot --headless --fixed-fps 60 res://scenes/test_joints.tscn   # every joint driven to both ends of every axis
 godot --headless --fixed-fps 60 res://scenes/test_death.tscn    # timeline of each death reaction
 godot --headless --fixed-fps 60 res://scenes/test_game.tscn     # 40 mazes checked, then one pass round the game loop
+godot --headless --fixed-fps 60 res://scenes/test_legs.tscn     # knee shot: down, writhe, up, limp; shotgun to the shins
+godot --headless --fixed-fps 60 res://scenes/test_cover.tscn    # a WitzSoldat in a level taking cover and peeking out
 godot --headless --fixed-fps 60 res://scenes/test_stake.tscn    # a clown staked to the wall; pistol rounds wearing a head and a chest open
 godot --headless --fixed-fps 60 res://scenes/test_smg.tscn      # SMG rate of fire, kill, reload; god mode
 godot --headless --fixed-fps 60 res://scenes/test_blast.tscn    # a drum among clowns at set distances: gore, throw, the crawler
