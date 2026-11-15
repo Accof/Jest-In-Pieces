@@ -174,6 +174,8 @@ func _play_room(room: EventRoom, kind: String) -> void:
 	var saved := 0
 	var shots_since_kill := 0
 	var last_kills := 0
+	if kind == "high_wire" and "--fall_log" in OS.get_cmdline_user_args():
+		_log_falls(room)
 	if kind == "meat_locker":
 		# walk in among them
 		for f in 120:
@@ -224,3 +226,22 @@ func _play_room(room: EventRoom, kind: String) -> void:
 		if is_instance_valid(e) and not e.dead:
 			var b := e.get_node_or_null("Brain")
 			print("   still alive: %.1fm away, downed=%s crawling=%s hunting=%s brain_on=%s" % [e.global_position.distance_to(p.global_position), e.downed, e.crawling, b.hunting if b else "-", b.process_mode != Node.PROCESS_MODE_DISABLED if b else "-"])
+
+
+## Follow the first body off the wire: height and fall speed of the hips.
+func _log_falls(room: EventRoom) -> void:
+	var c: Clown = null
+	while c == null:
+		await get_tree().physics_frame
+		for e: Clown in room.enemies:
+			if is_instance_valid(e) and e.dead and e.ragdoll and e.global_position.y > room.global_position.y + 8.0:
+				c = e
+	var hips: PhysicalBone3D = c.ragdoll.bones[&"Hips"]
+	var t := 0.0
+	var y0 := hips.global_position.y
+	while t < 2.6:
+		var v := hips.linear_velocity
+		print("   fall t=%.2f y=%.2f vy=%.1f  (free fall would be %.1f)" % [t, hips.global_position.y - room.global_position.y, v.y, -9.8 * t])
+		for k in 6:
+			await get_tree().physics_frame
+		t += 0.1

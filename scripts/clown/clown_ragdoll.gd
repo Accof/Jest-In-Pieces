@@ -9,6 +9,7 @@ extends Node
 ## way real ones do.
 
 signal went_limp          ## all muscle tone has reached zero
+signal landed(speed: float)  ## a body that fell from a height hit the ground (m/s)
 signal settled            ## the body has come to rest on the ground
 
 const LAYER_WORLD := 1
@@ -44,6 +45,16 @@ const LAYER_RAGDOLL := 1 << 2
 @export var limp_linear_damp := 0.08
 ## No bone may move faster than this, so a big hit cannot launch the body.
 @export var max_bone_speed := 9.0
+## Falling is not capped like that: a body dropping off a height keeps
+## accelerating under real gravity up to roughly a man's terminal velocity.
+const FALL_CAP := 55.0
+## How much a body that hits the ground hard bounces back off it.
+@export var landing_bounce := 0.16
+## True once there is nothing under the body: the balance "strings" let go,
+## it falls at plain 1 g, and it lands with a slight bounce.
+var airborne := false
+var _fall_peak := 0.0
+var _landed_t := -1.0
 @export var max_bone_spin := 24.0
 
 ## Degrees the knees and hips fold as the legs lose strength. Without this a
@@ -626,6 +637,15 @@ func start(profile: Dictionary, hit_dir: Vector3 = Vector3.ZERO, velocity: Vecto
 	_left = _level_axis * (1.0 if randf() < 0.5 else -1.0)
 	for pb: PhysicalBone3D in bones.values():
 		pb.gravity_scale = fall_weight
+	airborne = false
+	_fall_peak = 0.0
+	_landed_t = -1.0
+	# nothing to stand on (a wire, a ledge, thin air)? then it simply drops
+	var hp: Vector3 = bones[&"Hips"].global_position
+	var q := PhysicsRayQueryParameters3D.create(hp, hp + Vector3.DOWN * 2.2, LAYER_WORLD)
+	var under: Dictionary = bones[&"Hips"].get_world_3d().direct_space_state.intersect_ray(q)
+	if under.is_empty():
+		_go_airborne()
 	var twist := float(profile.get("twist", 0.0))
 	if twist != 0.0 and bones.has(&"Chest"):
 		var spin_dir := -1.0 if _left.dot(_level_axis) > 0.0 else 1.0
@@ -749,6 +769,12 @@ func _physics_process(delta: float) -> void:
 	time += delta * fall_speed
 	var ps := PhysicsServer3D
 	var support := _sample(&"support")
+	var hv: Vector3 = (bones[&"Hips"] as PhysicalBone3D).linear_velocity if bones.has(&"Hips") else Vector3.ZERO
+	if not airborne and hv.y < -5.5:
+		_go_airborne()                     # it has gone over an edge
+	if airborne:
+		support = 0.0
+		_track_landing(hv)
 	var any_tone := _apply_tone() or support > 0.001
 
 	# Two "strings" stand in for balance while the clown can still carry itself:
@@ -772,7 +798,7 @@ func _physics_process(delta: float) -> void:
 			ps.body_apply_central_force(chest.get_rid(), pull * 32.0 * upright)
 
 	# Keep shoulders and hips level through a forward fall so it lands flat.
-	var square := _sample(&"square")
+	var square := 0.0 if airborne else _sample(&"square")
 	if square > 0.001:
 		for spec: Array in [[&"Chest", 150.0, 12.0], [&"Hips", 190.0, 14.0]]:
 			var pb: PhysicalBone3D = bones.get(spec[0])
@@ -787,8 +813,11 @@ func _physics_process(delta: float) -> void:
 	for pb: PhysicalBone3D in bones.values():
 		var rid := pb.get_rid()
 		var v: Vector3 = ps.body_get_state(rid, ps.BODY_STATE_LINEAR_VELOCITY)
-		if v.length() > max_bone_speed:
-			ps.body_set_state(rid, ps.BODY_STATE_LINEAR_VELOCITY, v.normalized() * max_bone_speed)
+		# cap what a hit gives a bone, but leave the drop to gravity
+		var drop := minf(v.y, 0.0)
+		var rest := v - Vector3(0, drop, 0)
+		if rest.length() > max_bone_speed or drop < -FALL_CAP:
+			ps.body_set_state(rid, ps.BODY_STATE_LINEAR_VELOCITY, rest.limit_length(max_bone_speed) + Vector3(0, maxf(drop, -FALL_CAP), 0))
 		var w: Vector3 = ps.body_get_state(rid, ps.BODY_STATE_ANGULAR_VELOCITY)
 		if w.length() > max_bone_spin:
 			ps.body_set_state(rid, ps.BODY_STATE_ANGULAR_VELOCITY, w.normalized() * max_bone_spin)
@@ -854,3 +883,28 @@ static func _rot_error(desired: Basis, current: Basis) -> Vector3:
 	if angle < 0.0001:
 		return Vector3.ZERO
 	return Vector3(q.x, q.y, q.z).normalized() * angle
+
+
+func _go_airborne() -> void:
+	if airborne:
+		return
+	airborne = true
+	for pb: PhysicalBone3D in bones.values():
+		pb.gravity_scale = 1.0          # a real fall: plain gravity
+		pb.bounce = landing_bounce
+		pb.can_sleep = false
+
+
+## Watch the fall for the moment it hits, then go back to a dead, non-bouncy
+## body once it has come to rest so it does not jitter on the floor.
+func _track_landing(hv: Vector3) -> void:
+	if _landed_t < 0.0:
+		_fall_peak = minf(_fall_peak, hv.y)
+		if _fall_peak < -4.0 and hv.y > _fall_peak * 0.5:
+			_landed_t = time
+			landed.emit(-_fall_peak)
+	elif time - _landed_t > 1.2:
+		airborne = false
+		for pb: PhysicalBone3D in bones.values():
+			pb.bounce = 0.0
+			pb.can_sleep = true
