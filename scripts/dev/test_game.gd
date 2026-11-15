@@ -14,6 +14,11 @@ func _run() -> void:
 		var size := 5 + i % 5
 		m.generate(size, size, 1000 + i)
 		stair_total += m.stairs.size()
+		var seen_low := {}
+		for st: Dictionary in m.stairs:
+			if seen_low.has(st.low):
+				bad += 1                 # two staircases rising out of one cell
+			seen_low[st.low] = true
 		for z in m.d:
 			for x in m.w:
 				var c := Vector2i(x, z)

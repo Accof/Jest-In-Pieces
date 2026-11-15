@@ -33,7 +33,7 @@ var gore: ClownGore
 
 ## Leave empty for a random fall each time, or name one to force it
 ## ("back", "back_flat", "stagger_flat", "sit", "spin", "side", "crumple", "knees",
-## "knees_flat", "knees_hang", "stumble" for headshots;
+## "knees_flat", "knees_hang", "stumble", "wall_slide" for headshots;
 ## "stagger", "blown_back", "double", "double_flat" for body shots).
 @export var force_variant := ""
 ## How hard non-lethal hits knock the clown about. 0 turns flinching off.
@@ -136,7 +136,12 @@ func hit(info: Dictionary) -> void:
 func _die(info: Dictionary, zone: StringName) -> void:
 	dead = true
 	var profile: Dictionary
-	if info.get("heavy", false):
+	var wall_gap := _wall_behind(info.direction)
+	if force_variant == "wall_slide" and wall_gap < 0.0:
+		wall_gap = 0.5
+	if not info.get("heavy", false) and wall_gap >= 0.0 and (force_variant == "wall_slide" or (force_variant == "" and randf() < 0.8)):
+		profile = ClownRagdoll.profile_wall_slide(wall_gap)
+	elif info.get("heavy", false):
 		profile = ClownRagdoll.profile_heavy(force_variant == "heavy_flat" or (force_variant == "" and randf() < 0.45))
 	elif force_variant == "" and velocity.length() > 1.5 and randf() < 0.6:
 		profile = ClownRagdoll.profile_tumble()
@@ -283,6 +288,23 @@ func give_gun() -> void:
 func muzzle_position() -> Vector3:
 	var hand: PhysicalBone3D = ragdoll.bones.get(&"RightHand")
 	return hand.global_position if hand else global_position + Vector3.UP * 1.3
+
+
+## Distance to a wall close behind the clown along the shot, or -1 if there is
+## none or the clown was not shot from the front.
+func _wall_behind(shot_dir: Vector3) -> float:
+	var back := Vector3(shot_dir.x, 0, shot_dir.z)
+	if back.length() < 0.01:
+		return -1.0
+	back = back.normalized()
+	if global_basis.z.dot(back) > -0.3:          # not facing the shooter
+		return -1.0
+	var from := global_position + Vector3.UP * 1.2
+	var q := PhysicsRayQueryParameters3D.create(from, from + back * 1.25, 1)
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty() or absf(hit.normal.y) > 0.3:
+		return -1.0
+	return from.distance_to(hit.position)
 
 
 static func _zone(bone: StringName) -> StringName:

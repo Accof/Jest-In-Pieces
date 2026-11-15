@@ -100,49 +100,57 @@ func generate(width: int, depth: int, seed_value: int) -> void:
 		links[_key(cells[1], cells[3])] = true
 		links[_key(cells[2], cells[3])] = true
 
-	# 4. Settle the heights: rooms are flat, and no open edge may step more than one level.
-	var changed := true
-	while changed:
-		changed = false
-		for cells: Array in rooms:
-			var low := MAX_LEVEL
-			for c: Vector2i in cells:
-				low = mini(low, level[idx(c)])
-			for c: Vector2i in cells:
-				if level[idx(c)] != low:
-					level[idx(c)] = low
-					changed = true
+	# 4. Settle the heights, then place a staircase on every open edge that
+	#    changes level. A cell only ever has ONE staircase leading up out of it:
+	#    two in one cell meet in the middle and leave nowhere to stand. Where a
+	#    cell would get a second, that edge is walled off, or, if that would cut
+	#    part of the maze off, the far side is brought down to the same level.
+	#    Lowering a cell can disturb its neighbours, so repeat until it all holds.
+	var settled := false
+	while not settled:
+		settled = true
+		var changed := true
+		while changed:
+			changed = false
+			for cells: Array in rooms:
+				var low := MAX_LEVEL
+				for c: Vector2i in cells:
+					low = mini(low, level[idx(c)])
+				for c: Vector2i in cells:
+					if level[idx(c)] != low:
+						level[idx(c)] = low
+						changed = true
+			for z in d:
+				for x in w:
+					var c := Vector2i(x, z)
+					for dir in DIRS:
+						var n := c + dir
+						if in_bounds(n) and linked(c, n) and level[idx(n)] > level[idx(c)] + 1:
+							level[idx(n)] = level[idx(c)] + 1
+							changed = true
+		stairs.clear()
 		for z in d:
+			if not settled:
+				break
 			for x in w:
 				var c := Vector2i(x, z)
+				var has_stair := false
 				for dir in DIRS:
 					var n := c + dir
-					if in_bounds(n) and linked(c, n) and level[idx(n)] > level[idx(c)] + 1:
-						level[idx(n)] = level[idx(c)] + 1
-						changed = true
-
-	# 5. Staircases on every open edge that changes level. A cell never gets
-	#    stairs on two neighbouring sides, which would run into each other.
-	for z in d:
-		for x in w:
-			var c := Vector2i(x, z)
-			var taken: Array[Vector2i] = []
-			for dir in DIRS:
-				var n := c + dir
-				if not in_bounds(n) or not linked(c, n) or level[idx(n)] != level[idx(c)] + 1:
-					continue
-				var clash := false
-				for t in taken:
-					if t != -dir:
-						clash = true
-				if clash:
+					if not in_bounds(n) or not linked(c, n) or level[idx(n)] != level[idx(c)] + 1:
+						continue
+					if not has_stair:
+						has_stair = true
+						stairs.append({low = c, high = n, dir = dir})
+						continue
 					links.erase(_key(c, n))
 					if not _all_reachable():
 						links[_key(c, n)] = true
-					else:
-						continue
-				taken.append(dir)
-				stairs.append({low = c, high = n, dir = dir})
+						level[idx(n)] = level[idx(c)]
+						settled = false
+						break
+				if not settled:
+					break
 
 	_stair_at.clear()
 	for s: Dictionary in stairs:

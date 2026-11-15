@@ -408,6 +408,21 @@ static func profile_bodyshot(variant: String = "") -> Dictionary:
 	}
 
 
+## Shot with a wall close behind: thrown back against it, then slides down it
+## to end slumped at the bottom. `gap` is how far away the wall is, in metres.
+static func profile_wall_slide(gap: float) -> Dictionary:
+	return {
+		support = [Vector2(0, 1), Vector2(0.3, 1), Vector2(0.6, 0.9), Vector2(2.1, 0.75), Vector2(2.6, 0)],
+		sink = [Vector2(0, 0), Vector2(0.4, 0), Vector2(0.7, 0.08), Vector2(2.2, 0.64)],
+		legs = [Vector2(0, 1), Vector2(0.3, 0.5), Vector2(0.6, 0.12), Vector2(2.6, 0)],
+		spine = [Vector2(0, 1), Vector2(0.6, 0.8), Vector2(2.2, 0.5), Vector2(3.0, 0.12), Vector2(3.6, 0)],
+		neck = [Vector2(0, 0), Vector2(0.05, 0), Vector2(0.15, 0.7), Vector2(0.45, 0.3), Vector2(1.2, 0.08), Vector2(2.4, 0)],
+		arms = [Vector2(0, 0.5), Vector2(0.3, 0.3), Vector2(0.8, 0.05), Vector2(1.4, 0)],
+		lean = [Vector2(0, 0), Vector2(0.3, -0.12), Vector2(2.2, -0.2)],
+		fold = 10.0, drift = maxf(gap - 0.3, 0.0), drift_time = 0.3, even = true,
+	}
+
+
 static func profile_tumble() -> Dictionary:
 	# Killed mid-stride: the legs fold under it and its own momentum throws it
 	# forward, which is what sends bodies rolling down stairs.

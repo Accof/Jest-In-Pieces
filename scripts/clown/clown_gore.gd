@@ -27,6 +27,7 @@ var _bleeds: Array = []         # {bone, local, amount, still, pooled, drip}
 var _spurts: Array = []         # {bone, local, dir, left, next}
 var _innards := {}              # region -> Node3D of exposed insides, shown once blown open
 var _gutted := false
+var _smear_last := {}           # bone -> last point smeared on a wall
 var _bleeding := false
 var _bleed_time := 0.0
 var _rng := RandomNumberGenerator.new()
@@ -338,6 +339,26 @@ func _physics_process(delta: float) -> void:
 			Blood.mist(from, out, 0.5 + 0.1 * sp.left)
 	_spurts = _spurts.filter(func(sp: Dictionary) -> bool: return sp.left > 0)
 	var space := clown.get_world_3d().direct_space_state
+	# A bleeding body dragging its back down a wall leaves a smear behind it.
+	if _bleed_time < 8.0 and not _wound_pos.is_empty():
+		for bn: StringName in [&"Neck", &"Chest"]:
+			var sb: PhysicalBone3D = clown.ragdoll.bones.get(bn)
+			if sb == null:
+				continue
+			var back := -sb.global_basis.z
+			var sq := PhysicsRayQueryParameters3D.create(sb.global_position, sb.global_position + back * 0.34, LAYER_WORLD)
+			var wall := space.intersect_ray(sq)
+			if wall.is_empty() or absf(wall.normal.y) > 0.4:
+				_smear_last.erase(bn)
+				continue
+			if _smear_last.has(bn):
+				var moved: Vector3 = wall.position - _smear_last[bn]
+				if moved.length() < 0.1:
+					continue
+				Blood.spawn_decal(wall.position - moved * 0.5, wall.normal, _rng.randf_range(0.2, 0.3), "streak", moved, 1.0, clampf(moved.length() / 0.12, 1.0, 1.8))
+			else:
+				Blood.spawn_decal(wall.position, wall.normal, _rng.randf_range(0.3, 0.42), "impact")   # where it first hits
+			_smear_last[bn] = wall.position
 	var open := false
 	for b: Dictionary in _bleeds:
 		if b.pooled:

@@ -55,7 +55,7 @@ All of these are in `clown_ragdoll.gd`.
 - **How different each death is:** `variation` (0 = identical every time).
 - **Arms:** `arm_fling` (how far the arms are thrown out at death).
 - **Floppy vs stiff corpse:** `dead_joint_friction`. Higher is heavier and stiffer.
-- **How a clown goes down:** `profile_headshot()` and `profile_bodyshot()`. Each has named variants picked at random: back, back_flat, stagger_flat, sit, spin, side, crumple, knees_flat, knees_hang, stumble for headshots (plus knees, by name only); stagger, blown_back, double, double_flat for body shots; heavy_flat for shotgun kills. The curves are explained in the comment above them; each point is `Vector2(seconds, value)`. To make a fall faster and heavier, pull the `support` and `sink` points earlier.
+- **How a clown goes down:** `profile_headshot()` and `profile_bodyshot()`. Each has named variants picked at random: back, back_flat, stagger_flat, sit, spin, side, crumple, knees_flat, knees_hang, stumble for headshots (plus knees, by name only); stagger, blown_back, double, double_flat for body shots; heavy_flat for shotgun kills; wall_slide when a wall is close behind the clown (picked 80% of the time when it applies). The curves are explained in the comment above them; each point is `Vector2(seconds, value)`. To make a fall faster and heavier, pull the `support` and `sink` points earlier.
 - **Testing one fall:** set `force_variant` on a clown (for example `"knees_flat"`) and every death uses it.
 - **Head snap:** the headshot impulse in `clown.gd` (`dir * 27.0`) and the first points of the `neck` curve.
 - **Flinches:** `flinch_strength` on the clown. 0 turns them off.
