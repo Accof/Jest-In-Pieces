@@ -78,6 +78,8 @@ const ZONE_DAMAGE := {
 var health := 0.0
 var dead := false
 var last_hit_zone := &""         # where the killing shot landed
+var fatal_pos := Vector3.ZERO      # where it landed (world), and which way it was going
+var fatal_dir := Vector3.ZERO
 ## How it died, for the lifetime stats: weapon name, zone, and flags
 ## (blast, stake, seated...). Filled in by _die before `died` goes out.
 var death := {}
@@ -297,6 +299,8 @@ func _start_ragdoll(info: Dictionary, zone: StringName) -> void:
 ## What killed it, for the stats, and `died` goes out (the kill counts now).
 func _record_death(info: Dictionary, zone: StringName) -> void:
 	last_hit_zone = zone
+	fatal_pos = info.get("position", global_position + Vector3.UP * 1.2)
+	fatal_dir = info.get("direction", Vector3.ZERO)
 	var limbs := 0
 	var m := int(gore.hidden_mask)
 	while m:

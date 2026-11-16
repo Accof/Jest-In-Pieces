@@ -184,7 +184,6 @@ func _idle(delta: float) -> void:
 		# turn to face the way before strolling off that way
 		var facing := Vector3(clown.global_basis.z.x, 0, clown.global_basis.z.z).normalized()
 		vel *= lerpf(0.1, 1.0, smoothstep(0.0, 0.8, facing.dot(vel.normalized())))
-		_face(vel, delta, 4.0)
 	_step(vel, delta)
 	# Pressing on something it cannot get round: stop there and think again,
 	# rather than walking into it for ever.

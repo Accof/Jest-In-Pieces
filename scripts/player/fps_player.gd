@@ -58,6 +58,16 @@ var weapon := 0
 var ammo: Array[int] = [17, 6, 32, 1, 0, 5]
 ## Inside an event room (gunshots are not heard in the level).
 var in_event := false
+## The final-kill camera has the view: no moving, looking or shooting, and the
+## gun and crosshair are put away until it hands back.
+var cinematic := false:
+	set(v):
+		cinematic = v
+		if view:
+			view.visible = not v
+		if hud_layer:
+			hud_layer.visible = not v
+var hud_layer: CanvasLayer
 ## The mounted gun the player is behind, if any.
 var mount: Node = null
 var _prompt: Label
@@ -108,6 +118,7 @@ func _ready() -> void:
 	camera.add_child(view)
 	var hud := CanvasLayer.new()
 	add_child(hud)
+	hud_layer = hud
 	_hurt = ColorRect.new()
 	_hurt.color = Color(0.5, 0.0, 0.0, 0.0)
 	_hurt.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -143,7 +154,7 @@ func _draw_crosshair(c: Control) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if dead:
+	if dead or cinematic:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and mount:
 		mount.look(event.relative * mouse_sensitivity)
@@ -204,6 +215,10 @@ func _physics_process(delta: float) -> void:
 	_cooldown -= delta
 	if dead:
 		velocity = Vector3(0, velocity.y - 9.8 * delta, 0)
+		move_and_slide()
+		return
+	if cinematic:
+		velocity = Vector3(0, velocity.y - 9.8 * delta if not is_on_floor() else 0.0, 0)
 		move_and_slide()
 		return
 	_tick_reload(delta)

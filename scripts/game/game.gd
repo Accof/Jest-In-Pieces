@@ -69,6 +69,9 @@ var _banner: Label
 var _panel: VBoxContainer
 var _offer: Array = []
 var _slow_until := 0
+## The final-kill camera, and whether this floor has had its final kill shown.
+var kill_cam: KillCam
+var _floor_finale := false
 var events: EventManager
 var _event_upgrade := false
 
@@ -132,6 +135,14 @@ func _make_player() -> void:
 	player.process_mode = Node.PROCESS_MODE_PAUSABLE
 	player.health_changed.connect(func(_h: float, _m: float) -> void: _refresh_hud())
 	player.died.connect(_on_player_died)
+	if kill_cam == null:
+		kill_cam = KillCam.new()
+		kill_cam.name = "KillCam"
+		add_child(kill_cam)
+	kill_cam.stop("new player")
+	kill_cam.player = player
+	kill_cam.hide_nodes = [_hud, _health_bar, _banner]
+	kill_cam.can_run = func() -> bool: return state == State.PLAYING
 	player.fired.connect(_on_player_fired)
 	player.ammo_changed.connect(_refresh_hud)
 	player.pierced.connect(func(n: int) -> void:
@@ -218,6 +229,9 @@ func next_floor() -> void:
 		c.global_position = maze.cell_center(cell) + Vector3(rng.randf_range(-0.8, 0.8), 0, rng.randf_range(-0.8, 0.8))
 		c.rotation.y = rng.randf() * TAU
 	remaining = clowns.size()
+	_floor_finale = false
+	if kill_cam:
+		kill_cam.stop("new floor")
 	exit_open = false
 	_set_state(State.PLAYING)
 	_flash("FLOOR %d" % floor_number)
@@ -344,11 +358,21 @@ func _on_clown_died(c: Clown) -> void:
 	if headshot and player.stats.slowmo:
 		Engine.time_scale = 0.3
 		_slow_until = Time.get_ticks_msec() + 450
+	if remaining <= 0 and not _floor_finale:
+		# the last of them: show it go down (once per floor)
+		_floor_finale = true
+		_slow_until = 0
+		if kill_cam and kill_cam.play(c):
+			# the banner waits until the camera is back with the player
+			kill_cam.finished.connect(func() -> void:
+				if state == State.PLAYING:
+					_flash("EXIT OPEN"), CONNECT_ONE_SHOT)
+		else:
+			_flash("EXIT OPEN")
 	if remaining <= 0:
 		exit_open = true
 		_exit_light.light_color = Color(0.3, 1.0, 0.4)
 		_exit_light.light_energy = 4.0
-		_flash("EXIT OPEN")
 	_refresh_hud()
 
 
@@ -386,7 +410,7 @@ func _on_player_died() -> void:
 
 
 func _process(_delta: float) -> void:
-	if _slow_until > 0 and Time.get_ticks_msec() >= _slow_until:
+	if _slow_until > 0 and Time.get_ticks_msec() >= _slow_until and not (kill_cam and kill_cam.active):
 		_slow_until = 0
 		Engine.time_scale = 1.0
 	if state == State.PLAYING and is_instance_valid(_exit) and is_instance_valid(player):

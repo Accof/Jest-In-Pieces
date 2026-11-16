@@ -13,6 +13,8 @@ var exit_door: EventDoor
 var enemies: Array[Clown] = []
 var kills := 0
 var done := false
+var _last_kill: Clown              # the most recent kill, and when (for the final-kill camera)
+var _last_kill_ms := 0
 var _t := 0.0
 
 
@@ -34,6 +36,12 @@ func complete(result: Dictionary) -> void:
 	done = true
 	if exit_door:
 		exit_door.set_locked(false)
+	# cleared by killing the last one just now: show it go down
+	if result.get("success", false) and is_instance_valid(_last_kill) and Time.get_ticks_msec() - _last_kill_ms < 600 \
+			and enemies.all(func(e: Clown) -> bool: return not is_instance_valid(e) or e.dead):
+		var cam := get_tree().get_first_node_in_group(&"kill_cam") as KillCam
+		if cam:
+			cam.play(_last_kill)
 	finished.emit(self, result)
 
 
@@ -179,6 +187,8 @@ func spawn(pos: Vector3, body := "clown", mode := "room", gun := false) -> Clown
 
 func _on_enemy_died(c: Clown) -> void:
 	kills += 1
+	_last_kill = c
+	_last_kill_ms = Time.get_ticks_msec()
 	var mgr := get_tree().get_first_node_in_group(&"event_manager")
 	if mgr:
 		mgr.event_kill(c)

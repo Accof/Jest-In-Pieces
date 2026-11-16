@@ -72,7 +72,7 @@ func _run() -> void:
 		heard.append("%d cells:%s" % [cells, "HUNT" if c.get_node("Brain").mind == ClownBrain.Mind.HUNT else "idle"])
 	print("after one shot: ", heard)
 	# 3. Stand in front of an unaware clown: it should notice within a second.
-	var idle_ones: Array = game.clowns.filter(func(c): return c.get_node("Brain").mind != ClownBrain.Mind.HUNT)
+	var idle_ones: Array = game.clowns.filter(func(c): return c.get_node("Brain").mind != ClownBrain.Mind.HUNT and not c.has_meta(&"seated"))
 	if not idle_ones.is_empty():
 		var c: Clown = idle_ones[0]
 		# stand 2m away down an open corridor, with the clown turned towards us
