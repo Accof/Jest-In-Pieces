@@ -22,19 +22,14 @@ const BODIES := {
 		shapes = {&"UpperLeg": 1.3, &"LowerLeg": 1.12, &"UpperArm": 1.25, &"LowerArm": 1.05,
 			&"Hips": 1.2, &"Spine": 1.2, &"Chest": 1.2, &"Neck": 1.12, &"Foot": 1.15},
 	},
-	# Der Klappersoldat: the WitzSoldat's body and rig, re-dressed as clockwork
-	# (see klappersoldat.gd). Placeholder: no model of its own yet.
+	# Der Klappersoldat: rigged and segmented from the Tripo model by
+	# tools/build_klappersoldat.py (klappersoldat.json). No separate helmet.
 	"klappersoldat": {
-		model = "res://art/witzsoldat/witzsoldat.glb", gibs = "res://art/witzsoldat/witzsoldat_gibs.glb",
-		rest_min = Vector3(-0.91675, -0.005, -0.28225), rest_size = Vector3(1.83328, 1.91, 0.56441),
-		helmet = "res://art/witzsoldat/witzsoldat_helmet.glb",
-		helmet_center = Vector3(0.0, 1.80985, 0.04376), helmet_size = Vector3(0.268, 0.232, 0.288),
-		shapes = {&"UpperLeg": 1.3, &"LowerLeg": 1.12, &"UpperArm": 1.25, &"LowerArm": 1.05,
-			&"Hips": 1.2, &"Spine": 1.2, &"Chest": 1.2, &"Neck": 1.12, &"Foot": 1.15},
-		texture = "res://art/klapper/klapper_body.jpg",
-		helmet_texture = "res://art/klapper/klapper_helmet.jpg",
-		# the gas mask's canister is cut away; a porcelain face goes on instead
-		cut_min = Vector3(-0.13, 1.55, 0.1), cut_max = Vector3(0.13, 1.68, 0.4),
+		model = "res://art/klappersoldat/klappersoldat.glb", gibs = "res://art/klappersoldat/klappersoldat_gibs.glb",
+		rest_min = Vector3(-0.96347, -0.0051, -0.20856), rest_size = Vector3(1.93163, 1.9251, 0.42104),
+		shapes = {&"UpperLeg": 1.3, &"LowerLeg": 1.12, &"UpperArm": 1.2, &"LowerArm": 1.05,
+			&"Hips": 1.2, &"Spine": 1.15, &"Chest": 1.15, &"Neck": 1.12, &"Foot": 1.15},
+		eyes = [Vector3(0.04738, 1.74246, 0.1074), Vector3(-0.04738, 1.74246, 0.1074)],
 	},
 }
 

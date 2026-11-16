@@ -1,0 +1,42 @@
+{
+ "segments": [
+  "Pelvis",
+  "Torso",
+  "Head",
+  "LeftUpperArm",
+  "LeftLowerArm",
+  "LeftHand",
+  "LeftUpperLeg",
+  "LeftLowerLeg",
+  "LeftFoot",
+  "RightUpperArm",
+  "RightLowerArm",
+  "RightHand",
+  "RightUpperLeg",
+  "RightLowerLeg",
+  "RightFoot"
+ ],
+ "rest_bbox_min": [
+  -0.9634711146354675,
+  -0.005098266527056694,
+  -0.2085624784231186
+ ],
+ "rest_bbox_size": [
+  1.9316253662109375,
+  1.925098180770874,
+  0.4210374355316162
+ ],
+ "eyes": [
+  [
+   0.04737900570034981,
+   1.7424592971801758,
+   0.10739769786596298
+  ],
+  [
+   -0.04737900570034981,
+   1.7424592971801758,
+   0.10739769786596298
+  ]
+ ],
+ "note": "Godot axes. Same skeleton names and segment ids as the clown. Built by tools/build_klappersoldat.py."
+}

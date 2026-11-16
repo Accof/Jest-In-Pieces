@@ -356,11 +356,6 @@ func _gore() -> void:
 		if gb is Gib and (gb as Gib).oil:
 			mech_gib = true
 	_check(mech_gib, "the forearm comes off as an oily clockwork gib")
-	var cover_on_gib := false
-	for gb: Node in gibs:
-		if gb.find_children("*", "MeshInstance3D", true, false).size() > 2:
-			cover_on_gib = true
-	_check(cover_on_gib, "its brass elbow cover goes with it")
 	for i in 20:
 		await get_tree().physics_frame
 	await _shot("3_arm_off")
@@ -370,8 +365,8 @@ func _gore() -> void:
 		k.health = k.max_health
 		k.hit({collider = neck, position = neck.global_position + Vector3(0.03, 0.15, 0.1), direction = -front, damage = 30.0, impulse = 3.0})
 		await get_tree().physics_frame
-	_check(k._face_cracked, "the porcelain face cracks")
-	_check(not k._face.has("left") or not k._face.has("right"), "a piece of the face breaks away")
+	_check(k._face_broken.size() == 1, "one side of the porcelain face is shot away")
+	_check(k.gore.mech_stage(&"head") > 0 and not _has_flesh(k), "showing the iron skull and works, not a brain")
 	await _shot("4_face")
 	# dead
 	var puddles := Blood.oil_puddle_count()

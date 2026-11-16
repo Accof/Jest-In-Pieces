@@ -18,7 +18,7 @@ func _ready() -> void:
 	add_child(c)
 	await get_tree().process_frame
 	var cam := Camera3D.new(); add_child(cam); cam.fov = 40
-	var shots := [[Vector3(0, 1.68, 0.55), Vector3(0, 1.68, 0)], [Vector3(0.9, 1.75, 0.15), Vector3(0, 1.72, 0)], [Vector3(0, 1.1, 3.6), Vector3(0, 0.95, 0)], [Vector3(2.6, 1.1, -2.2), Vector3(0, 0.95, 0)], [Vector3(-0.5, 1.8, -0.9), Vector3(0, 1.5, 0)]]
+	var shots := [[Vector3(0, 1.72, 0.6), Vector3(0, 1.7, 0)], [Vector3(0.9, 1.75, 0.15), Vector3(0, 1.72, 0)], [Vector3(0, 1.1, 3.6), Vector3(0, 0.95, 0)], [Vector3(2.6, 1.1, -2.2), Vector3(0, 0.95, 0)], [Vector3(-0.5, 1.8, -0.9), Vector3(0, 1.5, 0)]]
 	for i in shots.size():
 		cam.position = shots[i][0]; cam.look_at(shots[i][1])
 		for f in 3:

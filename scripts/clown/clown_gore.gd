@@ -16,7 +16,7 @@ const CHAIN := {"UpperArm": ["UpperArm", "LowerArm", "Hand"], "LowerArm": ["Lowe
 	"UpperLeg": ["UpperLeg", "LowerLeg", "Foot"], "LowerLeg": ["LowerLeg", "Foot"], "Foot": ["Foot"]}
 
 ## A limb, the head or the legs came off as `gib` (the Klappersoldat moves its
-## brass joint covers and porcelain face onto the piece).
+## glowing eyes onto the head when it comes off).
 signal part_severed(segment: StringName, gib: Node3D)
 
 var clown: Clown
@@ -1020,14 +1020,16 @@ func _mech_gib(gib: Gib, _seg: StringName) -> void:
 			m = Clockwork.mat("iron")
 		elif kind == "BoneCore":
 			m = Clockwork.mat("brass")
-		else:
+		elif clown.spec.has("texture"):
 			if not _cache.has("mech_cloth"):
 				var c := StandardMaterial3D.new()
-				c.albedo_texture = load(clown.spec.get("texture", "res://art/klapper/klapper_body.jpg"))
+				c.albedo_texture = load(clown.spec.texture)
 				c.roughness = 0.85
 				c.cull_mode = BaseMaterial3D.CULL_DISABLED
 				_cache["mech_cloth"] = c
 			m = _cache["mech_cloth"]
+		else:
+			continue                      # the body's own textured surface
 		mi.set_surface_override_material(i, m)
 
 

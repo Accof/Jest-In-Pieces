@@ -5,9 +5,9 @@ extends Clown
 ## up close with a heavy, telegraphed blow. Never runs.
 ##
 ## Built on the same skeleton, ragdoll, gore and AI as every other enemy:
-## - Body: the WitzSoldat's mesh and rig (placeholder: no model of its own yet)
-##   in a field-grey retexture, with a porcelain face, ruff, wind-up key,
-##   back gearbox and brass joint covers added in code (see _dress()).
+## - Body: Andrew's Tripo model, rigged to the shared skeleton and cut into
+##   the 15 gore segments with stump caps by tools/build_klappersoldat.py
+##   (art/klappersoldat/). Only the glowing eyes are added in code.
 ## - Movement: the shared walk cycle (knees, hips, ankles, counter-turn), but
 ##   driven by a clockwork clock instead of by distance travelled: each step
 ##   catches, drives and settles, steps differ in length, the body surges and
@@ -57,16 +57,6 @@ extends Clown
 ## Heavier than flesh: ragdoll bone masses are multiplied by this.
 @export var mass_mult := 1.45
 
-# rest-space layout of the porcelain face over the WitzSoldat's head
-const FACE_C := Vector3(0.0, 1.725, 0.055)
-const FACE_R := Vector3(0.09, 0.11, 0.132)
-const FACE_TOP := 1.79
-const FACE_H := 0.18
-const FACE_UX := 0.105
-const MOUTH_Y := 1.656
-const EYE_Y := 1.718
-const EYE_X := 0.0378
-
 var brain: ClownBrain
 var puddled := false             # the oil puddle has been laid (tests)
 var staggers := 0                # times it staggered (tests)
@@ -110,13 +100,11 @@ var _flicker_t := 0.0
 var _eye_level := 1.0
 # dressing, by the body segment it moves with
 var _dress_parts := {}
-var _face: Dictionary = {}       # "left", "right", "jaw" -> MeshInstance3D
-var _jaw_pivot: Node3D
-var _key: Node3D
+var _eye_side := {}              # 1.0 / -1.0 (left / right of the face) -> eye
+var _face_broken := {}           # sides whose porcelain has been shot away
 var _spinners: Array = []        # [node, axis, speed]
 var _motor := 1.0                # how hard the works are turning (0 when run down)
 var _head_dmg := 0.0
-var _face_cracked := false
 # death
 var _dead_t := -1.0
 var _dead_for := 4.0
@@ -146,12 +134,6 @@ func _ready() -> void:
 	stride_override = rad_to_deg(asin(clampf(step_length / (2.0 * hip.distance_to(ankle)), 0.0, 0.9)))
 	for pb: PhysicalBone3D in ragdoll.bones.values():
 		pb.mass *= mass_mult
-	if _helmet:
-		var hm := StandardMaterial3D.new()
-		hm.albedo_texture = load(spec.helmet_texture)
-		hm.metallic = 0.55
-		hm.roughness = 0.62
-		_helmet.material_override = hm
 	_dress()
 	gore.part_severed.connect(_on_part_severed)
 	ragdoll.settled.connect(_on_corpse_settled)
@@ -190,139 +172,22 @@ func _holder(bone: String, segment: StringName) -> Node3D:
 
 
 func _dress() -> void:
-	var C := Clockwork
-	# --- head: an iron skull with amber eyes behind a porcelain face ---------
+	# The model has the face, ruff, key and joints. What it cannot have is
+	# light: two dim amber eyes, glowing from inside the porcelain sockets.
 	var head := _holder("Head", &"Head")
-	C.part(head, C.ball(), C.mat("iron"), FACE_C + Vector3(0, 0, -0.012), FACE_R * 2.0 * 0.9)
-	_spinners.append([C.gear_at(head, Vector3(0.032, 1.76, 0.15), 0.042, Vector3.BACK, 10), Vector3.BACK, 2.2])
-	_spinners.append([C.gear_at(head, Vector3(-0.028, 1.745, 0.155), 0.032, Vector3.BACK, 8, "steel"), Vector3.BACK, -2.9])
-	C.cable(head, C.mat("wire_red"), Vector3(-0.045, 1.7, 0.15), Vector3(0.0, 1.64, 0.11), 0.01, 0.005)
-	C.cable(head, C.mat("wire_red"), Vector3(0.045, 1.7, 0.15), Vector3(0.0, 1.64, 0.11), 0.01, 0.005)
-	_eye_mat = C.mat("amber").duplicate()
-	for sx: float in [-1.0, 1.0]:
-		var e := C.part(head, C.ball(), _eye_mat, Vector3(sx * EYE_X, EYE_Y, _face_z(sx * EYE_X, EYE_Y) - 0.008), Vector3.ONE * 0.02)
-		_eyes.append(e)
+	_eye_mat = Clockwork.mat("amber").duplicate()
+	for e: Vector3 in spec.get("eyes", []):
+		var eye := Clockwork.part(head, Clockwork.ball(), _eye_mat, e + Vector3(0, 0, -0.004), Vector3.ONE * 0.016)
+		_eyes.append(eye)
+		_eye_side[signf(e.x)] = eye
 	_eye_light = OmniLight3D.new()
 	_eye_light.light_color = Color(1.0, 0.55, 0.18)
 	_eye_light.omni_range = 0.45
 	_eye_light.light_energy = 0.06
 	_eye_light.shadow_enabled = false
-	_eye_light.position = Vector3(0, EYE_Y, 0.3)
+	var eyes: Array = spec.get("eyes", [Vector3(0, 1.74, 0.1)])
+	_eye_light.position = (eyes[0] as Vector3) * Vector3(0, 1, 1) + Vector3(0, 0, 0.2)
 	head.add_child(_eye_light)
-	var fm := C.face_mat(false)
-	_face["left"] = C.part(head, _face_mesh(-FACE_R.x, 0.0, MOUTH_Y, FACE_TOP), fm, Vector3.ZERO, Vector3.ONE)
-	_face["right"] = C.part(head, _face_mesh(0.0, FACE_R.x, MOUTH_Y, FACE_TOP), fm, Vector3.ZERO, Vector3.ONE)
-	_jaw_pivot = Node3D.new()
-	_jaw_pivot.position = Vector3(0, 1.672, 0.02)
-	head.add_child(_jaw_pivot)
-	_face["jaw"] = C.part(_jaw_pivot, _face_mesh(-FACE_R.x, FACE_R.x, FACE_C.y - FACE_R.y + 0.004, MOUTH_Y), fm, -_jaw_pivot.position, Vector3.ONE)
-	C.part(head, C.ball(), C.mat("red_nose"), Vector3(0, 1.69, _face_z(0.0, 1.69) + 0.004), Vector3.ONE * 0.032)
-	# --- neck: a steel post and wiring where the throat would be -------------
-	var neck := _holder("Neck", &"Head")
-	C.span(neck, C.mat("steel"), Vector3(0, 1.49, 0.01), Vector3(0, 1.64, 0.03), 0.05)
-	C.cable(neck, C.mat("wire_black"), Vector3(-0.03, 1.52, 0.05), Vector3(-0.02, 1.62, 0.07), 0.01, 0.007)
-	C.cable(neck, C.mat("wire_red"), Vector3(0.03, 1.52, 0.05), Vector3(0.02, 1.62, 0.07), 0.01, 0.007)
-	# --- chest: ruff, wind-up key, the gearbox on the back --------------------
-	var chest := _holder("Chest", &"Torso")
-	var ruff := MeshInstance3D.new()
-	ruff.mesh = _ruff_mesh()
-	ruff.layers = 2
-	chest.add_child(ruff)
-	_key = Node3D.new()
-	_key.position = Vector3(0, 1.36, -0.19)
-	chest.add_child(_key)
-	C.span(_key, C.mat("brass"), Vector3(0, 0, 0.06), Vector3(0, 0, -0.09), 0.022)
-	for sx: float in [-1.0, 1.0]:
-		C.part(_key, C.loop(), C.mat("brass"), Vector3(sx * 0.048, 0, -0.105), Vector3(0.085, 0.07, 0.085), Vector3(PI * 0.5, 0, 0))
-	C.part(_key, C.box(), C.mat("brass"), Vector3(0, 0, -0.1), Vector3(0.05, 0.03, 0.012))
-	var box := Vector3(0, 1.17, -0.175)
-	C.part(chest, C.box(), C.mat("iron"), box + Vector3(0, 0, 0.012), Vector3(0.19, 0.19, 0.018))
-	for e: Array in [[Vector3(0, 0.095, 0), Vector3(0.21, 0.02, 0.03)], [Vector3(0, -0.095, 0), Vector3(0.21, 0.02, 0.03)], [Vector3(0.095, 0, 0), Vector3(0.02, 0.21, 0.03)], [Vector3(-0.095, 0, 0), Vector3(0.02, 0.21, 0.03)]]:
-		C.part(chest, C.box(), C.mat("rust"), box + e[0] - Vector3(0, 0, 0.004), e[1])
-	_spinners.append([C.gear_at(chest, box + Vector3(-0.03, 0.03, -0.005), 0.1, Vector3.BACK, 14), Vector3.BACK, 1.1])
-	_spinners.append([C.gear_at(chest, box + Vector3(0.05, -0.035, -0.006), 0.07, Vector3.BACK, 10, "steel"), Vector3.BACK, -1.6])
-	_spinners.append([C.gear_at(chest, box + Vector3(-0.045, -0.055, -0.007), 0.05, Vector3.BACK, 8), Vector3.BACK, -2.2])
-	# --- brass joint covers at elbows and knees --------------------------------
-	for side: String in ["Left", "Right"]:
-		var s := 1.0 if side == "Left" else -1.0
-		var arm := _holder(side + "LowerArm", StringName(side + "LowerArm"))
-		var elbow: Vector3 = skeleton.get_bone_global_rest(skeleton.find_bone(side + "LowerArm")).origin
-		_spinners.append([C.gear_at(arm, elbow + Vector3(0, 0, -0.055), 0.06, Vector3.BACK, 10), Vector3.BACK, 0.0])
-		C.part(arm, C.ball(), C.mat("steel"), elbow + Vector3(0, 0, -0.062), Vector3.ONE * 0.018)
-		var leg := _holder(side + "LowerLeg", StringName(side + "LowerLeg"))
-		var knee: Vector3 = skeleton.get_bone_global_rest(skeleton.find_bone(side + "LowerLeg")).origin
-		C.gear_at(leg, knee + Vector3(s * 0.068, 0.0, 0.0), 0.075, Vector3.RIGHT, 12)
-		C.part(leg, C.ball(), C.mat("steel"), knee + Vector3(s * 0.076, 0, 0), Vector3.ONE * 0.022)
-		C.span(leg, C.mat("steel"), knee + Vector3(s * 0.06, -0.02, -0.03), knee + Vector3(s * 0.05, -0.2, -0.05), 0.014)
-
-
-## How far forward the face surface is at (x, y), rest space.
-func _face_z(x: float, y: float) -> float:
-	var q := pow(x / FACE_R.x, 2.0) + pow((y - FACE_C.y) / FACE_R.y, 2.0)
-	return FACE_C.z + FACE_R.z * sqrt(maxf(1.0 - q, 0.0))
-
-
-## A piece of the porcelain face: the front of an ellipsoid over the head,
-## between x0..x1 and y0..y1, mapped onto the face texture.
-func _face_mesh(x0: float, x1: float, y0: float, y1: float) -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var nx := 12
-	var ny := 12
-	var grid := []
-	for j in ny + 1:
-		var row := []
-		for i in nx + 1:
-			var x := lerpf(x0, x1, float(i) / nx)
-			var y := lerpf(y0, y1, float(j) / ny)
-			var q := pow(x / FACE_R.x, 2.0) + pow((y - FACE_C.y) / FACE_R.y, 2.0)
-			row.append([Vector3(x, y, _face_z(x, y)), q < 0.985])
-		grid.append(row)
-	for j in ny:
-		for i in nx:
-			var quad: Array = [grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]]
-			if not (quad[0][1] and quad[1][1] and quad[2][1] and quad[3][1]):
-				continue
-			for k: int in [0, 2, 1, 0, 3, 2]:
-				var p: Vector3 = quad[k][0]
-				st.set_normal(((p - FACE_C) / (FACE_R * FACE_R)).normalized())
-				st.set_uv(Vector2(0.5 + p.x / (2.0 * FACE_UX), (FACE_TOP - p.y) / FACE_H))
-				st.add_vertex(p)
-	return st.commit()
-
-
-## A small, dirty pleated ruff round the neck, faded red and cream.
-func _ruff_mesh() -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var pleats := 28
-	var y := 1.545
-	var c := Vector3(0, y, 0.01)
-	var r_in := 0.07
-	var r_out := 0.145
-	for i in pleats * 2:
-		var a0 := TAU * i / (pleats * 2)
-		var a1 := TAU * (i + 1) / (pleats * 2)
-		var up0 := 0.03 if i % 2 == 0 else -0.03
-		var up1 := -up0
-		var col := Color(0.3, 0.08, 0.07) if (i / 2) % 2 == 0 else Color(0.44, 0.4, 0.33)
-		col = col * randf_range(0.6, 0.85)
-		var p_in0 := c + Vector3(sin(a0) * r_in * 0.9, 0.0, cos(a0) * r_in)
-		var p_in1 := c + Vector3(sin(a1) * r_in * 0.9, 0.0, cos(a1) * r_in)
-		var p_out0 := c + Vector3(sin(a0) * r_out, up0 - 0.02, cos(a0) * r_out * 0.92)
-		var p_out1 := c + Vector3(sin(a1) * r_out, up1 - 0.02, cos(a1) * r_out * 0.92)
-		var n := (p_out0 - p_in0).cross(p_in1 - p_in0).normalized()
-		for p: Vector3 in [p_in0, p_out0, p_out1, p_in0, p_out1, p_in1]:
-			st.set_color(col)
-			st.set_normal(n)
-			st.add_vertex(p)
-	var mesh := st.commit()
-	var m := StandardMaterial3D.new()
-	m.vertex_color_use_as_albedo = true
-	m.roughness = 0.9
-	m.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mesh.surface_set_material(0, m)
-	return mesh
 
 
 # --- every frame -------------------------------------------------------------------
@@ -610,11 +475,12 @@ func _twitch_update(d: float) -> void:
 		_turn(tw.bone, tw.axis, tw.angle * w)
 	_twitches = _twitches.filter(func(tw: Dictionary) -> bool: return tw.t < tw.dur)
 	if _jaw_t >= 0.0:
+		# the jaw is moulded in, so the clack is a snap of the head
 		_jaw_t += d
-		_jaw_pivot.rotation.x = deg_to_rad(9.0) * (1.0 if _jaw_t < 0.12 else 0.0)
-		if _jaw_t > 0.2:
+		if _jaw_t < 0.1:
+			_turn("Neck", Vector3.RIGHT, deg_to_rad(-4.0))
+		else:
 			_jaw_t = -1.0
-			_jaw_pivot.rotation.x = 0.0
 
 
 ## Almost perfectly still, then: a head tilt, a shoulder jerking, fingers
@@ -673,10 +539,6 @@ func _spin(d: float) -> void:
 	gore.spin_parts = gore.spin_parts.filter(func(sp: Array) -> bool: return is_instance_valid(sp[0]))
 	for sp: Array in _spinners + gore.spin_parts:
 		(sp[0] as Node3D).rotate_object_local(Vector3.BACK, float(sp[2]) * rate * d)
-	if _key and is_instance_valid(_key):
-		# the key turns in ticks, a notch at a time
-		var notch := floorf(Time.get_ticks_msec() / 450.0 * _motor)
-		_key.rotation.z = notch * deg_to_rad(15.0) if _motor > 0.05 else _key.rotation.z
 
 
 func _chest_pos() -> Vector3:
@@ -728,39 +590,24 @@ func _flinch_from(world_pos: Vector3, dir: Vector3, damage: float) -> void:
 	_flinch_vel += (kick * 7.0 * clampf(damage / 34.0, 0.3, 1.2)).limit_length(3.5)
 
 
-## The porcelain face cracks, then pieces of it break off to show the iron
-## skull and its works behind; the eye on a broken side gutters out.
+## Shots to the face chip the porcelain; enough on one side shoots that side
+## of it away, showing the iron skull and its works behind, and the eye on
+## that side gutters out. Both sides gone takes the rest of the face.
 func _head_damage(raw: float, pos: Vector3, dir: Vector3) -> void:
 	_head_dmg += raw
 	if (gore.hidden_mask >> ClownGore.SEGMENTS.find(&"Head")) & 1 == 1:
 		return
-	if _head_dmg >= 30.0 and not _face_cracked:
-		_face_cracked = true
-		for k: String in _face:
-			var mi: Variant = _face[k]
-			if is_instance_valid(mi):
-				(mi as MeshInstance3D).material_override = Clockwork.face_mat(true)
-		_shards(pos, -dir, 2)
-	if _head_dmg >= 75.0 or _head_open:
-		var local := skeleton.global_transform.affine_inverse() * pos
-		var side := "left" if local.x < 0.0 else "right"
-		if not is_instance_valid(_face.get(side)):
-			side = "right" if side == "left" else "left"
-		var piece: Variant = _face.get(side)
-		if is_instance_valid(piece):
-			_face.erase(side)
-			(piece as Node).queue_free()
-			_shards(pos, -dir + Vector3.UP * 0.3, 4)
-			MechFx.sparks(self, pos, -dir, 1.4)
-			MechFx.sound(self, "clatter", pos, -2.0, 1.3)
-			var eye: Variant = _eyes[0 if side == "left" else 1]
-			if is_instance_valid(eye):
-				(eye as MeshInstance3D).material_override = Clockwork.mat("iron")
-	if _head_dmg >= 140.0 and is_instance_valid(_face.get("jaw")):
-		var jaw: Variant = _face["jaw"]
-		_face.erase("jaw")
-		(jaw as Node).queue_free()
-		_shards(pos, -dir, 3)
+	_shards(pos, -dir, 1 if raw < 30.0 else 2)
+	var local := skeleton.global_transform.affine_inverse() * pos
+	var side := 1.0 if local.x >= 0.0 else -1.0
+	var need := 75.0 if _face_broken.is_empty() else 140.0
+	if _head_dmg >= need and not _face_broken.has(side) or (_head_open and not _face_broken.has(side)):
+		_face_broken[side] = true
+		gore.blast(&"Neck", pos, dir, 0.055)
+		MechFx.sound(self, "clatter", pos, -2.0, 1.3)
+		var eye: Variant = _eye_side.get(side)
+		if is_instance_valid(eye):
+			(eye as MeshInstance3D).material_override = Clockwork.mat("iron")
 
 
 func _shards(pos: Vector3, dir: Vector3, count: int) -> void:
@@ -768,7 +615,7 @@ func _shards(pos: Vector3, dir: Vector3, count: int) -> void:
 		var g := GoreBit.make(Clockwork.shard(randi() % 6), 0.012, 0.03)
 		g.marks = false
 		var mi := g.get_child(0) as MeshInstance3D
-		mi.material_override = Clockwork.face_mat(true)
+		mi.material_override = Clockwork.mat("porcelain")
 		mi.scale = Vector3.ONE * randf_range(0.035, 0.06)
 		get_parent().add_child(g)
 		g.global_position = pos + Vector3(randf_range(-0.03, 0.03), randf_range(-0.03, 0.03), randf_range(-0.03, 0.03))
@@ -776,7 +623,7 @@ func _shards(pos: Vector3, dir: Vector3, count: int) -> void:
 		g.angular_velocity = Vector3(randf_range(-20, 20), randf_range(-20, 20), randf_range(-20, 20))
 
 
-## A part came off: its brass joint cover (or the face, eyes and all) goes
+## A part came off: anything added to it in code (the eyes, on the head) goes
 ## with the gib rather than staying in the air where the bone was.
 func _on_part_severed(segment: StringName, gib: Node3D) -> void:
 	for h: Variant in _dress_parts.get(segment, []):

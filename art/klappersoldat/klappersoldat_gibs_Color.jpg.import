@@ -2,16 +2,19 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c5fv2yfqd2ann"
-path="res://.godot/imported/klapper_helmet.jpg-cd4aacf1c50a272ded9dee9372d3c644.ctex"
+uid="uid://1cvpdygektan"
+path="res://.godot/imported/klappersoldat_gibs_Color.jpg-f551596501020716655f7c07bab5aeb6.ctex"
 metadata={
 "vram_texture": false
+}
+generator_parameters={
+"md5": "2288aa6fb9978d40a42373908212fa8a"
 }
 
 [deps]
 
-source_file="res://art/klapper/klapper_helmet.jpg"
-dest_files=["res://.godot/imported/klapper_helmet.jpg-cd4aacf1c50a272ded9dee9372d3c644.ctex"]
+source_file="res://art/klappersoldat/klappersoldat_gibs_Color.jpg"
+dest_files=["res://.godot/imported/klappersoldat_gibs_Color.jpg-f551596501020716655f7c07bab5aeb6.ctex"]
 
 [params]
 
@@ -23,7 +26,7 @@ compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0
-mipmaps/generate=false
+mipmaps/generate=true
 mipmaps/limit=-1
 roughness/mode=0
 roughness/src_normal=""

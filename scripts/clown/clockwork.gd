@@ -47,18 +47,6 @@ static func mat(kind: String) -> StandardMaterial3D:
 	return m
 
 
-## A porcelain face texture as a material (`cracked` for the damaged one).
-static func face_mat(cracked: bool) -> StandardMaterial3D:
-	var key := "face_c" if cracked else "face"
-	if not _cache.has(key):
-		var m := StandardMaterial3D.new()
-		m.albedo_texture = load("res://art/klapper/klapper_face_cracked.png" if cracked else "res://art/klapper/klapper_face.png")
-		m.roughness = 0.5
-		m.cull_mode = BaseMaterial3D.CULL_DISABLED
-		_cache[key] = m
-	return _cache[key]
-
-
 # --- meshes ---------------------------------------------------------------------
 ## A spur gear lying in the XY plane (axle along Z), `teeth` teeth, 1 m across
 ## the tips; scale it to size. `hub` is the axle hole as a fraction.
