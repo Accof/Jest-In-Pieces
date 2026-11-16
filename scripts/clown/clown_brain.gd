@@ -21,6 +21,14 @@ const LAYER_WORLD := 1
 var speed_scale := 1.0
 ## How fast it meant to move on its last step, before speed_scale (m/s).
 var intended_speed := 0.0
+## Which way it meant to go on its last step (flat, unit; zero when not moving).
+var intended_dir := Vector3.ZERO
+## Only ever walks along the maze's axes: north, south, east or west. It keeps
+## to one axis (sidestepping a little to stay on line) until the way it wants
+## to go is mostly across it, then switches. The Klappersoldat.
+var axis_moves := false
+var _axis_x := true
+var _axis_pushing := 0.0
 ## Range a gunman tries to hold.
 @export var keep_distance := 6.5
 @export var weave_rate := 2.0
@@ -537,6 +545,24 @@ func _keep_apart(want: Vector3, delta: float) -> Vector3:
 
 func _step(vel: Vector3, delta: float) -> void:
 	intended_speed = Vector2(vel.x, vel.z).length()
+	if axis_moves and intended_speed > 0.01:
+		var along := vel.x if _axis_x else vel.z
+		var across := vel.z if _axis_x else vel.x
+		# pressing into a wall along this axis (a corner to get round): try the other
+		_axis_pushing = _axis_pushing + delta if _was_blocked else 0.0
+		if absf(along) < absf(across) * 0.5 or (_axis_pushing > 0.4 and absf(across) > 0.05):
+			_axis_pushing = 0.0
+			_axis_x = not _axis_x
+			var t := along
+			along = across
+			across = t
+		var spd := intended_speed
+		var step := signf(along) * spd
+		var side := clampf(across, -0.3 * spd, 0.3 * spd)
+		vel = Vector3(step, 0, side) if _axis_x else Vector3(side, 0, step)
+		intended_dir = Vector3(signf(along), 0, 0) if _axis_x else Vector3(0, 0, signf(along))
+	else:
+		intended_dir = Vector3(vel.x, 0, vel.z).normalized() if intended_speed > 0.01 else Vector3.ZERO
 	var want := Vector3(vel.x, 0.0, vel.z) * delta * speed_scale
 	want = _keep_apart(want, delta)
 	var move := _collide(clown.global_position, want)
@@ -563,6 +589,7 @@ func _step(vel: Vector3, delta: float) -> void:
 
 func _settle(delta: float, drop_arm: bool = true) -> void:
 	intended_speed = 0.0
+	intended_dir = Vector3.ZERO
 	clown.walk_amount = move_toward(clown.walk_amount, 0.0, delta * 5.0)
 	clown.run_amount = move_toward(clown.run_amount, 0.0, delta * 4.0)
 	clown.velocity = Vector3.ZERO

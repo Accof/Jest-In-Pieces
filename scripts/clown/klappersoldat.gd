@@ -21,7 +21,9 @@ extends Clown
 
 @export_group("Stats")
 ## Multiplies the health the game gives an ordinary enemy on this floor.
-@export var health_mult := 1.75
+## High, to make up for how slowly it comes: about 13 pistol rounds to the
+## body, or 4 to the head.
+@export var health_mult := 4.0
 ## Multiplies an ordinary soldier's walking speed.
 @export var speed_mult := 0.45
 ## Multiplies an ordinary soldier's melee damage.
@@ -47,11 +49,43 @@ extends Clown
 @export var stagger_chance := 0.2
 @export var stagger_damage := 20.0
 
+@export_group("Turning")
+## It only ever faces (and walks) north, south, east or west, and turns in
+## clicks of this many degrees, pausing between them. Turning to face the
+## player after noticing them is slower: smaller clicks, longer pauses.
+@export var turn_click := 45.0
+@export var turn_click_time := 0.16
+@export var turn_pause := Vector2(0.06, 0.14)
+@export var notice_click := 30.0
+@export var notice_pause := Vector2(0.18, 0.3)
+## A new way to go must be wanted this long before it turns for it (so it
+## does not swing round for every wobble of the route).
+@export var turn_settle := 0.25
+## Noticing the player: how long it stares once its head has come round,
+## before the body follows.
+@export var notice_stare := Vector2(0.5, 0.8)
+## How far the neck can turn (degrees either way) while it is fixed on you.
+@export var notice_neck := 110.0
+
 @export_group("Death")
-## Seconds of the fatal spark burst, of oil spraying, and of shorting out after.
+## Seconds of the fatal spark burst, of oil spraying, and of twitching after.
 @export var fatal_sparks := Vector2(0.2, 0.4)
 @export var oil_spray := Vector2(0.3, 0.6)
 @export var residual := Vector2(3.0, 5.0)
+## Shot dead through the head: seconds it stays on its feet, neck broken and
+## shorting out, before it topples over backwards.
+@export var stand_seconds := Vector2(1.0, 2.0)
+## Shot dead through the body: seconds on its knees before it pitches onto its face.
+@export var kneel_seconds := 1.0
+## Overwhelmed: this share of its full health taken in the last second puts it
+## into a full-body seizure (limbs wrenched the wrong way, head spinning)
+## for this many seconds, then it drops in a heap.
+@export var malfunction_damage := 0.5
+@export var malfunction_seconds := Vector2(1.6, 2.2)
+## Smoke and intermittent arcing from its wounds go on this long after death.
+@export var smoke_seconds := 60.0
+## At most this many wounds smoke.
+@export var smoke_wounds := 3
 ## Radius of the oil puddle left where the body settles (metres).
 @export var puddle_radius := Vector2(0.45, 0.75)
 ## Heavier than flesh: ragdoll bone masses are multiplied by this.
@@ -62,6 +96,10 @@ var puddled := false             # the oil puddle has been laid (tests)
 var staggers := 0                # times it staggered (tests)
 var hesitations := 0             # times the escapement caught (tests)
 var test_intent := 0.0           # without a brain: how fast it wants to walk (tests)
+var test_dir := Vector3.ZERO     # without a brain: which way it wants to walk (tests)
+var turning := false             # stopped, turning on the spot (tests)
+var dying := ""                  # "head", "torso" or "malfunction" until it falls (tests)
+var smoking: Array = []          # smoke emitters on its wounds (tests)
 
 # gait clock
 var _step_t := 0.0
@@ -78,12 +116,33 @@ var _head_to := Vector2.ZERO
 var _head_t := 1.0
 var _head_wait := 0.5
 var _glance := 0.0
-# body turning in stages
+# facing: always a right angle, turned in clicks
 var _shown_yaw := 0.0
-var _turn_from := 0.0
-var _turn_to := 0.0
-var _turn_t := 1.0
-var _turn_wait := 0.0
+var _heading_goal := 0.0
+var _click_from := 0.0
+var _click_to := 0.0
+var _click_t := 1.0
+var _click_wait := 0.0
+var _pending_goal := 0.0
+var _pending_t := 0.0
+# noticing the player: 0 no, 1 head coming round, 2 staring, 3 body following
+var notice := 0
+var _notice_t := 0.0
+var _notice_stare := 0.6
+var _last_mind := 0
+# wounds (bone, local point) and recent damage, for the death
+var _wounds: Array = []
+var _recent: Array = []
+# a scripted death before the ragdoll
+var _dying_t := 0.0
+var _dying_len := 1.5
+var _dying_info := {}
+var _dying_zone := &""
+var _jerk_t := 0.0
+var _jerk_from := {}
+var _jerk_to := {}
+var _jerk_blend := 1.0
+var _kneel_thud := false
 # twitches: {bone, axis, angle, t, dur}
 var _twitches: Array = []
 var _idle_next := 2.0
@@ -121,6 +180,7 @@ func _init() -> void:
 	mechanical = true
 	drive_phase = false
 	flinch_strength = 0.8
+	head_open_kills = false
 
 
 func _ready() -> void:
@@ -140,7 +200,14 @@ func _ready() -> void:
 	ragdoll.landed.connect(func(speed: float) -> void:
 		MechFx.sound(self, "clatter", _chest_pos(), clampf(-12.0 + speed, -12.0, 2.0)))
 	_next_hesitate = randf_range(hesitation_every.x, hesitation_every.y)
+	# it stands square to the maze from the start
+	rotation.y = snappedf(rotation.y, PI * 0.5)
 	_shown_yaw = rotation.y
+	_heading_goal = _shown_yaw
+	# scripted deaths do their own arms and twitching
+	ragdoll.arm_fling = 0.0
+	ragdoll.twitch_chance = 0.0
+	ragdoll.variation = 0.05
 	set_process(true)
 
 
@@ -155,6 +222,9 @@ func setup_brain(b: ClownBrain) -> void:
 	b.attack_hit_at = attack_seconds * 0.71
 	b.attack_recover = 1.25
 	b.weave_rate = 0.0
+	b.axis_moves = true
+	# it sees a long way round to the side (it notices you crossing in front)
+	b.sight_half_angle = 95.0
 
 
 # --- the body ----------------------------------------------------------------------
@@ -193,6 +263,8 @@ func _dress() -> void:
 # --- every frame -------------------------------------------------------------------
 func _process(delta: float) -> void:
 	if dead:
+		if dying != "":
+			_dying_process(minf(delta, 1.0 / 30.0))
 		_dead_process(delta)
 		return
 	if crawling or downed:
@@ -202,10 +274,11 @@ func _process(delta: float) -> void:
 		brain = get_node_or_null("Brain") as ClownBrain
 	var d := minf(delta, 1.0 / 30.0)
 	var attacking := brain != null and brain._attack_t >= 0.0
+	_notice_update(d)
+	_heading_update(d)
 	_gait_clock(d, attacking)
 	if attacking:
 		attack_amount = 0.0              # the blow is posed below, not by the shared code
-	_body_turn(d)
 	super._process(delta)
 	if dead:
 		return
@@ -226,14 +299,12 @@ func _process(delta: float) -> void:
 ## the rate the legs are moving it, so the feet stay put on the floor.
 func _gait_clock(d: float, attacking: bool) -> void:
 	var want := brain.intended_speed if brain else test_intent
-	_moving = want > 0.05 and not attacking and stagger_time <= 0.0
+	_moving = want > 0.05 and not attacking and stagger_time <= 0.0 and not turning and notice == 0
 	if brain:
-		brain.speed_scale = 1.0
+		brain.speed_scale = 1.0 if _moving else 0.0
+		if notice != 0:
+			brain._cooldown = maxf(brain._cooldown, 0.3)    # no swinging until it has faced you
 	if not _moving:
-		if _turn_t < 1.0:
-			# turning on the spot: shuffle the feet round with the body
-			walk_amount = maxf(walk_amount, 0.55)
-			walk_phase = _step_from + _leg_phase(_warp(_turn_t))
 		return
 	if _halt > 0.0:
 		_halt -= d
@@ -332,27 +403,102 @@ func _footfall() -> void:
 		MechFx.sound(self, "rattle", _chest_pos(), -12.0)
 
 
-## The body (the model) follows the way the brain faces in stages: a quick
-## turn of up to 35 degrees, a pause, the next.
-func _body_turn(d: float) -> void:
-	var facing := rotation.y
-	if _turn_t < 1.0:
-		_turn_t = minf(_turn_t + d / 0.16, 1.0)
-		var e := _turn_t * _turn_t * (3.0 - 2.0 * _turn_t)
-		_shown_yaw = lerp_angle(_turn_from, _turn_to, e)
-		if _turn_t >= 1.0:
-			_turn_wait = randf_range(0.1, 0.28)
-			if not _moving:
-				_step_from += PI       # the shuffle step is done
+## It only ever faces north, south, east or west. A new way to go means stop,
+## then turn on the spot in clicks (shuffling the feet round with each), and
+## only then walk on. Its facing is set here every frame, whatever the brain
+## would have done.
+func _heading_update(d: float) -> void:
+	var dir := brain.intended_dir if brain else test_dir
+	if notice == 3 and brain and brain.player:
+		dir = brain.player.global_position - global_position
+	elif notice != 0:
+		dir = Vector3.ZERO
+	if Vector2(dir.x, dir.z).length() > 0.3:
+		var g := snappedf(atan2(dir.x, dir.z), PI * 0.5)
+		if notice == 3 or absf(wrapf(g - _heading_goal, -PI, PI)) < 0.01:
+			_heading_goal = g
+			_pending_t = 0.0
+		else:
+			if absf(wrapf(g - _pending_goal, -PI, PI)) > 0.01:
+				_pending_goal = g
+				_pending_t = 0.0
+			_pending_t += d
+			if _pending_t >= turn_settle:
+				_heading_goal = g
+				_pending_t = 0.0
+	var gap := wrapf(_heading_goal - _shown_yaw, -PI, PI)
+	if _click_t < 1.0:
+		_click_t = minf(_click_t + d / turn_click_time, 1.0)
+		var e := _click_t * _click_t * (3.0 - 2.0 * _click_t)
+		_shown_yaw = lerp_angle(_click_from, _click_to, e)
+		# a shuffle step with each click
+		walk_amount = maxf(walk_amount, 0.6)
+		walk_phase = _step_from + _leg_phase(_warp(_click_t))
+		if _click_t >= 1.0:
+			_step_from += PI
+			var pause := notice_pause if notice != 0 else turn_pause
+			_click_wait = randf_range(pause.x, pause.y)
+			_shown_yaw = wrapf(_shown_yaw, -PI, PI)
+			MechFx.sound(self, "step", global_position, -10.0, 0.9)
+	elif absf(gap) > 0.01:
+		_click_wait -= d
+		if _click_wait <= 0.0:
+			_click_from = _shown_yaw
+			var step := deg_to_rad(notice_click if notice != 0 else turn_click)
+			_click_to = _shown_yaw + clampf(gap, -step, step)
+			_click_t = 0.0
+			MechFx.sound(self, "tick", _chest_pos(), -12.0, 0.8)
+			if randf() < 0.3:
+				MechFx.sound(self, "squeak", _chest_pos(), -14.0, 0.9)
 	else:
-		_turn_wait -= d
-		var gap := wrapf(facing - _shown_yaw, -PI, PI)
-		if absf(gap) > deg_to_rad(11.0) and _turn_wait <= 0.0:
-			_turn_from = _shown_yaw
-			_turn_to = _shown_yaw + clampf(gap, -deg_to_rad(35.0), deg_to_rad(35.0))
-			_turn_t = 0.0
-			MechFx.sound(self, "tick", _chest_pos(), -14.0, 0.8)
-	_model.rotation.y = wrapf(_shown_yaw - facing, -PI, PI)
+		_shown_yaw = _heading_goal
+	turning = _click_t < 1.0 or absf(wrapf(_heading_goal - _shown_yaw, -PI, PI)) > 0.01 or _pending_t > 0.0
+	rotation.y = _shown_yaw
+	_model.rotation.y = 0.0
+
+
+## It has just noticed the player (the brain has started hunting): it stops
+## dead, its head comes round to you in jerks, stares, then the body ratchets
+## round underneath the still head, and only then does it come for you.
+func _notice_update(d: float) -> void:
+	if brain == null:
+		return
+	var mind := int(brain.mind)
+	if mind == ClownBrain.Mind.HUNT and _last_mind != ClownBrain.Mind.HUNT:
+		notice = 1
+		_notice_t = 0.0
+		_head_wait = randf_range(0.05, 0.15)
+		MechFx.sound(self, "grind", _chest_pos() + Vector3.UP * 0.4, -8.0, 1.2)
+	_last_mind = mind
+	if notice == 0:
+		return
+	if mind != ClownBrain.Mind.HUNT or brain.player == null:
+		notice = 0
+		return
+	_notice_t += d
+	var aim := _player_angle()
+	match notice:
+		1:
+			if (absf(_head_yaw - clampf(aim, -deg_to_rad(notice_neck), deg_to_rad(notice_neck))) < deg_to_rad(6.0) and _head_t >= 1.0) or _notice_t > 1.8:
+				notice = 2
+				_notice_t = 0.0
+				_notice_stare = randf_range(notice_stare.x, notice_stare.y)
+		2:
+			if _notice_t > _notice_stare:
+				notice = 3
+				_notice_t = 0.0
+		3:
+			if not turning and _notice_t > 0.2:
+				notice = 0
+
+
+## Where the player is, as a turn of the head from straight ahead (radians).
+func _player_angle() -> float:
+	if brain == null or brain.player == null:
+		return 0.0
+	var to := brain.player.global_position - global_position
+	var fwd := Vector3(sin(_shown_yaw), 0, cos(_shown_yaw))
+	return atan2(fwd.cross(Vector3(to.x, 0, to.z)).y, fwd.dot(Vector3(to.x, 0, to.z)))
 
 
 func _gait() -> float:
@@ -432,6 +578,14 @@ static func _lerp_pose(a: Array, b: Array, w: float) -> Array:
 ## The head holds unnaturally still, then snaps part of the way toward what
 ## it wants to look at, pauses, and snaps the rest; now and then at a tilt.
 func _head(d: float) -> void:
+	if notice >= 2:
+		# fixed on you: the body turns beneath a head that does not move
+		var lock := clampf(_player_angle(), -deg_to_rad(notice_neck), deg_to_rad(notice_neck))
+		_head_yaw = lock
+		_head_t = 1.0
+		_turn("Neck", Vector3.UP, _head_yaw)
+		_turn("Neck", Vector3.BACK, _head_roll)
+		return
 	var want := 0.0
 	if brain and brain.mind == ClownBrain.Mind.HUNT and brain.player:
 		var to := brain.player.global_position - global_position
@@ -439,7 +593,8 @@ func _head(d: float) -> void:
 		want = atan2(fwd.cross(Vector3(to.x, 0, to.z)).y, fwd.dot(Vector3(to.x, 0, to.z)))
 	else:
 		want = _glance
-	want = clampf(want, -deg_to_rad(65.0), deg_to_rad(65.0))
+	var limit := notice_neck if notice == 1 else 65.0
+	want = clampf(want, -deg_to_rad(limit), deg_to_rad(limit))
 	if _head_t < 1.0:
 		_head_t = minf(_head_t + d / 0.075, 1.0)
 		var e := _head_t * _head_t * (3.0 - 2.0 * _head_t)
@@ -456,7 +611,7 @@ func _head(d: float) -> void:
 				_head_to = Vector2(_head_yaw + gap * (0.6 if absf(gap) > deg_to_rad(25.0) else 1.0), roll)
 				_head_t = 0.0
 				MechFx.sound(self, "tick", _chest_pos() + Vector3.UP * 0.4, -16.0, 1.2)
-			_head_wait = randf_range(head_hold.x, head_hold.y)
+			_head_wait = randf_range(head_hold.x, head_hold.y) * (0.45 if notice == 1 else 1.0)
 	_turn("Neck", Vector3.UP, _head_yaw)
 	_turn("Neck", Vector3.BACK, _head_roll)
 
@@ -561,6 +716,18 @@ func hit(info: Dictionary) -> void:
 	if not dead and randf() < 0.3:
 		_flicker(randf_range(0.1, 0.3))
 	var zone := _zone(StringName(pb.bone_name))
+	# where it was hit (for the smoke and arcing when it dies), and how much
+	# it has taken lately (enough at once and it seizes up)
+	_wounds.append({bone = StringName(pb.bone_name), local = pb.global_transform.affine_inverse() * pos})
+	if _wounds.size() > 8:
+		_wounds.pop_front()
+	var now := Time.get_ticks_msec() / 1000.0
+	_recent.append([now, raw * float(ZONE_DAMAGE.get(zone, 1.0))])
+	_recent = _recent.filter(func(e: Array) -> bool: return now - float(e[0]) < 1.0)
+	if dying != "":
+		# shot again while it stands there dying: it arcs, and goes over sooner
+		MechFx.arc(self, pos, 0.2)
+		_dying_len = maxf(_dying_t + 0.15, _dying_len - 0.25)
 	super.hit(info)
 	if zone == &"Neck":
 		_head_damage(raw, pos, dir)
@@ -636,8 +803,42 @@ func _on_part_severed(segment: StringName, gib: Node3D) -> void:
 
 
 # --- death --------------------------------------------------------------------------------
+## Dead. It does not simply ragdoll:
+## - shot through the head: the head snaps back and drops on a broken neck;
+##   it stays on its feet a second or two, arms and shoulders jerking, then
+##   topples over backwards like a felled post (or against a wall);
+## - shot through the body (or a limb): it stops, arms drop, it falls hard onto
+##   its knees, kneels there a second, then pitches forward onto its face;
+## - overwhelmed (half its health gone in a second): a full-body seizure,
+##   limbs wrenched the wrong way, the head spinning round and cocking over,
+##   a dead stop, then it drops in a heap.
+## Blasts, the stake and a body already on the floor go straight to the
+## ragdoll as for anything else. Every death smokes and arcs from the wounds.
 func _die(info: Dictionary, zone: StringName) -> void:
-	super._die(info, zone)
+	var scripted: bool = not (info.get("blast", false) or info.get("stake", false) or info.has("profile") \
+		or crawling or downed or ragdoll.active or _halved)
+	if scripted:
+		dead = true
+		_record_death(info, zone)
+		dying = "malfunction" if _recent_damage() >= malfunction_damage * max_health else ("head" if zone == &"Neck" else "torso")
+		_dying_t = 0.0
+		_dying_info = info.duplicate()
+		_dying_zone = zone
+		_twitches.clear()
+		match dying:
+			"head":
+				_dying_len = randf_range(stand_seconds.x, stand_seconds.y)
+			"torso":
+				_dying_len = 0.42 + kneel_seconds
+				_kneel_thud = false
+			"malfunction":
+				_dying_len = randf_range(malfunction_seconds.x, malfunction_seconds.y) + 0.35
+				_jerk_t = 0.0
+				_jerk_to = {}
+				MechFx.sound(self, "grind", _chest_pos(), 2.0, 0.8)
+		gore.start_bleeding()
+	else:
+		super._die(info, zone)
 	_twitches.clear()
 	_fatal_at = info.get("position", _chest_pos())
 	_fatal_dir = (info.get("direction", Vector3.FORWARD) as Vector3).normalized()
@@ -649,17 +850,269 @@ func _die(info: Dictionary, zone: StringName) -> void:
 	MechFx.sound(self, "failure", _fatal_at, 2.0)
 	MechFx.sound(self, "winddown", _chest_pos(), -2.0)
 	MechFx.sparks(self, _fatal_at, -_fatal_dir + Vector3.UP * 0.3, 2.0)
+	MechFx.arc(self, _fatal_at, 0.3)
 	_flicker(0.6)
+	_start_smoke()
 	set_process(true)
 	# a body that never settles still leaves its oil once it has stopped
-	get_tree().create_timer(9.0).timeout.connect(func() -> void:
+	get_tree().create_timer(9.0 + _dying_len).timeout.connect(func() -> void:
 		if is_instance_valid(self) and not puddled:
 			_lay_puddle())
 
 
-## After the fatal hit: the spark burst, the oil spraying out, then a few
-## seconds of shorting out (spits of sparks, crackle, small jerks of the
-## limbs) while the eyes fade and the works wind down. Then nothing.
+func _recent_damage() -> float:
+	var now := Time.get_ticks_msec() / 1000.0
+	var total := 0.0
+	for e: Array in _recent:
+		if now - float(e[0]) < 1.0:
+			total += float(e[1])
+	return total
+
+
+## Thin smoke rising from the last few wounds (the fatal one first), riding
+## on the body as it falls. Each one goes out after smoke_seconds.
+func _start_smoke() -> void:
+	var used := 0
+	for k in range(_wounds.size() - 1, -1, -1):
+		if used >= smoke_wounds:
+			break
+		var w: Dictionary = _wounds[k]
+		var pb: PhysicalBone3D = ragdoll.bones.get(w.bone)
+		if pb == null or not is_instance_valid(pb):
+			continue
+		var g := MechFx.smoke(pb, w.local, smoke_seconds)
+		if g:
+			smoking.append(g)
+			used += 1
+
+
+## A random wound's place in the world now (for the arcs), or the chest.
+func _wound_point() -> Vector3:
+	for k in 4:
+		if _wounds.is_empty():
+			break
+		var w: Dictionary = _wounds.pick_random()
+		var pb: Variant = ragdoll.bones.get(w.bone)
+		if is_instance_valid(pb):
+			return (pb as PhysicalBone3D).global_transform * (w.local as Vector3)
+	return _chest_pos()
+
+
+## The scripted part of a death, posed every frame until it falls.
+func _dying_process(d: float) -> void:
+	_dying_t += d
+	var t := _dying_t
+	for bi: int in _base_rot:
+		skeleton.set_bone_pose_rotation(bi, _base_rot[bi])
+	var hips := skeleton.find_bone("Hips")
+	skeleton.set_bone_pose_position(hips, skeleton.get_bone_rest(hips).origin)
+	_model.position = Vector3.ZERO
+	match dying:
+		"head":
+			_pose_broken_neck(t)
+		"torso":
+			_pose_knees(t)
+		"malfunction":
+			_pose_seizure(t, d)
+	_twitch_update(d)
+	# the wounds short out while it stands there
+	if randf() < d * 5.0:
+		MechFx.arc(self, _wound_point(), randf_range(0.15, 0.3))
+		if randf() < 0.5:
+			MechFx.sound(self, "zap", _wound_point(), -6.0)
+	if t >= _dying_len:
+		_fall()
+
+
+## The head snaps back, then drops forward and to one side on a broken neck
+## and hangs there; arms and shoulders jerk as the works short out.
+func _pose_broken_neck(t: float) -> void:
+	var neck := 0.0
+	if t < 0.07:
+		neck = -40.0 * t / 0.07
+		_turn("Spine", Vector3.RIGHT, deg_to_rad(-6.0) * t / 0.07)
+	else:
+		var x := t - 0.07
+		neck = 48.0 - 88.0 * exp(-5.5 * x) * cos(9.0 * x)
+	_turn("Neck", Vector3.RIGHT, deg_to_rad(neck))
+	_turn("Neck", Vector3.BACK, deg_to_rad(24.0) * smoothstep(0.05, 0.5, t))
+	_turn("Spine", Vector3.BACK, deg_to_rad(2.0) * sin(t * 2.3))
+	_jerk_t -= get_process_delta_time()
+	if _jerk_t <= 0.0:
+		_jerk_t = randf_range(0.1, 0.3)
+		var side := "Left" if randf() < 0.5 else "Right"
+		var sg := 1.0 if side == "Left" else -1.0
+		match randi() % 4:
+			0:
+				_add_twitch(side + "UpperArm", Vector3.BACK, deg_to_rad(randf_range(12.0, 35.0)) * sg, randf_range(0.08, 0.18))
+			1:
+				_add_twitch(side + "LowerArm", Vector3.RIGHT, deg_to_rad(randf_range(-50.0, -12.0)), randf_range(0.08, 0.2))
+			2:
+				_add_twitch("Chest", Vector3.UP, deg_to_rad(randf_range(-12.0, 12.0)), randf_range(0.1, 0.2))
+			3:
+				_add_twitch(side + "Hand", Vector3.RIGHT, deg_to_rad(randf_range(-45.0, 45.0)), randf_range(0.1, 0.25))
+		if randf() < 0.4:
+			MechFx.sound(self, "squeak", _chest_pos(), -10.0, randf_range(0.8, 1.3))
+
+
+## Stops dead, arms dropping; falls hard onto its knees, and kneels there,
+## slumped, the head hanging.
+func _pose_knees(t: float) -> void:
+	_turn("Spine", Vector3.RIGHT, deg_to_rad(-8.0) * clampf(1.0 - t / 0.1, 0.0, 1.0))
+	var k := clampf((t - 0.1) / 0.32, 0.0, 1.0)
+	k = k * k                                         # it drops, it does not lower itself
+	if t > 0.42:
+		if not _kneel_thud:
+			_kneel_thud = true
+			MechFx.sound(self, "thud", global_position + Vector3.UP * 0.1, 3.0)
+			MechFx.sparks(self, global_position + global_basis.z * 0.1 + Vector3.UP * 0.05, Vector3.UP, 0.8)
+		k = 1.0 + 0.04 * exp(-12.0 * (t - 0.42)) * sin(30.0 * (t - 0.42))    # the jolt of landing
+	var hips := skeleton.find_bone("Hips")
+	skeleton.set_bone_pose_position(hips, skeleton.get_bone_rest(hips).origin + Vector3(0, -0.48 * k, -0.03 * k))
+	for side: String in ["Left", "Right"]:
+		_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-6.0) * k)
+		_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(96.0) * k)
+		_turn(side + "Foot", Vector3.RIGHT, deg_to_rad(-25.0) * k)
+	_turn("Spine", Vector3.RIGHT, deg_to_rad(14.0) * k)
+	_turn("Chest", Vector3.RIGHT, deg_to_rad(9.0) * k)
+	_turn("Neck", Vector3.RIGHT, deg_to_rad(34.0) * smoothstep(0.0, 0.5, t))
+	# arms hang and swing a little from the jolt
+	var swing := sin(t * 5.0) * exp(-1.5 * maxf(t - 0.42, 0.0)) * 8.0
+	for side: String in ["Left", "Right"]:
+		_turn(side + "UpperArm", Vector3.RIGHT, deg_to_rad(swing + 10.0 * k))
+		_turn(side + "LowerArm", Vector3.RIGHT, deg_to_rad(-6.0))
+
+
+## Every joint wrenched to a new wrong angle in a jerk, again and again; the
+## head spins right round and cocks over; then a dead stop.
+func _pose_seizure(t: float, d: float) -> void:
+	var seize := _dying_len - 0.35
+	var frozen := t >= seize
+	if not frozen:
+		_jerk_t -= d
+		if _jerk_t <= 0.0:
+			_jerk_t = randf_range(0.09, 0.2)
+			_jerk_from = _jerk_now()
+			_jerk_to = _wrench()
+			_jerk_blend = 0.0
+			if randf() < 0.5:
+				MechFx.sound(self, "squeak" if randf() < 0.5 else "rattle", _chest_pos(), -4.0, randf_range(0.7, 1.4))
+			if randf() < 0.5:
+				MechFx.sparks(self, _wound_point(), Vector3.UP, 0.8)
+		_jerk_blend = minf(_jerk_blend + d / 0.035, 1.0)
+		_model.position = Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)) * 0.008
+	var pose := _jerk_now()
+	for key: String in pose:
+		var bone := key.get_slice(":", 0)
+		var axis: Vector3 = [Vector3.RIGHT, Vector3.UP, Vector3.BACK][int(key.get_slice(":", 1))]
+		_turn(bone, axis, deg_to_rad(pose[key]))
+	# the head: a full spin, then cocked right over to one side, looking back
+	var spin0 := seize * 0.3
+	var spin1 := seize * 0.55
+	var yaw := 0.0
+	if t > spin0:
+		yaw = TAU * smoothstep(spin0, spin1, t)
+	if t > spin1:
+		yaw = TAU + deg_to_rad(150.0) * smoothstep(spin1, spin1 + 0.12, t)
+	_turn("Neck", Vector3.UP, yaw)
+	_turn("Neck", Vector3.BACK, deg_to_rad(42.0) * smoothstep(spin1, spin1 + 0.15, t))
+	if t > spin0 and t - d <= spin0:
+		MechFx.sound(self, "grind", _chest_pos() + Vector3.UP * 0.4, 3.0, 1.5)
+
+
+func _jerk_now() -> Dictionary:
+	var out := {}
+	for key: String in _jerk_to:
+		out[key] = lerpf(float(_jerk_from.get(key, 0.0)), float(_jerk_to[key]), _jerk_blend)
+	return out
+
+
+## A new set of wrong angles for every joint ("Bone:axis" -> degrees; axis
+## 0 = across, 1 = up, 2 = forward, in skeleton space).
+func _wrench() -> Dictionary:
+	var w := {}
+	for side: String in ["Left", "Right"]:
+		w[side + "UpperArm:0"] = randf_range(-130.0, 60.0)
+		w[side + "UpperArm:2"] = randf_range(-70.0, 70.0)
+		# elbows bent back the wrong way as often as not
+		w[side + "LowerArm:0"] = randf_range(25.0, 70.0) if randf() < 0.5 else randf_range(-120.0, -50.0)
+		w[side + "Hand:0"] = randf_range(-80.0, 80.0)
+		w[side + "UpperLeg:0"] = randf_range(-30.0, 20.0)
+		w[side + "UpperLeg:2"] = randf_range(-14.0, 14.0)
+		w[side + "LowerLeg:0"] = randf_range(-30.0, 45.0)
+	w["Spine:1"] = randf_range(-38.0, 38.0)
+	w["Spine:0"] = randf_range(-18.0, 22.0)
+	w["Chest:2"] = randf_range(-26.0, 26.0)
+	return w
+
+
+## The end of the scripted part: the ragdoll takes over with a fall to suit.
+func _fall() -> void:
+	var info := _dying_info
+	var fwd := Vector3(global_basis.z.x, 0, global_basis.z.z).normalized()
+	match dying:
+		"head":
+			info["profile"] = _profile_topple_back()
+			info["direction"] = -fwd
+			info["fling"] = -fwd * 0.35
+		"torso":
+			info["profile"] = _profile_kneel_forward()
+			info["direction"] = fwd
+			info["fling"] = fwd * 0.4 + Vector3.DOWN * 0.2
+		_:
+			info["profile"] = _profile_heap()
+			info["direction"] = Vector3.DOWN
+			info["fling"] = Vector3.ZERO
+	dying = ""
+	_model.position = Vector3.ZERO
+	_start_ragdoll(info, _dying_zone)
+	if info.profile.get("neck_broken", false):
+		ragdoll.weaken(&"Neck", 0.0)
+
+
+## Stiff as a post, tipping over backwards, neck slack.
+static func _profile_topple_back() -> Dictionary:
+	return {
+		support = [Vector2(0, 0.85), Vector2(0.3, 0.45), Vector2(0.65, 0)],
+		legs = [Vector2(0, 0.95), Vector2(1.8, 0.8), Vector2(2.8, 0.1), Vector2(3.4, 0)],
+		spine = [Vector2(0, 0.95), Vector2(1.8, 0.8), Vector2(2.8, 0.1), Vector2(3.4, 0)],
+		neck = [Vector2(0, 0)],
+		arms = [Vector2(0, 0.1), Vector2(0.5, 0)],
+		lean = [Vector2(0, -0.05), Vector2(0.5, -0.4), Vector2(1.0, -0.7)],
+		fold = -2.0, drift = 0.15, drift_time = 0.7, even = true, neck_broken = true,
+	}
+
+
+## From its knees, over onto its face, and lying flat.
+static func _profile_kneel_forward() -> Dictionary:
+	return {
+		support = [Vector2(0, 0.6), Vector2(0.15, 0.35), Vector2(0.45, 0)],
+		legs = [Vector2(0, 0.85), Vector2(1.2, 0.6), Vector2(2.0, 0)],
+		spine = [Vector2(0, 0.35), Vector2(0.5, 0.1), Vector2(1.0, 0)],
+		neck = [Vector2(0, 0)],
+		arms = [Vector2(0, 0)],
+		lean = [Vector2(0, 0.1), Vector2(0.35, 0.55)],
+		square = [Vector2(0, 1), Vector2(1.5, 1), Vector2(1.9, 0)],
+		fold = 16.0, drift_fwd = 0.35, drift_time = 0.6, even = true,
+	}
+
+
+## No strength anywhere: it drops where it stands.
+static func _profile_heap() -> Dictionary:
+	return {
+		support = [Vector2(0, 0)],
+		legs = [Vector2(0, 0.08), Vector2(0.25, 0)],
+		spine = [Vector2(0, 0.05), Vector2(0.2, 0)],
+		neck = [Vector2(0, 0)],
+		arms = [Vector2(0, 0)],
+		fold = 24.0, drift = 0.0, drift_time = 0.1,
+	}
+
+
+## After the fatal hit: the spark burst and the oil spraying out; a few
+## seconds of jerks once it is down while its works wind down and the eyes
+## fade; and for a minute, thin smoke from the wounds and now and then an arc
+## or a spit of sparks, fewer as time goes on. Then nothing.
 func _dead_process(delta: float) -> void:
 	if _dead_t < 0.0:
 		set_process(false)
@@ -674,31 +1127,38 @@ func _dead_process(delta: float) -> void:
 		Blood.mist(from, Vector3.UP, 0.8, true)
 	if t > _spark_for:
 		_residual_next -= delta
-		if _residual_next <= 0.0 and t < _dead_for:
-			_residual_next = randf_range(0.2, 0.6) * (1.0 + t / _dead_for)
-			var bones := ragdoll.bones.values()
-			if not bones.is_empty():
-				var picked: Variant = bones.pick_random()
+		if _residual_next <= 0.0 and t < smoke_seconds:
+			# frequent at first, rarer as it runs down
+			_residual_next = randf_range(0.3, 0.9) * (1.0 + 6.0 * t / smoke_seconds)
+			var at := _wound_point()
+			if randf() < 0.55:
+				MechFx.arc(self, at, randf_range(0.12, 0.28))
+				MechFx.sound(self, "zap", at, -9.0)
+			else:
+				MechFx.sparks(self, at, Vector3(randf_range(-1, 1), 1.0, randf_range(-1, 1)), 0.3 + 0.4 * (1.0 - t / smoke_seconds))
+				if randf() < 0.4:
+					MechFx.sound(self, "spark", at, -10.0)
+			# small jerks of the limbs in the first seconds on the floor
+			if t < _dead_for and dying == "" and ragdoll.active and not ragdoll.is_settled:
+				var bones := ragdoll.bones.values()
+				var picked: Variant = bones.pick_random() if not bones.is_empty() else null
 				if is_instance_valid(picked):
 					var pb := picked as PhysicalBone3D
-					MechFx.sparks(self, pb.global_position, Vector3(randf_range(-1, 1), 1.0, randf_range(-1, 1)), 0.5 * (1.0 - t / _dead_for) + 0.2)
-					if randf() < 0.45:
-						MechFx.sound(self, "spark", pb.global_position, -8.0)
-					if randf() < 0.5 and ragdoll.active and not ragdoll.is_settled:
-						ragdoll.apply_hit(StringName(pb.bone_name), Vector3(randf_range(-1, 1), randf_range(0.2, 1), randf_range(-1, 1)) * 2.5, pb.global_position)
+					ragdoll.apply_hit(StringName(pb.bone_name), Vector3(randf_range(-1, 1), randf_range(0.2, 1), randf_range(-1, 1)) * 2.5, pb.global_position)
 	# the works run down, the eyes go out
 	_motor = clampf(1.0 - t / minf(2.6, _dead_for), 0.0, 1.0)
-	_eye_level = clampf(1.0 - t / _dead_for, 0.0, 1.0) * (0.3 if fmod(t, 0.23) < 0.05 else 1.0)
+	_eye_level = clampf(1.0 - t / (_dead_for + _dying_len), 0.0, 1.0) * (0.3 if fmod(t, 0.23) < 0.05 else 1.0)
 	_eyes_update(delta)
 	_spin(delta)
-	# a heavy body hitting the floor clatters
+	# a heavy body hitting the floor lands with a thud
 	var cb: PhysicalBone3D = ragdoll.bones.get(&"Chest")
-	if cb and is_instance_valid(cb):
+	if cb and is_instance_valid(cb) and ragdoll.active:
 		var v: float = (PhysicsServer3D.body_get_state(cb.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY) as Vector3).length()
-		if _last_chest_speed > 2.2 and v < _last_chest_speed * 0.45:
-			MechFx.sound(self, "clatter", cb.global_position, clampf(-10.0 + _last_chest_speed * 2.0, -10.0, 3.0))
+		if _last_chest_speed > 1.8 and v < _last_chest_speed * 0.45:
+			MechFx.sound(self, "thud", cb.global_position, clampf(-6.0 + _last_chest_speed * 2.0, -6.0, 4.0))
+			MechFx.sound(self, "clatter", cb.global_position, clampf(-12.0 + _last_chest_speed * 2.0, -12.0, 0.0))
 		_last_chest_speed = v
-	if t >= _dead_for and _motor <= 0.0:
+	if t >= smoke_seconds and _motor <= 0.0 and dying == "":
 		_eye_level = 0.0
 		_eyes_update(0.0)
 		_dead_t = -1.0

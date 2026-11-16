@@ -57,6 +57,9 @@ var spec: Dictionary
 ## A clockwork body (the Klappersoldat): oil instead of blood, gears instead
 ## of guts. Set before it enters the tree.
 var mechanical := false
+## A blow that opens the skull kills outright (false for the Klappersoldat:
+## there is only clockwork in there, so it takes damage like any other).
+var head_open_kills := true
 ## True while this clown is a torso dragging itself along the floor.
 var crawling := false
 ## "Left" or "Right" once that leg is broken: it limps, and the knee bends wrong.
@@ -208,7 +211,7 @@ func hit(info: Dictionary) -> void:
 	var was_dead := dead
 	if not dead:
 		health -= dmg
-		if health <= 0.0 or _head_open or (severed and zone in [&"UpperLeg", &"LowerLeg", &"Neck"]):
+		if health <= 0.0 or (_head_open and head_open_kills) or (severed and zone in [&"UpperLeg", &"LowerLeg", &"Neck"]):
 			_die(info, zone)
 	hurt.emit(self)
 	if not dead and not crawling and not downed:
@@ -232,6 +235,14 @@ func hit(info: Dictionary) -> void:
 
 func _die(info: Dictionary, zone: StringName) -> void:
 	dead = true
+	_start_ragdoll(info, zone)
+	_record_death(info, zone)
+
+
+## The body goes over: picks how it falls (or takes info.profile) and hands it
+## to the ragdoll. A subclass can call this some time after the death itself
+## (the Klappersoldat stands, kneels or seizes up first).
+func _start_ragdoll(info: Dictionary, zone: StringName) -> void:
 	var profile: Dictionary
 	var wall_gap := -1.0 if crawling or info.get("blast", false) or info.get("stake", false) else _wall_behind(info.direction)
 	if force_variant == "wall_slide" and wall_gap < 0.0:
@@ -279,6 +290,10 @@ func _die(info: Dictionary, zone: StringName) -> void:
 		ragdoll.break_knee(broken_leg, info.direction)
 	_drop_rifle()
 	gore.start_bleeding()
+
+
+## What killed it, for the stats, and `died` goes out (the kill counts now).
+func _record_death(info: Dictionary, zone: StringName) -> void:
 	last_hit_zone = zone
 	var limbs := 0
 	var m := int(gore.hidden_mask)

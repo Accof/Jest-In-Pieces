@@ -93,11 +93,17 @@ func _run() -> void:
 				var key := c.get_instance_id()
 				var prev: Array = still.get(key, [pos, 0.0])
 				# (melee clowns only: gunmen stand still to shoot on purpose)
-				if not c.has_gun and (prev[0] as Vector3).distance_to(pos) < 0.05 and (c.get_node("Brain") as ClownBrain).mind == ClownBrain.Mind.HUNT and pos.distance_to(p.global_position) > 3.0:
+				# (a Klappersoldat standing still on purpose, noticing you or turning, is not stuck)
+				var deliberate := c is Klappersoldat and ((c as Klappersoldat).notice != 0 or (c as Klappersoldat).turning)
+				if not c.has_gun and not deliberate and (prev[0] as Vector3).distance_to(pos) < 0.05 and (c.get_node("Brain") as ClownBrain).mind == ClownBrain.Mind.HUNT and pos.distance_to(p.global_position) > 3.0:
 					prev[1] += 1.0 / 60.0
 					if prev[1] > 3.0:
 						totals.stuck += 1
 						totals["stuck_" + c.body] = totals.get("stuck_" + c.body, 0) + 1
+						if c is Klappersoldat and int(prev[1] * 60.0) % 30 == 0:
+							var k := c as Klappersoldat
+							var b := c.get_node("Brain") as ClownBrain
+							print("      klapper state: notice=%d turning=%s goal=%.0f shown=%.0f dir=%s want=%.2f scale=%.2f blocked=%s axis_x=%s path=%d attack=%.2f halt=%.2f" % [k.notice, k.turning, rad_to_deg(k._heading_goal), rad_to_deg(k._shown_yaw), b.intended_dir, b.intended_speed, b.speed_scale, b._was_blocked, b._axis_x, b._path.size(), b._attack_t, k._halt])
 						if totals.stuck % 600 == 1:
 							print("   stuck: %s at %s cell %s, %.1fm from player, gun=%s rifle=%s pocket=%s" % [c.body, pos.snapped(Vector3.ONE * 0.01), cell, pos.distance_to(p.global_position), c.has_gun, c.has_rifle, _in_pocket(m, pos)])
 				else:

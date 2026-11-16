@@ -142,4 +142,19 @@ save("clatter", clat, 0.8)
 
 n = int(SR * 0.25)
 save("jaw", click(n, 1800, 0.01) + 0.5 * ring(n, [900, 2100], [0.03, 0.02], [0.6, 0.3]), 0.4)
+# an electric arc: a hard buzz at mains-ish frequency with crackle, very short
+n = int(SR * 0.22)
+x = t(0.22)
+buzz = np.sign(np.sin(2 * np.pi * 100 * x)) * 0.4 + np.sin(2 * np.pi * 300 * x) * 0.3
+zap = (buzz * bandnoise(n, 1500, 9000) * 0.6 + bandnoise(n, 3000, 12000) * 0.5) * env(n, 0.001, 0.06)
+for k in range(6):
+    place(zap, click(int(SR * 0.01), rng.uniform(4000, 9000), 0.0015), rng.uniform(0, 0.18))
+save("zap", zap, 0.7)
+
+# a heavy metal body hitting the floor: a deep thump and a dull iron ring
+n = int(SR * 0.7)
+thud = 1.6 * np.sin(2 * np.pi * 48 * t(0.7)) * env(n, 0.002, 0.09) + 0.8 * np.sin(2 * np.pi * 85 * t(0.7)) * env(n, 0.002, 0.06)
+thud += ring(n, [180, 410, 960], [0.18, 0.1, 0.05], [0.35, 0.25, 0.12]) * env(n, 0.001, 0.25)
+thud += bandnoise(n, 100, 1500) * env(n, 0.001, 0.04) * 0.8
+save("thud", thud, 0.95)
 print("klapper sfx written")

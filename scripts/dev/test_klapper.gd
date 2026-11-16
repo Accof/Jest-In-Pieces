@@ -8,6 +8,10 @@ extends Node
 ##          blown off (mechanical gib and stump), the face broken, death,
 ##          the oil puddle (and that it outlives the corpse), and an ordinary
 ##          clown still bleeding blood and showing meat
+##   notice it sees the player off to one side: head first, then the body,
+##          then it moves
+##   deaths the three deaths: head (stands, then onto its back), body (knees,
+##          then onto its face), overwhelmed (seizure, then a heap)
 ##   crowd  six at once, for frame time
 ##   film   (with "render") a walk, the blow and idling, side on, in the lit
 ##          gore sandbox, as numbered frames /tmp/klap_film_*.png
@@ -39,17 +43,21 @@ func _shot(name: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var all := not (args.has("walk") or args.has("fight") or args.has("gore") or args.has("crowd") or args.has("film"))
+	var all := not (args.has("walk") or args.has("fight") or args.has("gore") or args.has("crowd") or args.has("film") or args.has("notice") or args.has("deaths"))
 	if args.has("film"):
 		await _film()
 	if all or args.has("walk"):
 		await _walk()
+	if all or args.has("notice"):
+		await _notice()
 	if all or args.has("fight"):
 		await _fight()
 	if all or args.has("crowd"):
 		await _crowd()
 	if all or args.has("gore"):
 		await _gore()
+	if all or args.has("deaths"):
+		await _deaths()
 	print("KLAPPER: %d failed" % fails)
 	get_tree().quit()
 
@@ -79,7 +87,8 @@ func _measure(c: Clown, target: Vector3, seconds: float) -> Dictionary:
 	var brain := c.get_node("Brain") as ClownBrain
 	var sk := c.skeleton
 	var out := {travel = 0.0, time = 0.0, top = 0.0, knee_min = 999.0, knee_max = 0.0, ankle_min = 999.0, ankle_max = 0.0,
-		elbow_min = 999.0, slide = 0.0, moving_time = 0.0, snaps = 0, reached = false, still_frames = 0, frames = 0}
+		elbow_min = 999.0, slide = 0.0, moving_time = 0.0, snaps = 0, reached = false, still_frames = 0, frames = 0,
+		square_frames = 0, moving_frames = 0}
 	var last := c.global_position
 	var feet := {}
 	var last_yaw := 0.0
@@ -133,6 +142,14 @@ func _measure(c: Clown, target: Vector3, seconds: float) -> Dictionary:
 			feet[side] = ankle
 		if v > 0.05:
 			out.moving_time += dt
+			out.moving_frames += 1
+			# facing square to the maze, and moving mostly along that line
+			var yaw := wrapf(c.rotation.y, 0.0, PI * 0.5)
+			var square := minf(yaw, PI * 0.5 - yaw) < 0.02
+			var fwd := c.global_basis.z
+			var mv := Vector3(p.x - (p.x - step), 0, 0)
+			if square and absf(Vector2(fwd.x, fwd.z).normalized().dot(Vector2(c.velocity.x, c.velocity.z).normalized())) > 0.9:
+				out.square_frames += 1
 		if c is Klappersoldat:
 			var y: float = (c as Klappersoldat)._head_yaw
 			var rate := absf(y - last_yaw) / dt
@@ -174,7 +191,7 @@ func _walk() -> void:
 		print("   %-8s reached=%s in %.1fs  avg %.2f m/s  moving %.2f m/s  top %.2f  p95 %.2f  knee %.0f-%.0f deg  ankle %.0f-%.0f  elbow bend >= %.0f  foot slide %.0f%%  still %d%%" % [kind, r.reached, r.time, r.avg, r.mean, r.top, r.p95, r.knee_min, r.knee_max, r.ankle_min, r.ankle_max, r.elbow_min, r.slide_ratio * 100.0, int(100.0 * r.still_frames / maxf(r.frames, 1))])
 		if kind == "klapper":
 			var k := c as Klappersoldat
-			print("            head snaps %d, hesitations %d, base speed %.2f" % [r.snaps, k.hesitations, (c.get_node("Brain") as ClownBrain).move_speed])
+			print("            head snaps %d, hesitations %d, base speed %.2f, moving square to the maze %d%%" % [r.snaps, k.hesitations, (c.get_node("Brain") as ClownBrain).move_speed, int(100.0 * r.square_frames / maxf(r.moving_frames, 1))])
 			if render:
 				await _film_walk(k)
 		c.queue_free()
@@ -190,6 +207,7 @@ func _walk() -> void:
 	_check(kl.elbow_min > 10.0, "elbows always bent (at least %.0f deg)" % kl.elbow_min)
 	_check(kl.slide_ratio < cl.slide_ratio + 0.05, "planted foot slides no more than an ordinary clown's (%.0f%% vs %.0f%%)" % [kl.slide_ratio * 100.0, cl.slide_ratio * 100.0])
 	_check(kl.snaps >= 2, "head moves in snaps (%d)" % kl.snaps)
+	_check(kl.square_frames >= kl.moving_frames * 0.9, "walks only north, south, east or west, facing the way it goes (%d of %d frames)" % [kl.square_frames, kl.moving_frames])
 
 
 func _film_walk(k: Klappersoldat) -> void:
@@ -204,6 +222,160 @@ func _film_walk(k: Klappersoldat) -> void:
 		for f in 5:
 			await get_tree().physics_frame
 	cam.queue_free()
+
+
+func _notice() -> void:
+	print("-- notice")
+	await _floor()
+	var m: Maze = game.maze
+	FpsPlayer.god_mode = true
+	var k: Klappersoldat = game.spawn_klapper()
+	k.global_position = m.cell_center(m.route[2])
+	k.rotation.y = 0.0
+	k._shown_yaw = 0.0
+	k._heading_goal = 0.0
+	await get_tree().physics_frame
+	# the player off to its side (90 degrees), a couple of metres away
+	game.player.global_position = k.global_position + k.global_basis.x * 2.2 + Vector3.UP * 0.1
+	var brain := k.get_node("Brain") as ClownBrain
+	brain.alert(game.player.global_position)
+	var start := k.global_position
+	var head_done := -1.0
+	var body_start := -1.0
+	var moved := -1.0
+	var head_steps := 0
+	var last_head := 0.0
+	var fast := false
+	var t := 0.0
+	var max_head := 0.0
+	while t < 6.0 and moved < 0.0:
+		await get_tree().physics_frame
+		t += get_physics_process_delta_time()
+		var aim: float = k._player_angle()
+		var hy: float = k._head_yaw
+		max_head = maxf(max_head, absf(hy))
+		var rate := absf(hy - last_head) / get_physics_process_delta_time()
+		if rate > deg_to_rad(150.0) and not fast and body_start < 0.0:
+			head_steps += 1
+		fast = rate > deg_to_rad(150.0)
+		last_head = hy
+		if head_done < 0.0 and absf(hy - aim) < deg_to_rad(10.0) and absf(aim) > deg_to_rad(30.0):
+			head_done = t
+		if body_start < 0.0 and absf(wrapf(k._shown_yaw, -PI, PI)) > 0.02:
+			body_start = t
+		if moved < 0.0 and Vector2(k.global_position.x - start.x, k.global_position.z - start.z).length() > 0.05:
+			moved = t
+	print("   head on the player at %.2fs (in %d jerks, up to %.0f deg), body starts turning %.2fs, first step %.2fs" % [head_done, head_steps, rad_to_deg(max_head), body_start, moved])
+	_check(head_done > 0.0 and (body_start < 0.0 or head_done <= body_start), "the head comes round first")
+	_check(head_steps >= 2, "in jerks, not a smooth turn (%d)" % head_steps)
+	_check(body_start > head_done + 0.3, "it stares a moment before the body follows")
+	_check(moved < 0.0 or moved > body_start, "and only walks once the body has turned")
+	var yaw := wrapf(k.rotation.y, 0.0, PI * 0.5)
+	_check(minf(yaw, PI * 0.5 - yaw) < 0.02, "facing square to the maze")
+	k.queue_free()
+	game.clowns.erase(k)
+	await get_tree().physics_frame
+
+
+func _deaths() -> void:
+	print("-- deaths")
+	if game:
+		game.queue_free()
+		game = null
+		await get_tree().process_frame
+	var room: Node3D = load("res://scenes/gore_sandbox.tscn").instantiate()
+	add_child(room)
+	await get_tree().physics_frame
+	for c in room.clowns:
+		c.queue_free()
+	room.clowns.clear()
+	for b in get_tree().get_nodes_in_group(&"barrels"):
+		b.queue_free()
+	await get_tree().physics_frame
+	var cam := Camera3D.new()
+	add_child(cam)
+	cam.make_current()
+	var front := Vector3(0, 0, 1)
+	for kind: String in ["head", "torso", "malfunction"]:
+		var k := Klappersoldat.new()
+		k.smoke_seconds = 4.0
+		room.add_child(k)
+		k.position = Vector3(0, 0, -3.0)
+		cam.global_position = Vector3(2.6, 1.3, -1.6)
+		cam.look_at(Vector3(0, 0.9, -3.0))
+		for i in 10:
+			await get_tree().physics_frame
+		var chest: PhysicalBone3D = k.ragdoll.bones[&"Chest"]
+		var neck: PhysicalBone3D = k.ragdoll.bones[&"Neck"]
+		var full := k.max_health
+		print("   %s: health %.0f (an ordinary enemy here has %.0f)" % [kind, full, full / k.health_mult])
+		match kind:
+			"head":
+				k.health = 30.0
+				k.hit({collider = neck, position = neck.global_position + Vector3(0, 0.15, 0.1), direction = -front, damage = 34.0, impulse = 14.0})
+			"torso":
+				k.health = 30.0
+				k.hit({collider = chest, position = chest.global_position + Vector3(0, 0, 0.12), direction = -front, damage = 34.0, impulse = 14.0})
+			"malfunction":
+				for i in 3:
+					k.hit({collider = chest, position = chest.global_position + Vector3(0.03 * i, 0.05 * i, 0.12), direction = -front, damage = full * 0.2, impulse = 8.0})
+				k.health = 1.0
+				k.hit({collider = chest, position = chest.global_position + Vector3(0, -0.05, 0.12), direction = -front, damage = 40.0, impulse = 8.0})
+		_check(k.dead and k.dying == kind, "%s: dead, and dying the %s way (%s)" % [kind, kind, k.dying])
+		_check(not k.ragdoll.active, "%s: not straight to ragdoll" % kind)
+		_check(k.smoking.size() >= 1, "%s: smoke from the wounds (%d)" % [kind, k.smoking.size()])
+		var t := 0.0
+		var frame := 0
+		var hips_low := 99.0
+		var stood_until := -1.0
+		var neck_spin := 0.0
+		var last_neck := Basis()
+		while t < 7.0:
+			await get_tree().physics_frame
+			var dt := get_physics_process_delta_time()
+			t += dt
+			if k.dying != "" :
+				stood_until = t
+				var hb := k.skeleton.global_transform * k.skeleton.get_bone_global_pose(k.skeleton.find_bone("Hips"))
+				hips_low = minf(hips_low, hb.origin.y)
+				var nb := k.skeleton.get_bone_global_pose(k.skeleton.find_bone("Neck")).basis
+				neck_spin += (last_neck.inverse() * nb).get_rotation_quaternion().get_angle()
+				last_neck = nb
+			if render and frame % 8 == 0 and frame < 8 * 18:
+				cam.look_at(k.ragdoll.bones[&"Chest"].global_position if k.ragdoll.active else k.global_position + Vector3.UP * 0.9)
+				await _shot("death_%s_%02d" % [kind, frame / 8])
+			frame += 1
+		var cb: PhysicalBone3D = k.ragdoll.bones[&"Chest"]
+		var facing_up: float = cb.global_basis.z.y
+		print("      scripted part %.2fs, hips down to %.2fm, neck turned %.0f deg in all, then on the floor facing %s (%.2f), chest at %.2fm" % [stood_until, hips_low, rad_to_deg(neck_spin), "up" if facing_up > 0 else "down", facing_up, cb.global_position.y])
+		match kind:
+			"head":
+				_check(stood_until >= 0.95 and stood_until <= 2.2, "head: stays on its feet 1-2s (%.2f)" % stood_until)
+				_check(hips_low > 0.8, "head: stays standing while it shorts out")
+				_check(facing_up > 0.4, "head: ends on its back")
+			"torso":
+				_check(hips_low < 0.6, "torso: drops onto its knees (hips at %.2fm)" % hips_low)
+				_check(stood_until > 1.2, "torso: kneels a moment first (%.2fs)" % stood_until)
+				_check(facing_up < -0.4, "torso: ends face down")
+			"malfunction":
+				_check(neck_spin > TAU * 0.9, "malfunction: the head spins right round (%.0f deg)" % rad_to_deg(neck_spin))
+				_check(stood_until >= 1.5, "malfunction: seizes for a while first (%.2fs)" % stood_until)
+				_check(cb.global_position.y < 0.6, "malfunction: then drops in a heap")
+		_check(k.ragdoll.active, "%s: ends as a ragdoll" % kind)
+		var w := 0.0
+		while w < 6.0 and k.is_processing():
+			await get_tree().physics_frame
+			w += get_physics_process_delta_time()
+		var live := 0
+		for g in k.smoking:
+			if is_instance_valid(g) and (g as GPUParticles3D).emitting:
+				live += 1
+		_check(not k.is_processing() and live == 0, "%s: smoke and arcing stop when their time is up" % kind)
+		k.queue_free()
+		await get_tree().physics_frame
+	room.queue_free()
+	cam.queue_free()
+	await get_tree().physics_frame
 
 
 func _fight() -> void:
@@ -309,6 +481,7 @@ func _gore() -> void:
 		b.queue_free()
 	await get_tree().physics_frame
 	var k := Klappersoldat.new()
+	k.smoke_seconds = 3.0
 	room.add_child(k)
 	k.position = Vector3(0, 0, -3.0)
 	var cam := Camera3D.new()
@@ -373,7 +546,11 @@ func _gore() -> void:
 	k.health = 1.0
 	k.hit({collider = chest, position = chest.global_position + Vector3(0, 0, 0.12), direction = -front, damage = 40.0, impulse = 14.0})
 	_check(k.dead, "killed")
-	_check(k.ragdoll.active, "goes straight to ragdoll")
+	var falls := 0.0
+	while falls < 3.0 and not k.ragdoll.active:
+		await get_tree().physics_frame
+		falls += get_physics_process_delta_time()
+	_check(k.ragdoll.active, "goes over into the ragdoll after its death throes (%.1fs)" % falls)
 	for i in 20:
 		await get_tree().physics_frame
 	await _shot("5_falling")
