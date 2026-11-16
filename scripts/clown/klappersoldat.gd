@@ -75,11 +75,17 @@ extends Clown
 ## Shot dead through the head: seconds it stays on its feet, neck broken and
 ## shorting out, before it topples over backwards.
 @export var stand_seconds := Vector2(1.0, 2.0)
-## Overwhelmed: this share of its full health taken in the last second puts it
-## into a full-body seizure (limbs wrenched the wrong way, head spinning)
-## for this many seconds, then it drops in a heap.
-@export var malfunction_damage := 0.5
+## Killed anywhere but the head, it dies one of three ways, picked at random
+## with these weights: a full malfunction (seizure, then a heap), shorting out
+## on its feet like a head kill and then toppling over stiff in a random
+## direction, or simply collapsing where it stands.
+@export var body_death_odds := {"malfunction": 0.3, "short": 0.45, "collapse": 0.25}
+## The full malfunction: seconds of seizure (limbs wrenched the wrong way,
+## head spinning) before it drops in a heap.
 @export var malfunction_seconds := Vector2(1.6, 2.2)
+## Forces one death for the tests ("" = pick as usual).
+var force_death := ""
+var force_topple := ""
 ## Smoke and intermittent arcing from its wounds go on this long after death.
 @export var smoke_seconds := 60.0
 ## At most this many wounds smoke.
@@ -96,7 +102,8 @@ var hesitations := 0             # times the escapement caught (tests)
 var test_intent := 0.0           # without a brain: how fast it wants to walk (tests)
 var test_dir := Vector3.ZERO     # without a brain: which way it wants to walk (tests)
 var turning := false             # stopped, turning on the spot (tests)
-var dying := ""                  # "head", "torso" or "malfunction" until it falls (tests)
+var dying := ""                  # "head", "short", "collapse" or "malfunction" until it falls (tests)
+var topple_dir := Vector3.ZERO   # "short": which way it goes over (world, flat) (tests)
 var smoking: Array = []          # smoke emitters on its wounds (tests)
 
 # gait clock
@@ -140,8 +147,7 @@ var _jerk_t := 0.0
 var _jerk_from := {}
 var _jerk_to := {}
 var _jerk_blend := 1.0
-var _kneel_thud := false
-var _head_side := 1.0
+var _topple := ""                # "back", "forward", "left", "right"
 var _death_kind := ""            # which of the deaths it died (kept after `dying` clears)
 var _head_bounced := false
 var _last_head_vy := 0.0
@@ -809,11 +815,13 @@ func _on_part_severed(segment: StringName, gib: Node3D) -> void:
 ## - shot through the head: the head snaps back and drops on a broken neck;
 ##   it stays on its feet a second or two, arms and shoulders jerking, then
 ##   topples over backwards like a felled post (or against a wall);
-## - shot through the body (or a limb): it stops, arms drop, it falls hard onto
-##   its knees, kneels there a second, then pitches forward onto its face;
-## - overwhelmed (half its health gone in a second): a full-body seizure,
-##   limbs wrenched the wrong way, the head spinning round and cocking over,
-##   a dead stop, then it drops in a heap.
+## - killed anywhere else, one of these at random (`body_death_odds`):
+##   - shorting out: the chest punched back, the head lolling, it stands a
+##     second or two jerking and arcing, then goes over stiff backwards,
+##     forwards or to either side;
+##   - a full malfunction: a seizure, limbs wrenched the wrong way, the head
+##     spinning round and cocking over, a dead stop, then a heap;
+##   - a collapse: the power goes and it crumples where it stands.
 ## Blasts, the stake and a body already on the floor go straight to the
 ## ragdoll as for anything else. Every death smokes and arcs from the wounds.
 func _die(info: Dictionary, zone: StringName) -> void:
@@ -822,7 +830,9 @@ func _die(info: Dictionary, zone: StringName) -> void:
 	if scripted:
 		dead = true
 		_record_death(info, zone)
-		dying = "malfunction" if _recent_damage() >= malfunction_damage * max_health else ("head" if zone == &"Neck" else "torso")
+		dying = "head" if zone == &"Neck" else _pick_body_death()
+		if force_death != "":
+			dying = force_death
 		_dying_t = 0.0
 		_dying_info = info.duplicate()
 		_dying_zone = zone
@@ -830,9 +840,14 @@ func _die(info: Dictionary, zone: StringName) -> void:
 		match dying:
 			"head":
 				_dying_len = randf_range(stand_seconds.x, stand_seconds.y)
-			"torso":
-				_dying_len = KNEEL_HIT + KNEEL_LIMP
-				_kneel_thud = false
+			"short":
+				_dying_len = randf_range(stand_seconds.x, stand_seconds.y)
+				_topple = force_topple if force_topple != "" else ["back", "forward", "left", "right"].pick_random()
+				var b := global_basis
+				topple_dir = {"back": -b.z, "forward": b.z, "left": b.x, "right": -b.x}[_topple]
+				topple_dir = Vector3(topple_dir.x, 0, topple_dir.z).normalized()
+			"collapse":
+				_dying_len = randf_range(0.18, 0.32)
 			"malfunction":
 				_dying_len = randf_range(malfunction_seconds.x, malfunction_seconds.y) + 0.35
 				_jerk_t = 0.0
@@ -860,6 +875,18 @@ func _die(info: Dictionary, zone: StringName) -> void:
 	get_tree().create_timer(9.0 + _dying_len).timeout.connect(func() -> void:
 		if is_instance_valid(self) and not puddled:
 			_lay_puddle())
+
+
+func _pick_body_death() -> String:
+	var total := 0.0
+	for k: String in body_death_odds:
+		total += float(body_death_odds[k])
+	var r := randf() * total
+	for k: String in body_death_odds:
+		r -= float(body_death_odds[k])
+		if r <= 0.0:
+			return k
+	return "short"
 
 
 func _recent_damage() -> float:
@@ -912,8 +939,10 @@ func _dying_process(d: float) -> void:
 	match dying:
 		"head":
 			_pose_broken_neck(t)
-		"torso":
-			_pose_knees(t)
+		"short":
+			_pose_shorting(t)
+		"collapse":
+			_pose_collapse(t)
 		"malfunction":
 			_pose_seizure(t, d)
 	_twitch_update(d)
@@ -939,6 +968,11 @@ func _pose_broken_neck(t: float) -> void:
 	_turn("Neck", Vector3.RIGHT, deg_to_rad(neck))
 	_turn("Neck", Vector3.BACK, deg_to_rad(24.0) * smoothstep(0.05, 0.5, t))
 	_turn("Spine", Vector3.BACK, deg_to_rad(2.0) * sin(t * 2.3))
+	_short_twitches()
+
+
+## Arms, shoulders and hands jerking as its works short out.
+func _short_twitches() -> void:
 	_jerk_t -= get_process_delta_time()
 	if _jerk_t <= 0.0:
 		_jerk_t = randf_range(0.1, 0.3)
@@ -957,50 +991,52 @@ func _pose_broken_neck(t: float) -> void:
 			MechFx.sound(self, "squeak", _chest_pos(), -10.0, randf_range(0.8, 1.3))
 
 
-## Stops dead, arms dropping; drops onto its knees (slow to start, hard at the
-## end); the head and shoulders bend and bounce with the jolt; it kneels there
-## slumped a moment, then tips slowly forward until it goes over.
-const KNEEL_HIT := 0.55          # when the knees hit the floor
-const KNEEL_LIMP := 0.4          # slumped on its knees, going slack, before the ragdoll takes it
-
-func _pose_knees(t: float) -> void:
-	_turn("Spine", Vector3.RIGHT, deg_to_rad(-7.0) * clampf(1.0 - t / 0.15, 0.0, 1.0))
-	# the drop: eases in, lands hard
-	var x := clampf((t - 0.12) / (KNEEL_HIT - 0.12), 0.0, 1.0)
-	var k := 1.0 - cos(x * PI * 0.5)
-	var since := maxf(t - KNEEL_HIT, 0.0)
-	var jolt := 0.0
-	var slack := 0.0
-	if t >= KNEEL_HIT:
-		if not _kneel_thud:
-			_kneel_thud = true
-			_head_side = 1.0 if randf() < 0.5 else -1.0
-			MechFx.sound(self, "thud", global_position + Vector3.UP * 0.1, 3.0)
-			MechFx.sparks(self, global_position + global_basis.z * 0.1 + Vector3.UP * 0.05, Vector3.UP, 0.8)
-		jolt = exp(-4.0 * since) * sin(11.0 * since)       # the whole body rings with the impact
-		slack = smoothstep(0.0, KNEEL_LIMP, since)          # and the last of the strength goes out of it
-		k = 1.0 + 0.035 * jolt
-	var hips := skeleton.find_bone("Hips")
-	skeleton.set_bone_pose_position(hips, skeleton.get_bone_rest(hips).origin + Vector3(0, -0.48 * k, -0.03 * k))
-	for side: String in ["Left", "Right"]:
-		_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-6.0) * k)
-		_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(96.0) * k)
-		_turn(side + "Foot", Vector3.RIGHT, deg_to_rad(-25.0) * k)
-	# the trunk sags as it goes slack
-	_turn("Spine", Vector3.RIGHT, deg_to_rad(12.0 * k + 9.0 * jolt + 10.0 * slack))
-	_turn("Chest", Vector3.RIGHT, deg_to_rad(8.0 * k + 6.0 * jolt + 6.0 * slack))
-	_turn("Spine", Vector3.BACK, deg_to_rad(4.0) * _head_side * slack)
-	# the head: drooping as it drops, then thrown about by the impact like a
-	# weight on a string (down, back up, over to one side) and left to hang
-	var head := 26.0 * smoothstep(0.0, KNEEL_HIT, t) + 40.0 * jolt + 14.0 * slack
+## Shot dead through the body but still on its feet: the hit punches the
+## chest back, the head lolls forward, and it stands there shorting out,
+## arms and shoulders jerking, rocking a little toward the way it will go;
+## then it goes over like a felled post.
+func _pose_shorting(t: float) -> void:
+	var punch := 0.0
+	if t < 0.07:
+		punch = t / 0.07
+	else:
+		punch = exp(-6.0 * (t - 0.07)) * cos(10.0 * (t - 0.07))
+	_turn("Spine", Vector3.RIGHT, deg_to_rad(-11.0 * punch + 5.0 * smoothstep(0.1, 0.6, t)))
+	_turn("Chest", Vector3.RIGHT, deg_to_rad(-7.0 * punch + 3.0 * smoothstep(0.1, 0.6, t)))
+	# the head: jerked back by the hit, then sagging forward and over a bit
+	var head := -18.0 * punch + 22.0 * smoothstep(0.15, 0.9, t) + 3.0 * sin(t * 5.3)
 	_turn("Neck", Vector3.RIGHT, deg_to_rad(head))
-	var roll := exp(-3.0 * since) * sin(7.0 * since + 0.6) * 22.0 + 16.0 * slack
-	_turn("Neck", Vector3.BACK, deg_to_rad(roll) * _head_side * signf(since))
-	# arms dangle, flung forward with the jolt and swinging back
-	var swing := 10.0 * k + 26.0 * jolt
+	_turn("Neck", Vector3.BACK, deg_to_rad(9.0) * smoothstep(0.2, 1.0, t) * (1.0 if _topple != "right" else -1.0))
+	# arms drop and hang
 	for side: String in ["Left", "Right"]:
-		_turn(side + "UpperArm", Vector3.RIGHT, deg_to_rad(-swing * 0.6))
-		_turn(side + "LowerArm", Vector3.RIGHT, deg_to_rad(-8.0 - 14.0 * jolt))
+		_turn(side + "UpperArm", Vector3.RIGHT, deg_to_rad(-6.0) * smoothstep(0.0, 0.4, t))
+	# swaying, starting to go the way it will fall
+	var lean := smoothstep(_dying_len - 0.5, _dying_len, t)
+	var sway := sin(t * 2.1) * 1.5
+	match _topple:
+		"back":
+			_turn("Spine", Vector3.RIGHT, deg_to_rad(-6.0 * lean + sway))
+		"forward":
+			_turn("Spine", Vector3.RIGHT, deg_to_rad(8.0 * lean + sway))
+		"left":
+			_turn("Spine", Vector3.BACK, deg_to_rad(-6.0 * lean + sway))
+		"right":
+			_turn("Spine", Vector3.BACK, deg_to_rad(6.0 * lean + sway))
+	_short_twitches()
+
+
+## The power to every joint goes at once: knees buckle, the head drops, and
+## it crumples where it stands.
+func _pose_collapse(t: float) -> void:
+	var k := smoothstep(0.0, _dying_len, t)
+	var hips := skeleton.find_bone("Hips")
+	skeleton.set_bone_pose_position(hips, skeleton.get_bone_rest(hips).origin + Vector3(0, -0.12 * k, 0))
+	for side: String in ["Left", "Right"]:
+		_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-16.0) * k)
+		_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(30.0) * k)
+		_turn(side + "UpperArm", Vector3.RIGHT, deg_to_rad(-8.0) * k)
+	_turn("Spine", Vector3.RIGHT, deg_to_rad(10.0) * k)
+	_turn("Neck", Vector3.RIGHT, deg_to_rad(30.0) * k)
 
 
 ## Every joint wrenched to a new wrong angle in a jerk, again and again; the
@@ -1073,10 +1109,10 @@ func _fall() -> void:
 			info["profile"] = _profile_topple_back()
 			info["direction"] = -fwd
 			info["fling"] = -fwd * 0.35
-		"torso":
-			info["profile"] = _profile_kneel_forward()
-			info["direction"] = fwd
-			info["fling"] = fwd * 0.55 + Vector3.DOWN * 0.1
+		"short":
+			info["profile"] = _profile_topple(_topple)
+			info["direction"] = topple_dir
+			info["fling"] = topple_dir * (0.6 if _topple == "left" or _topple == "right" else 0.35)
 		_:
 			info["profile"] = _profile_heap()
 			info["direction"] = Vector3.DOWN
@@ -1087,11 +1123,10 @@ func _fall() -> void:
 	_start_ragdoll(info, _dying_zone)
 	if info.profile.get("neck_broken", false):
 		ragdoll.weaken(&"Neck", 0.0)
-	if _death_kind == "torso":
-		# the head keeps swinging as the ragdoll takes over
-		var nb: PhysicalBone3D = ragdoll.bones.get(&"Neck")
-		if nb:
-			nb.apply_central_impulse((global_basis.x * _head_side * 0.6 + fwd * 0.4) * nb.mass)
+	if _death_kind == "short":
+		# over sideways: tell the ragdoll which side (it would pick one itself)
+		if _topple == "left" or _topple == "right":
+			ragdoll._left = topple_dir
 
 
 ## Stiff as a post, tipping over backwards, neck slack.
@@ -1107,20 +1142,23 @@ static func _profile_topple_back() -> Dictionary:
 	}
 
 
-## Ragdoll from its knees: the hips held up a moment longer while the slack
-## trunk, head and arms hang and swing under their own weight; then the
-## knees let go too and it goes over forward onto its face.
-static func _profile_kneel_forward() -> Dictionary:
-	return {
-		support = [Vector2(0, 0.9), Vector2(0.5, 0.8), Vector2(1.0, 0.35), Vector2(1.4, 0)],
-		legs = [Vector2(0, 0.9), Vector2(1.4, 0.6), Vector2(2.4, 0)],
-		spine = [Vector2(0, 0.32), Vector2(0.6, 0.15), Vector2(1.2, 0)],
-		neck = [Vector2(0, 0)],
-		arms = [Vector2(0, 0)],
-		lean = [Vector2(0, 0.25), Vector2(0.9, 0.7)],
-		square = [Vector2(0, 1), Vector2(1.5, 1), Vector2(1.9, 0)],
-		fold = 12.0, drift_fwd = 0.3, drift_time = 1.0, even = true,
-	}
+## Stiff as a post, going over in the given direction ("back", "forward",
+## "left" or "right"), the neck slack. Back is the head-shot fall.
+static func _profile_topple(dir: String) -> Dictionary:
+	var p := _profile_topple_back()
+	p.erase("neck_broken")
+	p["neck"] = [Vector2(0, 0.15), Vector2(0.4, 0)]
+	match dir:
+		"forward":
+			p["lean"] = [Vector2(0, 0.05), Vector2(0.5, 0.4), Vector2(1.0, 0.7)]
+			p["fold"] = 4.0
+		"left", "right":
+			# a stiff body would rather go forward (the knees bend that way):
+			# hold the front back a little and push it out to the side harder
+			p["lean"] = [Vector2(0, -0.12)]
+			p["side"] = [Vector2(0, 0.15), Vector2(0.4, 0.7), Vector2(0.8, 1.0)]
+			p["fold"] = 0.0
+	return p
 
 
 ## No strength anywhere: it drops where it stands.
@@ -1177,7 +1215,7 @@ func _dead_process(delta: float) -> void:
 	_eyes_update(delta)
 	_spin(delta)
 	# falling flat on its back the head hits the floor and bounces, just a little
-	if _death_kind == "head" and not _head_bounced and ragdoll.active:
+	if (_death_kind == "head" or (_death_kind == "short" and _topple == "back")) and not _head_bounced and ragdoll.active:
 		var hb: PhysicalBone3D = ragdoll.bones.get(&"Neck")
 		if hb and is_instance_valid(hb):
 			var vy: float = (PhysicsServer3D.body_get_state(hb.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY) as Vector3).y

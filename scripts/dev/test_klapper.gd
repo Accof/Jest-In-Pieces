@@ -296,7 +296,17 @@ func _deaths() -> void:
 	add_child(cam)
 	cam.make_current()
 	var front := Vector3(0, 0, 1)
-	for kind: String in ["head", "torso", "malfunction"]:
+	# how often each body death comes up
+	var odds := Klappersoldat.new()
+	var counts := {}
+	for i in 1000:
+		var pick: String = odds._pick_body_death()
+		counts[pick] = counts.get(pick, 0) + 1
+	odds.free()
+	print("   body deaths in 1000: %s" % counts)
+	_check(counts.get("malfunction", 0) > 220 and counts.get("malfunction", 0) < 380, "full malfunction about 30%% of body kills, at random (%d)" % counts.get("malfunction", 0))
+	var topples := ["left", "right", "back", "forward"]
+	for kind: String in ["head", "short", "short", "short", "short", "collapse", "malfunction"]:
 		var k := Klappersoldat.new()
 		k.smoke_seconds = 4.0
 		room.add_child(k)
@@ -313,14 +323,15 @@ func _deaths() -> void:
 			"head":
 				k.health = 30.0
 				k.hit({collider = neck, position = neck.global_position + Vector3(0, 0.15, 0.1), direction = -front, damage = 34.0, impulse = 14.0})
-			"torso":
+			_:
+				k.force_death = kind
+				if kind == "short":
+					k.force_topple = topples.pop_front()
 				k.health = 30.0
 				k.hit({collider = chest, position = chest.global_position + Vector3(0, 0, 0.12), direction = -front, damage = 34.0, impulse = 14.0})
-			"malfunction":
-				for i in 3:
-					k.hit({collider = chest, position = chest.global_position + Vector3(0.03 * i, 0.05 * i, 0.12), direction = -front, damage = full * 0.2, impulse = 8.0})
-				k.health = 1.0
-				k.hit({collider = chest, position = chest.global_position + Vector3(0, -0.05, 0.12), direction = -front, damage = 40.0, impulse = 8.0})
+		var start_chest := chest.global_position
+		var tdir := k.topple_dir
+		var tname: String = k._topple
 		_check(k.dead and k.dying == kind, "%s: dead, and dying the %s way (%s)" % [kind, kind, k.dying])
 		_check(not k.ragdoll.active, "%s: not straight to ragdoll" % kind)
 		_check(k.smoking.size() >= 1, "%s: smoke from the wounds (%d)" % [kind, k.smoking.size()])
@@ -368,12 +379,16 @@ func _deaths() -> void:
 				_check(hips_low > 0.8, "head: stays standing while it shorts out")
 				_check(facing_up > 0.4, "head: ends on its back")
 				_check(k._head_bounced, "head: the head bounces off the floor")
-			"torso":
-				_check(hips_low < 0.6, "torso: drops onto its knees (hips at %.2fm)" % hips_low)
-				_check(stood_until > 0.75, "torso: lands on its knees before the ragdoll takes it (%.2fs)" % stood_until)
-				_check(upright_until > stood_until + 0.25, "torso: kneels on, slack, under the ragdoll before going over (%.2fs)" % upright_until)
-				_check(head_swing > 0.05, "torso: the slack head swings (%.2fm)" % head_swing)
-				_check(facing_up < -0.4, "torso: ends face down")
+			"short":
+				var went := Vector3(cb.global_position.x - start_chest.x, 0, cb.global_position.z - start_chest.z)
+				print("      toppled %s: chest went %.2fm, %.2f along the chosen way, %.2f along its front" % [tname, went.length(), went.normalized().dot(tdir), went.normalized().dot(front)])
+				_check(stood_until >= 0.95 and stood_until <= 2.2, "short (%s): stays on its feet 1-2s (%.2f)" % [tname, stood_until])
+				_check(hips_low > 0.8, "short (%s): stays standing while it shorts out" % tname)
+				_check(went.length() > 0.6 and went.normalized().dot(tdir) > 0.5, "short (%s): goes over the way it chose" % tname)
+				_check(cb.global_position.y < 0.5, "short (%s): ends on the floor (chest %.2f)" % [tname, cb.global_position.y])
+			"collapse":
+				_check(stood_until < 0.4, "collapse: no standing about (%.2fs)" % stood_until)
+				_check(cb.global_position.y < 0.6, "collapse: in a heap on the floor (chest %.2f)" % cb.global_position.y)
 			"malfunction":
 				_check(neck_spin > TAU * 0.9, "malfunction: the head spins right round (%.0f deg)" % rad_to_deg(neck_spin))
 				_check(stood_until >= 1.5, "malfunction: seizes for a while first (%.2fs)" % stood_until)
