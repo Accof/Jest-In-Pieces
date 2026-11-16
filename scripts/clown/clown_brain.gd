@@ -79,7 +79,7 @@ func _ready() -> void:
 	clown.always_pose = true
 	clown.set_process(true)
 	clown.hurt.connect(_on_hurt)
-	_wander_to = clown.global_position
+	_wander_to = Vector3.INF          # taken on the first frame, once it has been put in place
 	_wander_wait = randf_range(0.5, 5.0)
 
 
@@ -142,6 +142,8 @@ func _clear(from: Vector3, to: Vector3) -> bool:
 func _idle(delta: float) -> void:
 	clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 4.0)
 	clown.attack_amount = 0.0
+	if _wander_to == Vector3.INF or maze.cell_of(_wander_to) == maze.cell_of(_wander_to) and not maze.is_open(maze.cell_of(_wander_to)):
+		_wander_to = clown.global_position    # (a brain added before its clown was placed must not walk "home" to the origin)
 	var gap := Vector3(_wander_to.x - clown.global_position.x, 0, _wander_to.z - clown.global_position.z)
 	if gap.length() < 0.3:
 		_wander_wait -= delta
@@ -153,11 +155,19 @@ func _idle(delta: float) -> void:
 				if maze.in_bounds(here + dir) and maze.linked(here, here + dir):
 					options.append(here + dir)
 			if not options.is_empty():
-				_wander_to = maze.cell_center(options.pick_random())
+				_wander_to = _free_spot(options.pick_random())
 		_settle(delta)
 		return
-	var vel := gap.normalized() * move_speed * 0.38
+	var aim := _through_opening(_wander_to)
+	var vel := Vector3(aim.x - clown.global_position.x, 0, aim.z - clown.global_position.z).normalized() * move_speed * 0.38
 	_step(vel, delta)
+	# Pressing on something it cannot get round: stop there and think again,
+	# rather than walking into it for ever.
+	_blocked_t = _blocked_t + delta if _was_blocked else maxf(_blocked_t - delta * 2.0, 0.0)
+	if _blocked_t > 0.8:
+		_blocked_t = 0.0
+		_wander_to = clown.global_position
+		_wander_wait = randf_range(0.5, 2.0)
 	_face(vel, delta, 4.0)
 	clown.walk_amount = move_toward(clown.walk_amount, 0.45, delta * 3.0)
 	clown.run_amount = move_toward(clown.run_amount, 0.0, delta * 3.0)
@@ -459,6 +469,7 @@ func _go_to(to: Vector3, delta: float, speed: float) -> bool:
 		var p := maze.path(clown.global_position, to)
 		if p.size() > 1 or not _clear(clown.global_position + Vector3.UP * 0.9, to + Vector3.UP * 0.9):
 			target = p[0] if not p.is_empty() else to
+	target = _through_opening(target)
 	var move := Vector3(target.x - clown.global_position.x, 0, target.z - clown.global_position.z)
 	var vel := move.normalized() * minf(speed, move.length() / maxf(delta, 0.001))
 	_step(vel, delta)
@@ -485,7 +496,13 @@ func _free(dir: Vector3) -> bool:
 ## low strip beside it. (Clowns are not physics bodies; before this they
 ## could be steered into walls, sink out of sight, or wedge beside a stair.)
 func _step(vel: Vector3, delta: float) -> void:
-	var move := _collide(clown.global_position, Vector3(vel.x, 0.0, vel.z) * delta)
+	var want := Vector3(vel.x, 0.0, vel.z) * delta
+	var move := _collide(clown.global_position, want)
+	if want.length() > 0.004:
+		moves += 1
+		_was_blocked = move.dot(want.normalized()) < want.length() * 0.4
+		if _was_blocked:
+			blocked += 1                  # pushing at something it should have gone round
 	var free := clown.global_position + move
 	var pos := maze.keep_walkable(free)
 	var lifted := pos.distance_squared_to(free) > 1e-6    # put back onto a stair from beside it
@@ -497,7 +514,7 @@ func _step(vel: Vector3, delta: float) -> void:
 		pos = clown.global_position
 		floor_y = clown.global_position.y
 		vel = Vector3.ZERO
-	var new_y := move_toward(clown.global_position.y, floor_y, delta * 6.0)
+	var new_y := floor_y if lifted else move_toward(clown.global_position.y, floor_y, delta * 6.0)
 	clown.velocity = Vector3(vel.x, (new_y - clown.global_position.y) / maxf(delta, 0.001), vel.z)
 	clown.global_position = Vector3(pos.x, new_y, pos.z)
 
@@ -591,6 +608,10 @@ const BODY_RADIUS := 0.28
 const BODY_HEIGHT := 1.1           ## the capsule's bottom rides 0.38 m up: steps and kerbs pass under it
 const BODY_LIFT := 0.38
 static var _body_shape: CapsuleShape3D
+var moves := 0                       ## steps it tried to take (tests)
+var blocked := 0                     ## of those, steps that mostly ran into something
+var _was_blocked := false
+var _blocked_t := 0.0
 var _detour_sign := 1.0
 var _detour_t := 0.0
 
@@ -647,3 +668,49 @@ func _collide(from: Vector3, move: Vector3) -> Vector3:
 				return m * maxf(r[0] - 0.01, 0.0)
 		_detour_sign = -_detour_sign      # that side is shut too: try the other next time
 	return best
+
+
+## Heading for a point in the next cell: if it is well off the middle of the
+## opening, it lines up with the opening first (the doorways are framed by
+## pillars, and a diagonal from a corner of the cell clips them).
+func _through_opening(target: Vector3) -> Vector3:
+	var here := maze.cell_of(clown.global_position)
+	var there := maze.cell_of(target)
+	var step := there - here
+	if absi(step.x) + absi(step.y) != 1:
+		return target                      # same cell, or not a neighbour: the path has already chosen
+	var dv := Vector3(step.x, 0, step.y)
+	var along := Vector3(-dv.z, 0, dv.x)
+	var centre := maze.cell_center(here)
+	var rel := clown.global_position - centre
+	var off := rel.dot(along)
+	var ahead := rel.dot(dv)
+	if absf(off) <= 0.45 or ahead > Maze.CELL * 0.5 - 0.35:
+		return target
+	# a point on the middle line, short of the doorway
+	return centre + dv * minf(ahead + 0.6, Maze.CELL * 0.5 - 0.6) + along * clampf(off, -0.3, 0.3)
+
+
+## A spot in a cell with room for a clown: the middle if it is clear, or
+## near it (tables, beds and crates stand in the middle of some rooms).
+func _free_spot(cell: Vector2i) -> Vector3:
+	var centre := maze.cell_center(cell)
+	if _body_shape == null:
+		_body_shape = CapsuleShape3D.new()
+		_body_shape.radius = BODY_RADIUS
+		_body_shape.height = BODY_HEIGHT
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = _body_shape
+	q.collision_mask = LAYER_WORLD
+	var space := clown.get_world_3d().direct_space_state
+	var offs: Array[Vector3] = [Vector3(0.7, 0, 0), Vector3(-0.7, 0, 0), Vector3(0, 0, 0.7), Vector3(0, 0, -0.7),
+		Vector3(0.7, 0, 0.7), Vector3(-0.7, 0, 0.7), Vector3(0.7, 0, -0.7), Vector3(-0.7, 0, -0.7)]
+	offs.shuffle()
+	offs.push_front(Vector3.ZERO)
+	for o: Vector3 in offs:
+		var p := maze.keep_walkable(centre + o)
+		p.y = maze.floor_height(p)
+		q.transform = Transform3D(Basis.IDENTITY, p + Vector3.UP * (BODY_LIFT + BODY_HEIGHT * 0.5))
+		if space.intersect_shape(q, 1).is_empty():
+			return p
+	return centre

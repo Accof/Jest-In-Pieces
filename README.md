@@ -186,6 +186,7 @@ godot --headless --fixed-fps 60 res://scenes/test_stairs_walk.tscn  # walks the 
 godot --path . res://scenes/test_punch.tscn                    # point-blank shotgun hole: renders /tmp/punch_*.png (needs a window)
 godot --path . res://scenes/test_soldier_pose.tscn             # WitzSoldat stand/walk/run/aim/thrust from the side, /tmp/pose_*.png (needs a window)
 godot --headless --fixed-fps 60 res://scenes/test_nav.tscn     # a crowd chasing the player round three floors with stairs: counts frames inside walls, sunk, beside a stair, stuck
+godot --headless --fixed-fps 60 res://scenes/test_wander.tscn  # unaware clowns wandering and searching: how often a step runs into a wall or doorway pillar
 godot --headless --fixed-fps 60 res://scenes/test_base.tscn    # title -> base -> every station -> a run with a table -> death -> base -> new game (--render for /tmp/base_*.png)
 godot --path . res://scenes/test_soldier_anim.tscn             # WitzSoldat walk cycle, side-step, carry/aim front and 3/4, three deaths; /tmp/sa_*.png and joint angles
 godot --path . res://scenes/render_level.tscn                  # saves views of a level to /tmp/lvl_*.png (needs a window)
