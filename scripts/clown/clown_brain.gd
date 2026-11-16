@@ -625,6 +625,16 @@ func limp() -> void:
 	alert(player.global_position if player else clown.global_position, false)
 
 
+## The club-carrying WitzSoldat: no gun, so it closes in and hits, harder and
+## from a little further than a bare-handed clown, with a heavier swing.
+func clubman() -> void:
+	melee_damage = 20.0
+	melee_range = 1.6
+	attack_time = 0.7
+	attack_hit_at = 0.42
+	attack_recover = 1.1
+
+
 ## WitzSoldat settings: a bolt-action rifle. Slower to aim and to work the
 ## bolt, but it reaches further, hits more often and hurts a lot more.
 func rifleman() -> void:

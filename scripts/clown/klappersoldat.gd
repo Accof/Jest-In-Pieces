@@ -829,7 +829,7 @@ func _die(info: Dictionary, zone: StringName) -> void:
 			"head":
 				_dying_len = randf_range(stand_seconds.x, stand_seconds.y)
 			"torso":
-				_dying_len = 0.42 + kneel_seconds
+				_dying_len = KNEEL_HIT + kneel_seconds + KNEEL_TIP
 				_kneel_thud = false
 			"malfunction":
 				_dying_len = randf_range(malfunction_seconds.x, malfunction_seconds.y) + 0.35
@@ -955,32 +955,47 @@ func _pose_broken_neck(t: float) -> void:
 			MechFx.sound(self, "squeak", _chest_pos(), -10.0, randf_range(0.8, 1.3))
 
 
-## Stops dead, arms dropping; falls hard onto its knees, and kneels there,
-## slumped, the head hanging.
+## Stops dead, arms dropping; drops onto its knees (slow to start, hard at the
+## end); the head and shoulders bend and bounce with the jolt; it kneels there
+## slumped a moment, then tips slowly forward until it goes over.
+const KNEEL_HIT := 0.55          # when the knees hit the floor
+const KNEEL_TIP := 0.8           # the slow tip forward before it falls
+
 func _pose_knees(t: float) -> void:
-	_turn("Spine", Vector3.RIGHT, deg_to_rad(-8.0) * clampf(1.0 - t / 0.1, 0.0, 1.0))
-	var k := clampf((t - 0.1) / 0.32, 0.0, 1.0)
-	k = k * k                                         # it drops, it does not lower itself
-	if t > 0.42:
+	_turn("Spine", Vector3.RIGHT, deg_to_rad(-7.0) * clampf(1.0 - t / 0.15, 0.0, 1.0))
+	# the drop: eases in, lands hard
+	var x := clampf((t - 0.12) / (KNEEL_HIT - 0.12), 0.0, 1.0)
+	var k := 1.0 - cos(x * PI * 0.5)
+	var since := maxf(t - KNEEL_HIT, 0.0)
+	var jolt := 0.0
+	if t >= KNEEL_HIT:
 		if not _kneel_thud:
 			_kneel_thud = true
 			MechFx.sound(self, "thud", global_position + Vector3.UP * 0.1, 3.0)
 			MechFx.sparks(self, global_position + global_basis.z * 0.1 + Vector3.UP * 0.05, Vector3.UP, 0.8)
-		k = 1.0 + 0.04 * exp(-12.0 * (t - 0.42)) * sin(30.0 * (t - 0.42))    # the jolt of landing
+		jolt = exp(-5.0 * since) * sin(12.0 * since)       # the whole body rings with the impact
+		k = 1.0 + 0.035 * jolt
 	var hips := skeleton.find_bone("Hips")
 	skeleton.set_bone_pose_position(hips, skeleton.get_bone_rest(hips).origin + Vector3(0, -0.48 * k, -0.03 * k))
 	for side: String in ["Left", "Right"]:
 		_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-6.0) * k)
 		_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(96.0) * k)
 		_turn(side + "Foot", Vector3.RIGHT, deg_to_rad(-25.0) * k)
-	_turn("Spine", Vector3.RIGHT, deg_to_rad(14.0) * k)
-	_turn("Chest", Vector3.RIGHT, deg_to_rad(9.0) * k)
-	_turn("Neck", Vector3.RIGHT, deg_to_rad(34.0) * smoothstep(0.0, 0.5, t))
-	# arms hang and swing a little from the jolt
-	var swing := sin(t * 5.0) * exp(-1.5 * maxf(t - 0.42, 0.0)) * 8.0
+	# slumping, then (after the kneel) tipping slowly forward
+	var tip_t := clampf((t - KNEEL_HIT - kneel_seconds) / KNEEL_TIP, 0.0, 1.0)
+	var tip := tip_t * tip_t * (3.0 - 2.0 * tip_t)
+	var sway := sin(since * 1.7) * 1.5 * (1.0 - tip)
+	_turn("Spine", Vector3.RIGHT, deg_to_rad(12.0 * k + 6.0 * jolt + 30.0 * tip + sway))
+	_turn("Chest", Vector3.RIGHT, deg_to_rad(8.0 * k + 4.0 * jolt + 14.0 * tip))
+	# the head: drooping as it drops, snapping down with the impact and
+	# bouncing back up, then hanging
+	var head := 26.0 * smoothstep(0.0, KNEEL_HIT, t) + 24.0 * jolt + 16.0 * tip
+	_turn("Neck", Vector3.RIGHT, deg_to_rad(head))
+	# arms hang, swinging forward with the jolt and with the tip
+	var swing := 10.0 * k + 14.0 * jolt + 22.0 * tip
 	for side: String in ["Left", "Right"]:
-		_turn(side + "UpperArm", Vector3.RIGHT, deg_to_rad(swing + 10.0 * k))
-		_turn(side + "LowerArm", Vector3.RIGHT, deg_to_rad(-6.0))
+		_turn(side + "UpperArm", Vector3.RIGHT, deg_to_rad(-swing * 0.6))
+		_turn(side + "LowerArm", Vector3.RIGHT, deg_to_rad(-8.0 - 6.0 * jolt))
 
 
 ## Every joint wrenched to a new wrong angle in a jerk, again and again; the
@@ -1000,7 +1015,6 @@ func _pose_seizure(t: float, d: float) -> void:
 			if randf() < 0.5:
 				MechFx.sparks(self, _wound_point(), Vector3.UP, 0.8)
 		_jerk_blend = minf(_jerk_blend + d / 0.035, 1.0)
-		_model.position = Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)) * 0.008
 	var pose := _jerk_now()
 	for key: String in pose:
 		var bone := key.get_slice(":", 0)
@@ -1037,9 +1051,8 @@ func _wrench() -> Dictionary:
 		# elbows bent back the wrong way as often as not
 		w[side + "LowerArm:0"] = randf_range(25.0, 70.0) if randf() < 0.5 else randf_range(-120.0, -50.0)
 		w[side + "Hand:0"] = randf_range(-80.0, 80.0)
-		w[side + "UpperLeg:0"] = randf_range(-30.0, 20.0)
-		w[side + "UpperLeg:2"] = randf_range(-14.0, 14.0)
-		w[side + "LowerLeg:0"] = randf_range(-30.0, 45.0)
+		# the legs keep their footing: only a buckle at the knee now and then
+		w[side + "LowerLeg:0"] = randf_range(0.0, 9.0)
 	w["Spine:1"] = randf_range(-38.0, 38.0)
 	w["Spine:0"] = randf_range(-18.0, 22.0)
 	w["Chest:2"] = randf_range(-26.0, 26.0)
@@ -1058,7 +1071,7 @@ func _fall() -> void:
 		"torso":
 			info["profile"] = _profile_kneel_forward()
 			info["direction"] = fwd
-			info["fling"] = fwd * 0.4 + Vector3.DOWN * 0.2
+			info["fling"] = fwd * 0.55 + Vector3.DOWN * 0.1
 		_:
 			info["profile"] = _profile_heap()
 			info["direction"] = Vector3.DOWN
@@ -1083,17 +1096,18 @@ static func _profile_topple_back() -> Dictionary:
 	}
 
 
-## From its knees, over onto its face, and lying flat.
+## From its knees (already tipping), on over onto its face, the strength
+## going out of it gradually so it folds down rather than snapping.
 static func _profile_kneel_forward() -> Dictionary:
 	return {
-		support = [Vector2(0, 0.6), Vector2(0.15, 0.35), Vector2(0.45, 0)],
-		legs = [Vector2(0, 0.85), Vector2(1.2, 0.6), Vector2(2.0, 0)],
-		spine = [Vector2(0, 0.35), Vector2(0.5, 0.1), Vector2(1.0, 0)],
-		neck = [Vector2(0, 0)],
-		arms = [Vector2(0, 0)],
-		lean = [Vector2(0, 0.1), Vector2(0.35, 0.55)],
+		support = [Vector2(0, 0.35), Vector2(0.3, 0.12), Vector2(0.6, 0)],
+		legs = [Vector2(0, 0.8), Vector2(1.5, 0.5), Vector2(2.5, 0)],
+		spine = [Vector2(0, 0.5), Vector2(0.8, 0.25), Vector2(1.6, 0)],
+		neck = [Vector2(0, 0.12), Vector2(0.4, 0)],
+		arms = [Vector2(0, 0.1), Vector2(0.4, 0)],
+		lean = [Vector2(0, 0.3), Vector2(0.6, 0.7)],
 		square = [Vector2(0, 1), Vector2(1.5, 1), Vector2(1.9, 0)],
-		fold = 16.0, drift_fwd = 0.35, drift_time = 0.6, even = true,
+		fold = 18.0, drift_fwd = 0.3, drift_time = 0.8, even = true,
 	}
 
 

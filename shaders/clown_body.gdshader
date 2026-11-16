@@ -36,6 +36,9 @@ uniform vec3 meat_color : source_color = vec3(0.42, 0.035, 0.04);
 uniform vec3 inside_color : source_color = vec3(0.16, 0.008, 0.012);
 // A box of the rest pose cut away (the Klappersoldat loses the gas mask's
 // canister under its porcelain face). Off unless cut_max is above cut_min.
+// 0..1: long dead and left to rot somewhere damp (the locker joker): the
+// colours sour to a grey-green pallor with black mould blooming through.
+uniform float decay = 0.0;
 uniform vec3 cut_min = vec3(1.0);
 uniform vec3 cut_max = vec3(0.0);
 
@@ -88,6 +91,16 @@ void fragment() {
 	vec3 col = albedo_color.rgb;
 	if (use_tex) {
 		col *= texture(albedo_tex, UV).rgb;
+	}
+	if (decay > 0.0) {
+		float grey = dot(col, vec3(0.3, 0.59, 0.11));
+		col = mix(col, grey * vec3(0.82, 0.92, 0.74), decay * 0.7);
+		float m = noise3(rest_pos * 7.0) * 0.6 + noise3(rest_pos * 26.0) * 0.4;
+		float mould = smoothstep(0.56, 0.74, m) * decay;
+		col = mix(col, vec3(0.1, 0.13, 0.06) * (0.5 + noise3(rest_pos * 150.0)), mould * 0.85);
+		// damp tide-mark up the legs from standing in its own seepage
+		float tide = (1.0 - smoothstep(0.35, 0.6, rest_pos.y + (noise3(rest_pos * 12.0) - 0.5) * 0.12)) * decay;
+		col = mix(col, vec3(0.16, 0.08, 0.04), tide * 0.6);
 	}
 	float blood = 0.0;
 	float hole = 0.0;

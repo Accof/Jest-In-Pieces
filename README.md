@@ -90,6 +90,10 @@ Carries the rifle at low ready: butt by the right hip, muzzle forward and a litt
 
 Everyone's walk (clowns too): the stepping knee folds up to about 60 degrees as the foot comes through, the planted knee gives a little under the weight and never locks, the foot pushes off with the toe and comes down heel first, and hips and shoulders counter-turn. Any real movement gets a full step (slow walking takes shorter steps, not smaller leg movements), so a slow side-step still lifts its feet, and side-steps swing the legs out sideways.
 
+Its legs follow real gait curves (clinical walking averages, a little exaggerated for a man marching with a load, blending into running curves): the thigh comes well forward through the swing, about 30 degrees at its highest, which is what lifts the knee, and only goes about 12 degrees behind at push-off; the knee gives under the weight at heel strike, straightens through mid-stance and bends most (about 63 degrees) just after the foot leaves the ground; the ankle rocks the foot over and pushes off with the toe. Taking aim it stands bladed like a rifleman: hips turned a third of the way round, left foot forward toward you, right foot back and turned out, knees soft, leaning into the rifle, shoulders brought back round onto the target.
+
+One WitzSoldat in four (`club_share` on the game node) leaves the rifle behind and carries a spiked trench club: a hardwood haft swelling to a head with two iron bands and four rings of rusty square spikes, and a leather wrist loop. It never aims, just closes in and swings it overhead (20 damage, 1.6 m reach, a heavier, slower swing than a bare-handed clown's). The club drops from its hand when it dies.
+
 It fights from cover: after a shot in the open it looks within two corridor cells for a spot the player cannot see a crouched head at, with a firing spot a step away. It runs there, crouches (working the bolt), steps out, aims, fires once and ducks back. It gives the cover up if the player gets within 4 m or can see the hiding place.
 
 ## Der Klappersoldat
@@ -104,13 +108,21 @@ Shot, it throws real-looking sparks (white-hot streaks drawn along their flight,
 
 How it dies (it is metal, not flesh):
 - **Through the head:** the head jolts back, then drops forward and to one side on a broken neck and hangs there. It stays on its feet for 1-2 s, arms and shoulders jerking as it shorts out, blue arcs crackling from its wounds, then topples over backwards like a felled post onto its back (or against a wall) with a heavy thud.
-- **Through the body (or a limb):** it stops dead, its arms drop, it falls hard onto its knees, kneels there slumped for a second, then pitches forward flat on its face.
-- **Overwhelmed** (half its health taken in a second, e.g. a hosing with the SMG or two quick shotgun blasts): a full-body seizure, every joint wrenched to a new wrong angle in hard jerks, elbows bent backwards, the head spinning right round and then cocked over looking back; a dead stop; then it drops in a heap.
+- **Through the body (or a limb):** it stops dead, its arms drop, and it drops onto its knees, slow to start and hard at the end; the head and shoulders snap down with the impact and bounce back up. It kneels there slumped and swaying a second, then tips slowly forward, and folds gradually down onto its face.
+- **Overwhelmed** (half its health taken in a second, e.g. a hosing with the SMG or two quick shotgun blasts): a full-body seizure, the arms, spine and head wrenched to new wrong angles in hard jerks (the feet stay planted; the knees only buckle a little), elbows bent backwards, the head spinning right round and then cocked over looking back; a dead stop; then it drops in a heap.
 - Blasts and the stake throw it like anything else.
 
 Every death: a burst of sparks and a spray of oil, its works winding down and its eyes fading, and for a minute a thin wisp of smoke rising from each of its last few wounds (riding on the body as it falls) with now and then a blue arc or a spit of sparks, fewer as the minute goes on. Where it comes to rest it leaves an oil puddle. Oil puddles are permanent: no lifetime, no cap, never faded out, not attached to the body; they outlast the corpse and only go when the floor is torn down (`Blood.clear()`).
 
 The body is a Tripo model (`art/klappersoldat/source/`), built for the game by `tools/build_klappersoldat.py` (run with Blender's Python): scaled to 1.91 m, welded and decimated to 23k triangles, rigged to the shared 21-bone skeleton (the WitzSoldat rig's names and rolls, moved to this model's joints), cut cleanly into the 15 gore segments at the neck, shoulders, elbows, wrists, crotch, knees and ankles with a stump cap fitted to each cut, rest positions and segment ids baked in, gibs for every segment, and the eye positions found from the texture. The helmet is part of the head, so it never pops off. Only the glowing eyes are added in code. Shots to the face chip the porcelain; enough on one side blows that side open to the iron skull and its works, and that eye goes out. The sounds (`art/klapper/sfx/`) are synthesised placeholders (`tools/gen_klapper_sfx.py`): ticks, a ratchet wind-up, gear grinding, squeaks, iron footsteps, bell-metal clangs, bullet pings, crackle, an electric zap, a heavy thud, a spring running down.
+
+## Joker lockers
+
+On about 60% of bunker floors a bank of three tall, thin WW1 steel lockers stands against the wall of a long straight corridor (away from the pipes, never near the start). They are olive drab, chipped through to primer and bare steel and streaked with rust, with pressed louvres top and bottom, a latch handle and a stencilled number. One has a little joker playing card nailed to its door. While you are within 7 m, every few seconds something in that one may laugh (a cackle, a giggle or a slow wheezing laugh, muffled by the steel) and the door jumps on its latch.
+
+Every locker door takes bullets (a bright nick and a dent you hear), but only the joker's opens: each round through it spits blood back out of the hole, and after about 90 damage (three pistol rounds) the latch gives, the door slams back on its hinges, and a dead clown pitches out face first onto the floor. Its bullet holes are where your rounds went through the door, plus older ones: it has been shot before. It has been in there a long time: its greasepaint soured to a grey-green pallor, black mould blooming through the costume, a brown tide-mark up the legs, the blood on it gone brown. It is not one of the troupe: it wears a court jester's three-pointed cap (faded plum and mustard, bells gone green) and died with a joker card clenched in its teeth. The rest of its deck comes fluttering out after it. Finding it is worth 8 tickets ("LOCKER JOKER!"; it is not a kill and does not count toward the floor's clowns).
+
+`scripts/world/joker_locker.gd` (the bank, the laugh, the door), `scripts/clown/locker_joker.gd` (the clown's look, its fall, the cards). The card and paint textures and the sounds (`art/locker/`) are placeholders made by `tools/gen_locker_assets.py`.
 
 ## Fuel drums
 
@@ -217,6 +229,7 @@ godot --headless res://scenes/test_drum_clear.tscn          # twelve floors: cou
 godot res://scenes/test_seethrough.tscn -- 3 [full]          # needs a window: paints every pixel with its distance and checks it against physics rays from every cell; drawn further than the wall = a hole you can see through
 godot --headless --fixed-fps 60 res://scenes/test_wander.tscn  # unaware clowns wandering and searching: how often a step runs into a wall or doorway pillar
 godot --headless --fixed-fps 60 res://scenes/test_base.tscn    # title -> base -> every station -> a run with a table -> death -> base -> new game (--render for /tmp/base_*.png)
-godot --path . res://scenes/test_soldier_anim.tscn             # WitzSoldat walk cycle, side-step, carry/aim front and 3/4, three deaths; /tmp/sa_*.png and joint angles
+godot --path . res://scenes/test_soldier_anim.tscn             # WitzSoldat walk cycle, side-step, carry/aim front and 3/4, the club carrier walking and swinging, three deaths; /tmp/sa_*.png and joint angles
+godot --headless --fixed-fps 60 res://scenes/test_locker.tscn  # joker lockers: laughs near, silent far; plain doors stay shut; the joker's door bursts at ~90 damage; the clown falls out riddled, face down in front, cards spilled; 40 floors placed flush to a wall (sections: open levels; add "render" for /tmp/locker_*.png)
 godot --path . res://scenes/render_level.tscn                  # saves views of a level to /tmp/lvl_*.png (needs a window)
 ```

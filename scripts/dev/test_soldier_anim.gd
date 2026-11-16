@@ -134,6 +134,37 @@ func _run() -> void:
 	cam.look_at(s.global_position + Vector3.UP * 0.25)
 	await _shot("feet_stand")
 	s.queue_free()
+	# 3b. the club carrier: walking, then swinging
+	var cl := Clown.new()
+	cl.body = "witzsoldat"
+	room.add_child(cl)
+	cl.global_position = Vector3(-3, 0, -4)
+	cl.give_club()
+	cl.always_pose = true
+	cl.set_process(true)
+	cl.rotation.y = PI * 0.5
+	s = cl
+	vel = Vector3(1.4, 0, 0)
+	cl.walk_amount = 1.0
+	moving = true
+	await _frames(40)
+	for i in 4:
+		cam.global_position = cl.global_position + Vector3(0, 1.0, 4.2)
+		cam.look_at(cl.global_position + Vector3.UP * 0.9)
+		await _shot("club_walk_%d" % i)
+		await _frames(8)
+	moving = false
+	cl.velocity = Vector3.ZERO
+	cl.walk_amount = 0.0
+	await _frames(20)
+	cam.global_position = cl.global_position + Vector3(1.2, 1.3, 3.0)
+	cam.look_at(cl.global_position + Vector3.UP * 1.1)
+	for i in 6:
+		cl.attack_amount = sin(float(i) / 5.0 * PI)
+		await _frames(3)
+		await _shot("club_swing_%d" % i)
+	cl.attack_amount = 0.0
+	cl.queue_free()
 	# 4. deaths: chest (pistol), head (pistol), shotgun; look 2.5s later
 	var dead: Array[Clown] = []
 	for i in 3:

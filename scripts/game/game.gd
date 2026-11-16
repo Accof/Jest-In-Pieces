@@ -41,6 +41,8 @@ var state := State.MENU
 @export var klapper_base := 0.1
 @export var klapper_per_floor := 0.02
 @export var klapper_max := 0.2
+## Share of WitzSoldats that carry a spiked trench club instead of a rifle.
+@export var club_share := 0.25
 var floor_number := 0
 var kills := 0
 var run_tickets := 0
@@ -185,6 +187,10 @@ func next_floor() -> void:
 	player.velocity = Vector3.ZERO
 	_build_exit()
 	events.new_floor()
+	for l: JokerLocker in get_tree().get_nodes_in_group(&"joker_lockers"):
+		if l.is_inside_tree() and not l.is_queued_for_deletion():
+			l.player = player
+			l.opened.connect(_on_locker_opened)
 
 	if floor_number > 1 and int(save.perks.get("dressing", 0)) > 0:
 		player.heal(15.0 * int(save.perks.dressing))
@@ -223,7 +229,11 @@ func _spawn_clown(soldier: bool, gun: bool) -> Clown:
 	if soldier:
 		c.body = "witzsoldat"
 	_world.add_child(c)
-	if soldier:
+	# one WitzSoldat in four leaves the rifle behind and comes at you with a club
+	var clubber := soldier and rng.randf() < club_share
+	if clubber:
+		c.give_club()
+	elif soldier:
 		c.give_rifle()
 	elif gun:
 		c.give_gun()
@@ -233,7 +243,9 @@ func _spawn_clown(soldier: bool, gun: bool) -> Clown:
 	brain.others = clowns
 	brain.move_speed = rng.randf_range(2.8, 3.5) + 0.06 * floor_number
 	brain.run_speed = minf(rng.randf_range(4.9, 5.8) + 0.1 * floor_number, 6.8)
-	if soldier:
+	if clubber:
+		brain.clubman()
+	elif soldier:
 		brain.rifleman()
 	brain.name = "Brain"
 	c.add_child(brain)
@@ -311,6 +323,14 @@ func _clear_floor() -> void:
 	clowns.clear()
 	base = null
 	Blood.clear()
+
+
+## A joker locker shot open: a bonus, not a kill (it was long dead).
+func _on_locker_opened(l: JokerLocker) -> void:
+	run_tickets += l.tickets
+	Records.add(save, "locker_jokers")
+	_flash("LOCKER JOKER!   +%d TICKETS" % l.tickets)
+	_refresh_hud()
 
 
 func _on_clown_died(c: Clown) -> void:

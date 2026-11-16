@@ -23,6 +23,10 @@ var _t := 0.0
 ## Concrete dieselpunk bunkers (bunker theme) or the painted circus dugouts.
 var bunker_style := true
 var explosive_count := 0
+## Chance a floor has a bank of joker lockers somewhere along a long corridor.
+var locker_chance := 0.6
+var joker_lockers: Array = []
+var _locker_spots: Array = []
 ## Every steel door leads somewhere; a floor has at most this many.
 const MAX_EVENT_DOORS := 4
 var event_door_count := 0
@@ -60,6 +64,7 @@ func build(m: Maze) -> void:
 				_dress_trench(c)
 			else:
 				_dress_bunker(c)
+	_place_joker_lockers()
 	_rooms()
 	_entrances()
 	_commit()
@@ -157,6 +162,41 @@ func _cell_surfaces(c: Vector2i) -> void:
 		var nc := m.ceiling_height(n)
 		if nc > ceil + 0.01:
 			_wall_quad("wall_conc" if bunker_style else "planks_dark", centre + dv * half, Vector3(dv.z, 0, -dv.x), half, ceil, nc)
+
+
+func ri0(c: Vector2i) -> int:
+	return _route_index.get(c, -1)
+
+
+## An open corridor cell with walls on both sides, running one way.
+func _straight(c: Vector2i) -> bool:
+	if not maze.in_bounds(c) or not maze.is_open(c) or maze.is_trench(c) or _room_of(c) >= 0:
+		return false
+	var axis := _corridor_axis(c)
+	var side := Vector2i(int(axis.z), int(axis.x))
+	return _blocked(c, side) and _blocked(c, -side)
+
+
+## A bank of three lockers against the wall of a long corridor, on the side
+## away from the pipes; one of them has the joker in it.
+func _place_joker_lockers() -> void:
+	if _locker_spots.is_empty() or rng.randf() > locker_chance:
+		return
+	var spots := _locker_spots.duplicate()
+	for i in range(spots.size() - 1, 0, -1):          # the level's own rng, so a floor rebuilds the same
+		var j := rng.randi_range(0, i)
+		var t: Vector2i = spots[i]; spots[i] = spots[j]; spots[j] = t
+	for c: Vector2i in spots:
+		var axis := _corridor_axis(c)
+		var spot := _wall_spot(c, JokerLocker.D, Vector2i(-int(axis.z), -int(axis.x)))
+		if spot.is_empty():
+			continue
+		var l := JokerLocker.new()
+		l.joker_index = rng.randi_range(0, 2)
+		add_child(l)
+		l.transform = Transform3D(spot.basis, spot.pos)
+		joker_lockers.append(l)
+		return
 
 
 ## Which way a corridor cell runs: RIGHT (along x) or BACK (along z).
@@ -428,6 +468,9 @@ func _dress_bunker(c: Vector2i) -> void:
 	var axis := _corridor_axis(c)
 	var side := Vector3(axis.z, 0, axis.x)
 	var straight := _blocked(c, Vector2i(int(side.x), int(side.z))) and _blocked(c, -Vector2i(int(side.x), int(side.z)))
+	# long straight runs are where the joker lockers go
+	if straight and bunker_style and (ri0(c) < 0 or ri0(c) >= 4) and _straight(c + Vector2i(int(axis.x), int(axis.z))) and _straight(c - Vector2i(int(axis.x), int(axis.z))):
+		_locker_spots.append(c)
 	# pipes and a cable run along one side of straight corridors
 	if straight:
 		var b := Basis(Vector3.BACK, PI * 0.5) if axis == Vector3.RIGHT else Basis(Vector3.RIGHT, PI * 0.5)
@@ -710,11 +753,13 @@ func _wall_key(c: Vector2i, dir: Vector2i) -> String:
 
 
 ## Against the middle of a blank wall, facing into the cell, or {}.
-func _wall_spot(c: Vector2i, depth: float) -> Dictionary:
+func _wall_spot(c: Vector2i, depth: float, only := Vector2i.ZERO) -> Dictionary:
 	var m := maze
 	var centre := m.cell_center(c)
 	var dirs := Maze.DIRS.duplicate()
 	dirs.shuffle()
+	if only != Vector2i.ZERO:
+		dirs = [only]
 	for dir: Vector2i in dirs:
 		if not _blocked(c, dir) or _stair_side(c, dir):
 			continue

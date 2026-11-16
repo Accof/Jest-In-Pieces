@@ -21,6 +21,7 @@ const BODIES := {
 		helmet_center = Vector3(0.0, 1.80985, 0.04376), helmet_size = Vector3(0.268, 0.232, 0.288),
 		shapes = {&"UpperLeg": 1.3, &"LowerLeg": 1.12, &"UpperArm": 1.25, &"LowerArm": 1.05,
 			&"Hips": 1.2, &"Spine": 1.2, &"Chest": 1.2, &"Neck": 1.12, &"Foot": 1.15},
+		soldier = true,
 	},
 	# Der Klappersoldat: rigged and segmented from the Tripo model by
 	# tools/build_klappersoldat.py (klappersoldat.json). No separate helmet.
@@ -289,6 +290,7 @@ func _start_ragdoll(info: Dictionary, zone: StringName) -> void:
 	if broken_leg != "":
 		ragdoll.break_knee(broken_leg, info.direction)
 	_drop_rifle()
+	_drop_club()
 	gore.start_bleeding()
 
 
@@ -741,7 +743,7 @@ func bleed_out() -> void:
 ## Bones put back to their base rotation at the start of every posed frame.
 ## Anything the living pose turns must be here, or the turns add up frame
 ## after frame (the feet once ended up twisted toe-up this way).
-const POSED_BONES := ["Spine", "Chest", "Neck", "LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg",
+const POSED_BONES := ["Hips", "Spine", "Chest", "Neck", "LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg",
 	"LeftFoot", "RightFoot", "LeftUpperArm", "RightUpperArm", "LeftLowerArm", "RightLowerArm", "LeftHand", "RightHand"]
 const FLINCH_BONES := [["Spine", 0.4], ["Chest", 0.45], ["Neck", 0.55]]
 
@@ -844,6 +846,9 @@ func _process(delta: float) -> void:
 		_turn("Spine", Vector3.BACK, deg_to_rad(3.0) * sw * gait)
 		_turn("Spine", Vector3.UP, deg_to_rad(5.0) * sw * gait * fwd_amt)        # hips and shoulders counter-turn
 		var legs := {"Left": 1.0, "Right": -1.0}
+		if spec.get("soldier", false):
+			_soldier_legs(gait, fwd_amt, side_amt)
+			legs = {}
 		for side: String in legs:
 			var s: float = legs[side]
 			var limp := side == broken_leg
@@ -884,6 +889,10 @@ func _process(delta: float) -> void:
 			_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-80.0) * c)
 			_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(120.0) * c)
 		_turn("Spine", Vector3.RIGHT, deg_to_rad(14.0) * c)
+	# A soldier taking aim stands bladed: left foot forward, right foot back.
+	_stance_w = 0.0
+	if spec.get("soldier", false) and has_rifle and aim_amount > 0.01:
+		_aim_stance(aim_amount * (1.0 - clampf(gait * 1.6, 0.0, 1.0)))
 	# Right arm: swung overhead to hit, or held out to aim (pistol gunmen).
 	if attack_amount > 0.01:
 		_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-135.0) * attack_amount)
@@ -894,7 +903,7 @@ func _process(delta: float) -> void:
 	if _flinch.length() > 0.0005:
 		for b: Array in FLINCH_BONES:
 			_turn(b[0], _flinch.normalized(), _flinch.length() * b[1])
-	_model.position = _stagger + Vector3.DOWN * (bob + 0.47 * crouch_amount)
+	_model.position = _stagger + Vector3.DOWN * (bob + 0.47 * crouch_amount + 0.025 * _stance_w)
 	if extra_pose.is_valid():
 		extra_pose.call()
 	if has_rifle and _rifle and is_instance_valid(_rifle):
@@ -904,6 +913,212 @@ func _process(delta: float) -> void:
 		_stagger = Vector3.ZERO
 		_model.position = Vector3.ZERO
 		set_process(false)
+
+
+# --- a soldier's walk and stance ---------------------------------------------------
+## Joint angles through one stride of a real walk, from heel strike (0) to the
+## next heel strike of the same foot (1): hip flexion (+ = thigh forward),
+## knee flexion, ankle (+ = toe down). Clinical gait averages, a touch
+## exaggerated for a soldier marching with a load: the thigh comes well up
+## through the swing (that is what lifts the knee), extends only a little
+## behind, and the knee bends most just after the foot leaves the ground.
+const WALK_HIP := [[0.0, 25.0], [0.15, 18.0], [0.3, 6.0], [0.5, -9.0], [0.6, -12.0], [0.7, 2.0], [0.82, 24.0], [0.9, 31.0], [1.0, 25.0]]
+const WALK_KNEE := [[0.0, 4.0], [0.12, 17.0], [0.3, 7.0], [0.45, 5.0], [0.6, 38.0], [0.72, 63.0], [0.85, 34.0], [0.95, 6.0], [1.0, 4.0]]
+const WALK_ANKLE := [[0.0, 0.0], [0.08, 7.0], [0.3, -7.0], [0.5, -10.0], [0.62, 17.0], [0.7, 9.0], [0.85, -3.0], [1.0, 0.0]]
+const RUN_HIP := [[0.0, 32.0], [0.2, 10.0], [0.4, -16.0], [0.5, -6.0], [0.7, 38.0], [0.85, 48.0], [1.0, 32.0]]
+const RUN_KNEE := [[0.0, 18.0], [0.15, 38.0], [0.4, 14.0], [0.55, 70.0], [0.7, 105.0], [0.88, 55.0], [1.0, 18.0]]
+const RUN_ANKLE := [[0.0, -2.0], [0.15, -12.0], [0.4, 22.0], [0.6, 10.0], [0.85, -4.0], [1.0, -2.0]]
+
+
+## A smooth periodic curve through [t, value] keys (Catmull-Rom).
+static func _gait_curve(keys: Array, c: float) -> float:
+	c = fposmod(c, 1.0)
+	var n := keys.size()
+	var i := 0
+	while i < n - 2 and c > float(keys[i + 1][0]):
+		i += 1
+	var t0: float = keys[i][0]
+	var t1: float = keys[i + 1][0]
+	var u := (c - t0) / maxf(t1 - t0, 0.0001)
+	var p1: float = keys[i][1]
+	var p2: float = keys[i + 1][1]
+	var p0: float = keys[i - 1][1] if i > 0 else keys[n - 2][1]
+	var p3: float = keys[i + 2][1] if i + 2 < n else keys[1][1]
+	return 0.5 * ((2.0 * p1) + (-p0 + p2) * u + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * u * u + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * u * u * u)
+
+
+## A soldier's legs through the stride (walk blending into run). The left
+## foot strikes when the left arm is back, as in any walk.
+func _soldier_legs(gait: float, fwd_amt: float, side_amt: float) -> void:
+	var sw := sin(walk_phase)
+	var r := run_amount
+	var reach := clampf(fwd_amt + 0.3, 0.0, 1.0)
+	for side: String in ["Left", "Right"]:
+		var c := (walk_phase - PI * 1.5) / TAU + (0.0 if side == "Left" else 0.5)
+		var limp := side == broken_leg
+		var k := 0.35 if limp else 1.0
+		var hip := lerpf(_gait_curve(WALK_HIP, c), _gait_curve(RUN_HIP, c), r) * reach
+		var knee := lerpf(_gait_curve(WALK_KNEE, c), _gait_curve(RUN_KNEE, c), r)
+		var ankle := lerpf(_gait_curve(WALK_ANKLE, c), _gait_curve(RUN_ANKLE, c), r)
+		var s := 1.0 if side == "Left" else -1.0
+		_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-hip) * gait * k)
+		_turn(side + "UpperLeg", Vector3.BACK, deg_to_rad(15.0) * sw * side_amt * gait)
+		_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(knee + 4.0) * gait * (0.3 if limp else 1.0))
+		_turn(side + "Foot", Vector3.RIGHT, deg_to_rad(ankle) * gait * k)
+
+
+## Taking aim: hips turned a third of the way round to the right, left foot
+## forward toward the target, right foot back and turned out, knees soft,
+## weight a little forward; the shoulders come back round onto the target.
+func _aim_stance(w: float) -> void:
+	if w < 0.01:
+		return
+	var turn := deg_to_rad(-30.0) * w
+	_turn("Hips", Vector3.UP, turn)
+	_turn("Spine", Vector3.UP, -turn * 0.55)
+	_turn("Chest", Vector3.UP, -turn * 0.35)
+	var across := Basis(Vector3.UP, turn) * Vector3.RIGHT          # the pelvis's own left-right axis
+	_turn("LeftUpperLeg", across, deg_to_rad(-17.0) * w)
+	_turn("LeftLowerLeg", across, deg_to_rad(15.0) * w)
+	_turn("LeftFoot", across, deg_to_rad(2.0) * w)
+	_turn("RightUpperLeg", across, deg_to_rad(11.0) * w)
+	_turn("RightUpperLeg", Vector3.UP, deg_to_rad(-20.0) * w)        # right foot turned out
+	_turn("RightLowerLeg", across, deg_to_rad(9.0) * w)
+	_turn("RightFoot", across, deg_to_rad(-8.0) * w)
+	_turn("Spine", across, deg_to_rad(5.0) * w)                      # leaning into the rifle
+	_stance_w = w
+
+
+var _stance_w := 0.0
+
+
+# --- the trench club (melee WitzSoldat) ---------------------------------------------
+var has_club := false
+var _club: Node3D
+
+
+## A spiked trench club in the right hand: a hardwood haft swelling to a
+## heavy head studded with hobnails and big square spikes, an iron band,
+## a leather wrist loop.
+func give_club() -> void:
+	has_club = true
+	var att := BoneAttachment3D.new()
+	att.bone_name = "RightHand"
+	skeleton.add_child(att)
+	_club = Node3D.new()
+	att.add_child(_club)
+	var wood := StandardMaterial3D.new()
+	wood.albedo_color = Color(0.3, 0.18, 0.09)
+	wood.roughness = 0.75
+	var iron := StandardMaterial3D.new()
+	iron.albedo_color = Color(0.13, 0.12, 0.11)
+	iron.metallic = 0.75
+	iron.roughness = 0.5
+	var rust := StandardMaterial3D.new()
+	rust.albedo_color = Color(0.32, 0.15, 0.07)
+	rust.metallic = 0.4
+	rust.roughness = 0.8
+	var leather := StandardMaterial3D.new()
+	leather.albedo_color = Color(0.16, 0.09, 0.05)
+	leather.roughness = 0.85
+	# laid out with the grip at the origin and the head along +Z
+	var haft := CylinderMesh.new()
+	haft.top_radius = 0.032
+	haft.bottom_radius = 0.019
+	haft.height = 0.5
+	haft.material = wood
+	var hm := MeshInstance3D.new()
+	hm.mesh = haft
+	hm.rotation.x = PI * 0.5
+	hm.position = Vector3(0, 0, 0.2)
+	hm.layers = 2
+	_club.add_child(hm)
+	var head := CylinderMesh.new()
+	head.top_radius = 0.045
+	head.bottom_radius = 0.04
+	head.height = 0.2
+	head.material = wood
+	var hd := MeshInstance3D.new()
+	hd.mesh = head
+	hd.rotation.x = PI * 0.5
+	hd.position = Vector3(0, 0, 0.42)
+	hd.layers = 2
+	_club.add_child(hd)
+	var band := CylinderMesh.new()
+	band.top_radius = 0.049
+	band.bottom_radius = 0.049
+	band.height = 0.025
+	band.material = iron
+	for z: float in [0.33, 0.51]:
+		var b := MeshInstance3D.new()
+		b.mesh = band
+		b.rotation.x = PI * 0.5
+		b.position = Vector3(0, 0, z)
+		b.layers = 2
+		_club.add_child(b)
+	var spike := CylinderMesh.new()
+	spike.top_radius = 0.0
+	spike.bottom_radius = 0.009
+	spike.height = 0.05
+	spike.radial_segments = 4
+	spike.material = rust
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1917
+	for ring in 4:
+		var z := 0.36 + ring * 0.045
+		for k in 6:
+			var a := TAU * (k + 0.5 * (ring % 2)) / 6.0 + rng.randf_range(-0.12, 0.12)
+			var out := Vector3(cos(a), sin(a), 0)
+			var sp := MeshInstance3D.new()
+			sp.mesh = spike
+			sp.layers = 2
+			sp.transform = Transform3D(_basis_along(out, Vector3.BACK).rotated(out, 0.0) * Basis(Vector3.RIGHT, PI * 0.5), out * 0.062 + Vector3(0, 0, z))
+			_club.add_child(sp)
+	var loop := TorusMesh.new()
+	loop.inner_radius = 0.026
+	loop.outer_radius = 0.034
+	loop.material = leather
+	var lp := MeshInstance3D.new()
+	lp.mesh = loop
+	lp.position = Vector3(0, -0.01, -0.07)
+	lp.rotation.x = PI * 0.5
+	lp.layers = 2
+	_club.add_child(lp)
+	# held in the fist: across the palm, pointing forward and a little down
+	# with the arm hanging, so it swings with the hand from there on
+	var hand := skeleton.find_bone("RightHand")
+	var hx := skeleton.get_bone_global_pose(hand)
+	var fore := skeleton.get_bone_global_pose(skeleton.find_bone("RightLowerArm")).origin
+	var along := (hx.origin - fore).normalized()
+	var grip := hx.origin + along * 0.07
+	var held := Transform3D(_basis_along(Vector3(0, -0.3, 1).normalized()), grip)
+	_club.transform = hx.affine_inverse() * held
+
+
+## Drop the club where it is (on death).
+func _drop_club() -> void:
+	if _club == null or not is_instance_valid(_club):
+		return
+	var xf := _club.global_transform
+	var body_ := RigidBody3D.new()
+	body_.collision_layer = 1 << 3
+	body_.collision_mask = 1 | (1 << 3)
+	body_.mass = 2.0
+	body_.continuous_cd = true
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(0.1, 0.1, 0.6)
+	cs.shape = box
+	cs.position = Vector3(0, 0, 0.25)
+	body_.add_child(cs)
+	_club.get_parent().remove_child(_club)
+	body_.add_child(_club)
+	_club.transform = Transform3D.IDENTITY
+	get_parent().add_child(body_)
+	body_.global_transform = xf
+	body_.linear_velocity = velocity + Vector3(randf_range(-1, 1), randf_range(0.5, 1.5), randf_range(-1, 1))
+	body_.angular_velocity = Vector3(randf_range(-6, 6), randf_range(-6, 6), randf_range(-6, 6))
+	_club = null
 
 
 ## Extra posing laid over the living pose each frame (event rooms: a
