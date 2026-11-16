@@ -17,7 +17,7 @@ func _run() -> void:
 	add_child(game)
 	await get_tree().process_frame
 	FpsPlayer.god_mode = true
-	var totals := {frames = 0, in_wall = 0, overlap = 0, sunk = 0, pocket = 0, stuck = 0}
+	var totals := {merged = 0, frames = 0, in_wall = 0, overlap = 0, sunk = 0, pocket = 0, stuck = 0}
 	var floors := 3
 	for fl in floors:
 		game.start_run()
@@ -65,6 +65,12 @@ func _run() -> void:
 					continue
 				totals.frames += 1
 				var pos := c.global_position
+				# standing inside another living clown
+				for o: Clown in game.clowns:
+					if o != c and is_instance_valid(o) and not o.dead and not o.downed and not o.crawling and absf(o.global_position.y - pos.y) < 1.0:
+						if Vector2(o.global_position.x - pos.x, o.global_position.z - pos.z).length() < 0.4:
+							totals.merged += 1
+							break
 				var cell := m.cell_of(pos)
 				if not m.is_open(cell):
 					totals.in_wall += 1
@@ -94,7 +100,7 @@ func _run() -> void:
 				else:
 					prev = [pos, 0.0]
 				still[key] = prev
-	print("TOTAL living-clown frames %d: in a wall %d, overlapping geometry %d, sunk below floor %d, in a stair pocket %d, stuck >3s %d" % [totals.frames, totals.in_wall, totals.overlap, totals.sunk, totals.pocket, totals.stuck])
+	print("TOTAL living-clown frames %d: in a wall %d, overlapping geometry %d, sunk below floor %d, in a stair pocket %d, stuck >3s %d, inside another clown %d" % [totals.frames, totals.in_wall, totals.overlap, totals.sunk, totals.pocket, totals.stuck, totals.merged])
 	get_tree().quit()
 
 

@@ -495,8 +495,39 @@ func _free(dir: Vector3) -> bool:
 ## whatever it meets; near a staircase it is kept on the stair, out of the
 ## low strip beside it. (Clowns are not physics bodies; before this they
 ## could be steered into walls, sink out of sight, or wedge beside a stair.)
+## How close two living clowns may stand, centre to centre.
+const BODY_GAP := 0.6
+
+
+## Living clowns are solid to each other: a step that would take this one into
+## another stops at touching distance and slides round it, and two that already
+## overlap (spawned together, shoved by a blast) ease apart, half each.
+func _keep_apart(want: Vector3, delta: float) -> Vector3:
+	var me := clown.global_position
+	for o in others:
+		if not is_instance_valid(o) or o == clown or o.dead:
+			continue
+		var op: Vector3 = (o as Node3D).global_position
+		if absf(op.y - me.y) > 1.2:
+			continue                      # on another level (a stair, a landing)
+		var d := Vector3(me.x - op.x, 0.0, me.z - op.z)
+		var l := d.length()
+		if l > BODY_GAP + want.length() + 0.05:
+			continue
+		var out := d / l if l > 0.001 else Vector3(cos(get_instance_id()), 0, sin(get_instance_id()))
+		if l < BODY_GAP:
+			want += out * minf(BODY_GAP - l, 2.0 * delta) * 0.5
+			l = BODY_GAP
+		var toward := -want.dot(out)      # how much of this step heads into the other
+		var room := l - BODY_GAP
+		if toward > room:
+			want += out * (toward - room)
+	return want
+
+
 func _step(vel: Vector3, delta: float) -> void:
 	var want := Vector3(vel.x, 0.0, vel.z) * delta
+	want = _keep_apart(want, delta)
 	var move := _collide(clown.global_position, want)
 	if want.length() > 0.004:
 		moves += 1
@@ -526,6 +557,10 @@ func _settle(delta: float, drop_arm: bool = true) -> void:
 	if drop_arm:
 		clown.attack_amount = 0.0
 		clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 4.0)
+	# standing still, but still solid: ease out of anyone it is standing inside
+	var push := _keep_apart(Vector3.ZERO, delta)
+	if push.length_squared() > 1e-8:
+		clown.global_position = maze.keep_walkable(clown.global_position + _collide(clown.global_position, push))
 	var floor_y := maze.floor_height(clown.global_position)
 	clown.global_position.y = move_toward(clown.global_position.y, floor_y, delta * 6.0)
 
