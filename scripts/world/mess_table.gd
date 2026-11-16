@@ -28,6 +28,9 @@ func seat(c: Clown, i: int) -> void:
 	var to_table := global_position - c.global_position
 	c.rotation.y = atan2(to_table.x, to_table.z)
 	c.aim_amount = 0.0
+	c.velocity = Vector3.ZERO
+	c.walk_amount = 0.0
+	c.run_amount = 0.0
 	c.extra_pose = _pose.bind(c)
 	c.set_meta(&"seated", true)
 	var brain := c.get_node_or_null("Brain")
@@ -75,6 +78,11 @@ func _process(delta: float) -> void:
 		var c: Clown = s.clown
 		if not is_instance_valid(c) or c.dead or s.k <= 0.0:
 			continue
+		# Sitting still: the brain is off, so nothing else clears what it last
+		# set. Without this the legs kept walking under the table.
+		c.velocity = Vector3.ZERO
+		c.walk_amount = 0.0
+		c.run_amount = 0.0
 		if s.wait >= 0.0:
 			s.wait -= delta
 			if s.wait < 0.0:

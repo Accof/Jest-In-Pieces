@@ -109,6 +109,14 @@ func _run() -> void:
 	print("tables=%d seated=%d clowns=%d remaining=%d" % [tables.size(), seated, game.clowns.size(), game.remaining])
 	if not tables.is_empty():
 		var t: MessTable = tables[0]
+		# seated legs must hold still: sample the knee over a second
+		var sat: Clown = t._seats[0].clown
+		var sk := sat.skeleton
+		var knees: Array[float] = []
+		for f in 6:
+			await _frames(10)
+			knees.append(sk.get_bone_pose_rotation(sk.find_bone("LeftLowerLeg")).get_euler().x)
+		print("seated knee over 1s: min %.3f max %.3f rad (should not move); walk_amount=%.2f" % [knees.min(), knees.max(), sat.walk_amount])
 		var victim: Clown = t._seats[0].clown
 		var other: Clown = t._seats[1].clown
 		var tp := t.global_position
