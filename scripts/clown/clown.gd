@@ -794,6 +794,7 @@ func _flinch_from(world_pos: Vector3, dir: Vector3, damage: float) -> void:
 
 
 func _process(delta: float) -> void:
+	_shot_t += delta
 	if dead or crawling:
 		set_process(false)
 		return
@@ -824,6 +825,8 @@ func _process(delta: float) -> void:
 		back = -1.0 if f < -0.25 else 1.0
 		# slower walking takes shorter steps rather than slower ones
 		var stride_len := lerpf(lerpf(0.85, 1.3, clampf(speed / 1.5, 0.0, 1.0)), 1.9, run_amount) * (0.55 if broken_leg != "" else 1.0)
+		if back < 0.0 and spec.get("soldier", false):
+			stride_len *= 0.6               # stepping back: short, careful steps
 		walk_phase += speed * delta * TAU / stride_len * back
 	elif walk_amount > 0.01 and drive_phase:
 		walk_phase += delta * 4.0            # marking time
@@ -842,12 +845,12 @@ func _process(delta: float) -> void:
 		var stride := (stride_override if stride_override > 0.0 else lerpf(27.0, 44.0 if has_rifle else 50.0, run_amount)) * clampf(fwd_amt + 0.3, 0.0, 1.0)
 		var knee := lerpf(62.0, 75.0 if has_rifle else 90.0, run_amount)
 		var arm := lerpf(22.0, 48.0, run_amount)
-		_turn("Spine", Vector3.RIGHT, deg_to_rad(lerpf(4.0, 9.0 if has_rifle else 20.0, run_amount)) * gait * fwd_amt * back)
+		_turn("Spine", Vector3.RIGHT, deg_to_rad(lerpf(4.0, 9.0 if has_rifle else 20.0, run_amount)) * gait * fwd_amt * (back if back > 0.0 else 0.25))
 		_turn("Spine", Vector3.BACK, deg_to_rad(3.0) * sw * gait)
 		_turn("Spine", Vector3.UP, deg_to_rad(5.0) * sw * gait * fwd_amt)        # hips and shoulders counter-turn
 		var legs := {"Left": 1.0, "Right": -1.0}
 		if spec.get("soldier", false):
-			_soldier_legs(gait, fwd_amt, side_amt)
+			_soldier_legs(gait, fwd_amt, side_amt, back)
 			legs = {}
 		for side: String in legs:
 			var s: float = legs[side]
@@ -949,10 +952,15 @@ static func _gait_curve(keys: Array, c: float) -> float:
 
 ## A soldier's legs through the stride (walk blending into run). The left
 ## foot strikes when the left arm is back, as in any walk.
-func _soldier_legs(gait: float, fwd_amt: float, side_amt: float) -> void:
+func _soldier_legs(gait: float, fwd_amt: float, side_amt: float, back := 1.0) -> void:
 	var sw := sin(walk_phase)
 	var r := run_amount
 	var reach := clampf(fwd_amt + 0.3, 0.0, 1.0)
+	# Stepping backwards (the cycle runs in reverse): a shorter reach behind,
+	# the foot picked up with the knee and put down toe first, never a run.
+	if back < 0.0:
+		reach *= 0.6
+		r = 0.0
 	for side: String in ["Left", "Right"]:
 		var c := (walk_phase - PI * 1.5) / TAU + (0.0 if side == "Left" else 0.5)
 		var limp := side == broken_leg
@@ -1144,6 +1152,14 @@ func _hold_rifle() -> void:
 	var sk := skeleton
 	var to_skel := (sk.global_transform).affine_inverse()
 	var a := aim_amount
+	var kick := _recoil()
+	var cyc := bolt_phase()
+	# off the sights while it works the bolt: rifle down a little, head up
+	var low := smoothstep(0.0, 0.14, cyc) * (1.0 - smoothstep(0.84, 1.0, cyc)) if cyc >= 0.0 else 0.0
+	# the shot slams back into the shoulder: chest and head knocked back
+	_turn("Chest", Vector3.RIGHT, deg_to_rad(-7.0) * kick * a)
+	_turn("Spine", Vector3.RIGHT, deg_to_rad(-3.0) * kick * a)
+	_turn("Neck", Vector3.RIGHT, deg_to_rad(-9.0) * kick * a - deg_to_rad(9.0) * low * a)
 	# head down onto the stock when aiming
 	_turn("Neck", Vector3.RIGHT, deg_to_rad(14.0) * a)
 	_turn("Neck", Vector3.FORWARD, deg_to_rad(-9.0) * a)
@@ -1167,6 +1183,12 @@ func _hold_rifle() -> void:
 	var carry_at := hips + Vector3(-0.12 + 0.015 * sw, 0.32 + 0.05 * run_amount, 0.02)
 	var carry_xf := Transform3D(_basis_along(carry_dir), carry_at)
 	var xf := carry_xf.interpolate_with(aim_xf, a * a * (3.0 - 2.0 * a))
+	# recoil: driven back into the shoulder, muzzle flipping up, pivoting at the butt
+	if kick > 0.001:
+		xf = Transform3D(xf.basis * Basis(Vector3.RIGHT, deg_to_rad(-11.0) * kick), xf.origin - xf.basis.z * 0.075 * kick + Vector3.UP * 0.01 * kick)
+	# lowered off the shoulder while working the bolt: muzzle dipped, stock off the cheek
+	if low > 0.001:
+		xf = Transform3D(xf.basis * Basis(Vector3.RIGHT, deg_to_rad(7.0) * low), xf.origin + Vector3(0, -0.045, 0.02) * low * a)
 	# a bayonet thrust when it attacks: level, driven forward from the hip
 	if attack_amount > 0.01:
 		var lunge := Transform3D(_basis_along(Vector3(0, 0.12, 1).normalized()), hips + Vector3(-0.08, 0.34, 0.12 + 0.22 * attack_amount))
@@ -1177,6 +1199,20 @@ func _hold_rifle() -> void:
 	# enough that the elbows stay bent
 	var grip := xf * Vector3(0.0, -0.045, 0.2)
 	var fore := xf * Vector3(0.0, -0.035, lerpf(0.33, 0.4, a))
+	# the right hand leaves the wrist for the bolt: handle up, back, forward, down
+	if cyc >= 0.0 and _bolt:
+		var on_bolt := smoothstep(0.04, 0.18, cyc) * (1.0 - smoothstep(0.76, 0.9, cyc))
+		var lift := smoothstep(0.18, 0.28, cyc) - smoothstep(0.66, 0.76, cyc)
+		var pull := smoothstep(0.3, 0.44, cyc) - smoothstep(0.52, 0.64, cyc)
+		_bolt.position = Vector3(-0.035 + 0.012 * lift, 0.04 + 0.022 * lift, 0.29 - 0.085 * pull)
+		_bolt.rotation.z = -1.1 * lift
+		grip = grip.lerp(xf * (_bolt.position + Vector3(-0.05 + 0.02 * lift, 0.01 + 0.02 * lift, 0.0)), on_bolt)
+		if pull > 0.9 and not _cased:
+			_cased = true
+			_eject_case(xf)
+		if cyc > 0.95:
+			_bolt.position = Vector3(-0.035, 0.04, 0.29)
+			_bolt.rotation.z = 0.0
 	var rs := sk.get_bone_global_pose(sk.find_bone("RightUpperArm")).origin
 	var ls := sk.get_bone_global_pose(sk.find_bone("LeftUpperArm")).origin
 	# elbows: down and a little out when carrying; when the rifle is shouldered
@@ -1325,11 +1361,130 @@ func knock_off_helmet(dir: Vector3, at: Vector3) -> void:
 
 # --- weapons ----------------------------------------------------------------------
 var has_rifle := false
+## Seconds the bolt takes to work (lower, handle up, back, forward, down, back on aim).
+@export var bolt_seconds := 1.05
+var _bolt: Node3D
+var _shot_t := 99.0               # seconds since the last shot
+var _cased := true                # this cycle's empty case already thrown out
+var _sfx: Array[AudioStreamPlayer3D] = []
+var _sfx_next := 0
 var _muzzle: Node3D
 var _rifle: Node3D
 var _rifle_attach: BoneAttachment3D
 var _rifle_aimed := Transform3D()
 var _rifle_carried := Transform3D()
+
+
+## How far through working the bolt it is (0..1), or -1 when it is not.
+func bolt_phase() -> float:
+	if not has_rifle or _rifle == null:
+		return -1.0
+	var u := (_shot_t - 0.3) / bolt_seconds
+	return u if u >= 0.0 and u <= 1.0 else -1.0
+
+
+## True from the shot until the next round is chambered and it is back on aim.
+func cycling() -> bool:
+	return has_rifle and _shot_t < 0.3 + bolt_seconds
+
+
+## The recoil's kick (0..1): instant, then easing back over a quarter second.
+func _recoil() -> float:
+	var t := _shot_t
+	if t > 0.6:
+		return 0.0
+	if t < 0.02:
+		return t / 0.02
+	return exp(-(t - 0.02) * 11.0) * (1.0 + 0.15 * sin((t - 0.02) * 30.0))
+
+
+## Bang: the kick, a muzzle flash you can see, a puff of smoke, the report;
+## then (on its own) the bolt is worked to chamber the next round.
+func fired() -> void:
+	_shot_t = 0.0
+	_cased = false
+	var at := muzzle_position()
+	var dir := global_basis.z
+	if _muzzle and is_instance_valid(_muzzle):
+		dir = _muzzle.global_basis.z
+	MuzzleFlash.burst(get_parent(), at, dir, 1.0 if has_rifle else 0.6)
+	play_sfx("shot_%d" % (randi() % 3), at, 6.0 if has_rifle else 0.0, 1.0 if has_rifle else 1.5)
+	if has_rifle:
+		get_tree().create_timer(0.3 + bolt_seconds * 0.2).timeout.connect(func() -> void:
+			if is_instance_valid(self) and not dead:
+				play_sfx("bolt_open", muzzle_position(), -4.0))
+		get_tree().create_timer(0.3 + bolt_seconds * 0.5).timeout.connect(func() -> void:
+			if is_instance_valid(self) and not dead:
+				play_sfx("bolt_close", muzzle_position(), -4.0))
+
+
+## The spent case, spat out of the breech to the right.
+func _eject_case(xf: Transform3D) -> void:
+	var at := skeleton.global_transform * (xf * Vector3(0.0, 0.05, 0.27))
+	var right := -(skeleton.global_basis * xf.basis.x).normalized()
+	var body_ := RigidBody3D.new()
+	body_.collision_layer = 1 << 3
+	body_.collision_mask = 1
+	body_.mass = 0.012
+	var cs := CollisionShape3D.new()
+	var cap := CylinderShape3D.new()
+	cap.radius = 0.006
+	cap.height = 0.055
+	cs.shape = cap
+	body_.add_child(cs)
+	var mi := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.005
+	cm.bottom_radius = 0.0065
+	cm.height = 0.055
+	var brass := StandardMaterial3D.new()
+	brass.albedo_color = Color(0.72, 0.52, 0.2)
+	brass.metallic = 0.9
+	brass.roughness = 0.3
+	cm.material = brass
+	mi.mesh = cm
+	mi.layers = 2
+	body_.add_child(mi)
+	get_parent().add_child(body_)
+	body_.global_position = at
+	body_.linear_velocity = right * randf_range(1.6, 2.4) + Vector3.UP * randf_range(1.2, 2.0) + velocity
+	body_.angular_velocity = Vector3(randf_range(-20, 20), randf_range(-20, 20), randf_range(-20, 20))
+	get_tree().create_timer(0.45).timeout.connect(func() -> void:
+		if is_instance_valid(body_):
+			play_sfx("casing_%d" % (randi() % 2), body_.global_position, -10.0))
+	get_tree().create_timer(5.0).timeout.connect(func() -> void:
+		if is_instance_valid(body_):
+			body_.freeze = true)
+
+
+## A sound from the rifle (art/witzsoldat/sfx).
+func play_sfx(sound: String, at: Vector3, db := 0.0, pitch := 1.0) -> void:
+	if not is_inside_tree():
+		return
+	if _sfx.is_empty():
+		for i in 3:
+			var p := AudioStreamPlayer3D.new()
+			p.unit_size = 6.0
+			p.max_distance = 60.0
+			add_child(p)
+			_sfx.append(p)
+	var stream: AudioStream = _sfx_cache.get(sound)
+	if stream == null:
+		var path := "res://art/witzsoldat/sfx/%s.wav" % sound
+		if not ResourceLoader.exists(path):
+			return
+		stream = load(path)
+		_sfx_cache[sound] = stream
+	var pl := _sfx[_sfx_next]
+	_sfx_next = (_sfx_next + 1) % _sfx.size()
+	pl.stream = stream
+	pl.global_position = at
+	pl.volume_db = db
+	pl.pitch_scale = pitch * randf_range(0.95, 1.05)
+	pl.play()
+
+
+static var _sfx_cache := {}
 
 
 ## Put a bolt-action rifle on him: carried across the chest, shouldered to aim.
@@ -1354,6 +1509,16 @@ func give_rifle() -> void:
 	_rifle_part(_rifle, Vector3(0.022, 0.022, 0.48), Vector3(0, 0.025, 0.86), steel)     # barrel
 	_rifle_part(_rifle, Vector3(0.03, 0.035, 0.16), Vector3(0, 0.035, 0.33), steel)      # receiver
 	_rifle_part(_rifle, Vector3(0.06, 0.012, 0.012), Vector3(-0.035, 0.04, 0.29), steel) # bolt handle
+	_bolt = _rifle.get_child(_rifle.get_child_count() - 1)
+	var knob := MeshInstance3D.new()                                                      # the bolt's ball knob
+	var sm := SphereMesh.new()
+	sm.radius = 0.011
+	sm.height = 0.022
+	sm.material = steel
+	knob.mesh = sm
+	knob.position = Vector3(-0.03, 0, 0)
+	knob.layers = 2
+	_bolt.add_child(knob)
 	_muzzle = Node3D.new()
 	_muzzle.position = Vector3(0, 0.025, 1.1)
 	_rifle.add_child(_muzzle)

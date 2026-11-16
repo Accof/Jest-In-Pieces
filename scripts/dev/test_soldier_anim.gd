@@ -133,6 +133,34 @@ func _run() -> void:
 	cam.global_position = s.global_position + Vector3(0, 0.3, 1.6)
 	cam.look_at(s.global_position + Vector3.UP * 0.25)
 	await _shot("feet_stand")
+	# 3a. firing: the shot (kick, flash), then the bolt worked, from the side
+	cam.global_position = s.global_position + Vector3(-2.2, 1.45, 1.2)
+	cam.look_at(s.global_position + Vector3(0, 1.3, 0.4))
+	s.fired()
+	var fire_times := [0.0, 0.03, 0.08, 0.2, 0.45, 0.6, 0.75, 0.85, 1.0, 1.25, 1.45]
+	var waited := 0.0
+	for i in fire_times.size():
+		var dt: float = fire_times[i] - waited
+		await _frames(int(round(dt * 60.0)))
+		waited = fire_times[i]
+		await _shot("fire_%02d" % i)
+	print("bolt cycle over at %.2fs, cycling now %s" % [0.3 + s.bolt_seconds, s.cycling()])
+	# 3c. stepping back with the rifle lowered, from the side
+	s.aim_amount = 0.25
+	s.rotation.y = -PI * 0.5                  # facing -x, backing toward +x
+	vel = Vector3(0.95, 0, 0)
+	s.walk_amount = 0.7
+	moving = true
+	await _frames(30)
+	for i in 6:
+		cam.global_position = s.global_position + Vector3(0, 1.0, 4.0)
+		cam.look_at(s.global_position + Vector3.UP * 0.9)
+		await _shot("back_%d" % i)
+		print("back %d: %s" % [i, _angles(s)])
+		await _frames(7)
+	moving = false
+	s.velocity = Vector3.ZERO
+	s.walk_amount = 0.0
 	s.queue_free()
 	# 3b. the club carrier: walking, then swinging
 	var cl := Clown.new()

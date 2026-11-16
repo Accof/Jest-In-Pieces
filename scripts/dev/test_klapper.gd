@@ -330,6 +330,9 @@ func _deaths() -> void:
 		var stood_until := -1.0
 		var neck_spin := 0.0
 		var last_neck := Basis()
+		var upright_until := 0.0
+		var head_swing := 0.0
+		var last_head := Vector3.ZERO
 		while t < 7.0:
 			await get_tree().physics_frame
 			var dt := get_physics_process_delta_time()
@@ -341,21 +344,35 @@ func _deaths() -> void:
 				var nb := k.skeleton.get_bone_global_pose(k.skeleton.find_bone("Neck")).basis
 				neck_spin += (last_neck.inverse() * nb).get_rotation_quaternion().get_angle()
 				last_neck = nb
+			if k.ragdoll.active:
+				var rh: PhysicalBone3D = k.ragdoll.bones[&"Hips"]
+				var rc: PhysicalBone3D = k.ragdoll.bones[&"Chest"]
+				if rh.global_position.y > 0.3 and rc.global_position.y > 0.45:
+					upright_until = t
+				var rn: PhysicalBone3D = k.ragdoll.bones[&"Neck"]
+				var rel := rc.global_transform.affine_inverse() * rn.global_position
+				if last_head != Vector3.ZERO and t < stood_until + 0.8:
+					head_swing += rel.distance_to(last_head)
+				last_head = rel
 			if render and frame % 8 == 0 and frame < 8 * 18:
 				cam.look_at(k.ragdoll.bones[&"Chest"].global_position if k.ragdoll.active else k.global_position + Vector3.UP * 0.9)
 				await _shot("death_%s_%02d" % [kind, frame / 8])
 			frame += 1
 		var cb: PhysicalBone3D = k.ragdoll.bones[&"Chest"]
 		var facing_up: float = cb.global_basis.z.y
+		print("      kneeling/upright until %.2fs, head swung %.2fm about the chest in the first 0.8s of ragdoll, head bounce %s" % [upright_until, head_swing, k._head_bounced])
 		print("      scripted part %.2fs, hips down to %.2fm, neck turned %.0f deg in all, then on the floor facing %s (%.2f), chest at %.2fm" % [stood_until, hips_low, rad_to_deg(neck_spin), "up" if facing_up > 0 else "down", facing_up, cb.global_position.y])
 		match kind:
 			"head":
 				_check(stood_until >= 0.95 and stood_until <= 2.2, "head: stays on its feet 1-2s (%.2f)" % stood_until)
 				_check(hips_low > 0.8, "head: stays standing while it shorts out")
 				_check(facing_up > 0.4, "head: ends on its back")
+				_check(k._head_bounced, "head: the head bounces off the floor")
 			"torso":
 				_check(hips_low < 0.6, "torso: drops onto its knees (hips at %.2fm)" % hips_low)
-				_check(stood_until > 1.2, "torso: kneels a moment first (%.2fs)" % stood_until)
+				_check(stood_until > 0.75, "torso: lands on its knees before the ragdoll takes it (%.2fs)" % stood_until)
+				_check(upright_until > stood_until + 0.25, "torso: kneels on, slack, under the ragdoll before going over (%.2fs)" % upright_until)
+				_check(head_swing > 0.05, "torso: the slack head swings (%.2fm)" % head_swing)
 				_check(facing_up < -0.4, "torso: ends face down")
 			"malfunction":
 				_check(neck_spin > TAU * 0.9, "malfunction: the head spins right round (%.0f deg)" % rad_to_deg(neck_spin))

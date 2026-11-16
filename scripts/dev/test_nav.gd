@@ -65,6 +65,16 @@ func _run() -> void:
 					continue
 				totals.frames += 1
 				var pos := c.global_position
+				# a soldier going backwards faster than a careful step
+				if c.body == "witzsoldat":
+					totals.soldier_frames = totals.get("soldier_frames", 0) + 1
+					var fv := Vector3(c.velocity.x, 0, c.velocity.z)
+					if fv.length() > 1.1 and fv.normalized().dot(c.global_basis.z.normalized()) < -0.3:
+						totals.backwards_fast = totals.get("backwards_fast", 0) + 1
+						var bb: ClownBrain = c.get_node_or_null("Brain")
+						if bb:
+							var why := "cover%d back%s aim%.1f run%.1f stag%s" % [bb._cover_state, bb.backing, c.aim_amount, c.run_amount, c.stagger_time > 0.0]
+							totals[why] = totals.get(why, 0) + 1
 				# standing inside another living clown
 				for o: Clown in game.clowns:
 					if o != c and is_instance_valid(o) and not o.dead and not o.downed and not o.crawling and absf(o.global_position.y - pos.y) < 1.0:
@@ -109,12 +119,18 @@ func _run() -> void:
 				else:
 					prev = [pos, 0.0]
 				still[key] = prev
+	print("SOLDIERS: %d frames, %d moving backwards faster than a step" % [totals.get("soldier_frames", 0), totals.get("backwards_fast", 0)])
 	print("TOTAL living-clown frames %d: in a wall %d, overlapping geometry %d, sunk below floor %d, in a stair pocket %d, stuck >3s %d, inside another clown %d" % [totals.frames, totals.in_wall, totals.overlap, totals.sunk, totals.pocket, totals.stuck, totals.merged])
 	var extra := {}
 	for key: String in totals:
 		if "+" in key or key.begins_with("stuck_"):
 			extra[key] = totals[key]
 	print("   by kind: ", extra)
+	var why := {}
+	for key: String in totals:
+		if key.begins_with("cover"):
+			why[key] = totals[key]
+	print("   backwards soldiers: ", why)
 	get_tree().quit()
 
 

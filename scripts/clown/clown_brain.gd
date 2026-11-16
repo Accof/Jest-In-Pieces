@@ -90,6 +90,8 @@ var _cover_state := 0              # 0 none, 1 going to cover, 2 hiding, 3 peeki
 var _cover_t := 0.0
 var _cover_cooldown := 0.0
 var _hide_for := 2.0
+var _backoff := -2.0              # > 0 while stepping back from a player too close; < 0 resting from it
+var backing := false              # test hook: stepping back this frame
 
 
 func _ready() -> void:
@@ -178,6 +180,11 @@ func _idle(delta: float) -> void:
 		return
 	var aim := _through_opening(_wander_to)
 	var vel := Vector3(aim.x - clown.global_position.x, 0, aim.z - clown.global_position.z).normalized() * move_speed * 0.38
+	if clown.spec.get("soldier", false):
+		# turn to face the way before strolling off that way
+		var facing := Vector3(clown.global_basis.z.x, 0, clown.global_basis.z.z).normalized()
+		vel *= lerpf(0.1, 1.0, smoothstep(0.0, 0.8, facing.dot(vel.normalized())))
+		_face(vel, delta, 4.0)
 	_step(vel, delta)
 	# Pressing on something it cannot get round: stop there and think again,
 	# rather than walking into it for ever.
@@ -281,12 +288,28 @@ func _physics_process(delta: float) -> void:
 	if clown.has_gun and dist < gun_range and dist > melee_range and seen:
 		_face(flat, delta, 7.0)
 		clown.aim_point = player.global_position + Vector3.UP * 1.3
-		clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 4.0)
-		if _aim_t < 0.0 and _cooldown <= 0.0:
+		# Too close for a rifle. Get out: run for cover if there is some, or
+		# lower the rifle and step back a few paces, then turn and shoot again.
+		var close := dist < keep_distance * 0.6
+		_backoff -= delta
+		if close and _backoff < -1.2 and _cooldown <= 0.0 and not clown.cycling():
+			if use_cover and _cover_cooldown <= 0.0 and dist > 3.0 and randf() < 0.6:
+				_find_cover()
+				if _cover_state == 1:
+					_aim_t = -1.0
+					return
+			_backoff = randf_range(1.0, 1.8)
+		backing = _backoff > 0.0 and close
+		if backing:
+			_aim_t = -1.0
+			clown.aim_amount = move_toward(clown.aim_amount, 0.25, delta * 3.0)    # rifle down to low ready
+		else:
+			clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 4.0)
+		if not backing and _aim_t < 0.0 and _cooldown <= 0.0 and not clown.cycling():
 			_aim_t = 0.0
 		if _aim_t >= 0.0:
 			_aim_t += delta
-			if _aim_t > aim_time:
+			if _aim_t > aim_time and clown.aim_amount > 0.9:
 				_fire(dist)
 				_aim_t = -1.0
 				_cooldown = randf_range(shot_gap.x, shot_gap.y)
@@ -300,14 +323,18 @@ func _physics_process(delta: float) -> void:
 		var toward := flat.normalized()
 		var side := Vector3(toward.z, 0, -toward.x) * _strafe_dir
 		var want := side
-		if dist < keep_distance * 0.6:
-			want = (side * 0.6 - toward).normalized()          # too close: give ground
+		if backing:
+			want = (side * 0.3 - toward).normalized()          # careful steps straight back
+		elif close:
+			want = side * 0.6                                   # holding ground to shoot
 		elif dist > keep_distance * 1.6:
 			want = (side * 0.5 + toward).normalized()          # too far: close up
 		if want.length() > 0.05 and not _free(want):
 			_strafe_dir = -_strafe_dir                          # wall or ledge: go the other way
 			want = Vector3.ZERO
-		var gvel := want * move_speed * 0.42
+			if backing:
+				_backoff = 0.0                                  # backed into a wall: stand and fight
+		var gvel := want * move_speed * (0.27 if backing else 0.42)
 		_strafe_vel = _strafe_vel.move_toward(gvel, delta * 2.5)
 		gvel = _strafe_vel
 		_step(gvel, delta)
@@ -315,6 +342,7 @@ func _physics_process(delta: float) -> void:
 		clown.walk_amount = move_toward(clown.walk_amount, clampf(gvel.length() / move_speed, 0.0, 1.0), delta * 5.0)
 		return
 	_aim_t = -1.0
+	backing = false
 	clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 4.0)
 
 	# Hunt. Head straight for the player when in the same or an open neighbouring
@@ -361,6 +389,11 @@ func _physics_process(delta: float) -> void:
 	# The last couple of metres are a lunge.
 	if can_run and not clown.has_gun and seen and dist < 2.8 and _cooldown <= 0.0:
 		speed = run_speed * 1.25
+	# Nobody runs backwards: when the way on swings round behind it, it turns
+	# first and puts on speed as it comes round.
+	if clown.spec.get("soldier", false) and move.length() > 0.05:
+		var facing := Vector3(clown.global_basis.z.x, 0, clown.global_basis.z.z).normalized()
+		speed *= lerpf(0.2, 1.0, smoothstep(-0.3, 0.6, facing.dot(move.normalized())))
 	var vel := move.limit_length(1.0) * speed
 	_step(vel, delta)
 	_face(vel, delta, 8.0)
@@ -390,7 +423,7 @@ func _cover_fight(delta: float, dist: float, seen: bool, flat: Vector3) -> bool:
 		2:   # crouched behind it, working the bolt
 			_settle(delta)
 			_face(flat, delta, 4.0)
-			if _cover_t > _hide_for and _cooldown <= 0.0:
+			if _cover_t > _hide_for and _cooldown <= 0.0 and not clown.cycling():
 				_cover_state = 3
 				_cover_t = 0.0
 			return true
@@ -411,7 +444,7 @@ func _cover_fight(delta: float, dist: float, seen: bool, flat: Vector3) -> bool:
 			if _aim_t < 0.0:
 				_aim_t = 0.0
 			_aim_t += delta
-			if _aim_t > aim_time * 0.85:
+			if _aim_t > aim_time * 0.85 and clown.aim_amount > 0.9 and not clown.cycling():
 				_fire(dist)
 				_aim_t = -1.0
 				_cooldown = randf_range(shot_gap.x, shot_gap.y)
@@ -489,10 +522,24 @@ func _go_to(to: Vector3, delta: float, speed: float) -> bool:
 			target = p[0] if not p.is_empty() else to
 	target = _through_opening(target)
 	var move := Vector3(target.x - clown.global_position.x, 0, target.z - clown.global_position.z)
-	var vel := move.normalized() * minf(speed, move.length() / maxf(delta, 0.001))
+	var dir := move.normalized()
+	var facing := Vector3(clown.global_basis.z.x, 0, clown.global_basis.z.z).normalized()
+	var face_player := _cover_state == 3 or (_cover_state == 1 and flat.length() < 1.6 and player != null)
+	if face_player:
+		# ducking back the step or two into cover: eyes on the player, rifle
+		# coming down, stepping back and sideways at a walk
+		speed = minf(speed, move_speed * (0.26 if facing.dot(dir) < -0.3 else 0.5))
+		var pf := player.global_position - clown.global_position
+		if _cover_state == 1:
+			_face(Vector3(pf.x, 0, pf.z), delta, 6.0)
+	else:
+		# a soldier does not run backwards: turn toward where it is going
+		# first, and only put on speed once it is facing that way
+		_face(dir, delta, 10.0)
+		var lined := smoothstep(0.2, 0.85, facing.dot(dir))
+		speed = lerpf(move_speed * 0.15, speed, lined)
+	var vel := dir * minf(speed, move.length() / maxf(delta, 0.001))
 	_step(vel, delta)
-	if _cover_state != 3:
-		_face(vel, delta, 8.0)
 	clown.run_amount = move_toward(clown.run_amount, 1.0 if speed > move_speed * 1.2 else 0.0, delta * 4.0)
 	clown.walk_amount = move_toward(clown.walk_amount, clampf(vel.length() / move_speed, 0.0, 1.0), delta * 5.0)
 	return false
@@ -652,6 +699,7 @@ func _fire(dist: float) -> void:
 	if debug_cover:
 		print("fire at %.1fm" % dist)
 	var from := clown.muzzle_position()
+	clown.fired()
 	var aim_at := player.global_position + Vector3.UP * 1.25
 	# Further away, or a player on the move, is harder to hit.
 	var chance := clampf(accuracy.x - dist * accuracy.y, accuracy.z, accuracy.x)
@@ -677,15 +725,8 @@ func _tracer(from: Vector3, to: Vector3) -> void:
 	mi.mesh = im
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	clown.get_parent().add_child(mi)
-	var flash := OmniLight3D.new()
-	flash.light_color = Color(1.0, 0.8, 0.5)
-	flash.light_energy = 3.0
-	flash.omni_range = 4.0
-	clown.get_parent().add_child(flash)
-	flash.global_position = from
 	var t := get_tree().create_timer(0.06)
 	t.timeout.connect(mi.queue_free)
-	t.timeout.connect(flash.queue_free)
 
 
 const BODY_RADIUS := 0.28
