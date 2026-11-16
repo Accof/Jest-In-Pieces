@@ -71,6 +71,9 @@ var _offer: Array = []
 var _slow_until := 0
 ## The final-kill camera, and whether this floor has had its final kill shown.
 var kill_cam: KillCam
+## The final-kill fanfare shown over the end of the killcam.
+var brutality: BrutalityReport
+var last_report := {}
 var _floor_finale := false
 var events: EventManager
 var _event_upgrade := false
@@ -139,6 +142,13 @@ func _make_player() -> void:
 		kill_cam = KillCam.new()
 		kill_cam.name = "KillCam"
 		add_child(kill_cam)
+		brutality = BrutalityReport.new()
+		brutality.name = "Brutality"
+		add_child(brutality)
+		kill_cam.focus_started.connect(_on_finale_focus)
+		kill_cam.finished.connect(func() -> void:
+			if kill_cam.aborted != "" and brutality:
+				brutality.clear())
 	kill_cam.stop("new player")
 	kill_cam.player = player
 	kill_cam.hide_nodes = [_hud, _health_bar, _banner]
@@ -337,6 +347,19 @@ func _clear_floor() -> void:
 	clowns.clear()
 	base = null
 	Blood.clear()
+
+
+## The killcam has come back to full speed on the last body: the coroner's
+## report, its brutality score and the tickets it is worth, with fanfare.
+func _on_finale_focus(c: Clown) -> void:
+	if c == null or not is_instance_valid(c):
+		return
+	last_report = Injuries.assess(c)
+	kill_cam.hold(brutality.show_report(last_report))
+	run_tickets += int(last_report.tickets)
+	Records.add(save, "brutality_tickets", int(last_report.tickets))
+	save["best_brutality"] = maxi(int(save.get("best_brutality", 0)), int(last_report.score))
+	_refresh_hud()
 
 
 ## A joker locker shot open: a bonus, not a kill (it was long dead).

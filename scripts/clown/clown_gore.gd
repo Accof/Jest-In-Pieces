@@ -82,6 +82,16 @@ func add_wound(bone: StringName, world_pos: Vector3, damage: float) -> void:
 	set_process(true)
 
 
+## Where a point on the posed body sits on the un-posed body (rest space).
+func rest_point(bone: StringName, world_pos: Vector3) -> Vector3:
+	var skel := clown.skeleton
+	var idx := skel.find_bone(bone)
+	if idx < 0:
+		return Vector3.ZERO
+	var in_skel := skel.global_transform.affine_inverse() * world_pos
+	return skel.get_bone_global_rest(idx) * (clown.ragdoll.bone_pose(idx).affine_inverse() * in_skel)
+
+
 func _add_wound_entry(bone: StringName, world_pos: Vector3, radius: float, depth: float, hole: float) -> void:
 	var skel := clown.skeleton
 	var idx := skel.find_bone(bone)

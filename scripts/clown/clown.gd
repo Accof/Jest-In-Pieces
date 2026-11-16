@@ -78,6 +78,8 @@ const ZONE_DAMAGE := {
 var health := 0.0
 var dead := false
 var last_hit_zone := &""         # where the killing shot landed
+var hit_log: Array = []            # every hit taken: bone, zone, rest-space point, damage, weapon (injury report)
+var blasts: Array[float] = []      # strength (0..1) of every explosion it was caught in
 var fatal_pos := Vector3.ZERO      # where it landed (world), and which way it was going
 var fatal_dir := Vector3.ZERO
 ## How it died, for the lifetime stats: weapon name, zone, and flags
@@ -147,6 +149,11 @@ func hit(info: Dictionary) -> void:
 	var amount := clampf(raw / 35.0, 0.3, 1.6) * float(info.get("blood", 1.0))
 	var break_leg := false
 
+	# every hit, where it landed on the body, for the injury report
+	if hit_log.size() < 80:
+		hit_log.append({bone = bone, zone = zone, rest = gore.rest_point(bone, info.position), raw = raw,
+			weapon = info.get("weapon", ""), stake = info.get("stake", false), heavy = info.get("heavy", false),
+			pellet = info.get("can_dismember", false), after = dead})
 	# A headshot may knock the helmet clean off; it still goes through.
 	if zone == &"Neck" and has_helmet and randf() < helmet_pop_chance:
 		knock_off_helmet(dir, info.position)
@@ -578,6 +585,7 @@ func caught_in_blast(center: Vector3, radius: float) -> void:
 		s *= 0.35                       # round a corner or behind a crate
 	if s < 0.04:
 		return
+	blasts.append(s)
 	var away := to / maxf(d, 0.01)
 	var dir := (Vector3(away.x, 0, away.z).normalized() + Vector3.UP * lerpf(0.25, 0.6, s)).normalized()
 	# Close, but not right on top of it: sometimes torn in half; some of

@@ -14,6 +14,9 @@ extends Node3D
 ## puts everything back at once: time, camera, controls, sound.
 
 signal finished
+## Time has come back to full speed and it is resting on the body: the moment
+## for anything to show over it (the brutality report). Call hold() to stay.
+signal focus_started(clown: Clown)
 
 # --- settings --------------------------------------------------------------------------
 @export var enabled := true
@@ -65,6 +68,9 @@ var _look := Vector3.ZERO
 var _offset := Vector3.ZERO
 var _last_focus := Vector3.ZERO
 var _moving_until := 0.0
+var _hold_until := 0.0
+var _held := 0.0
+var _focus_sent := false
 var _dip := false              ## cut through black instead of flying (path blocked)
 var _ret_dip := false
 var _overlay: ColorRect
@@ -112,6 +118,9 @@ func play(clown: Clown) -> bool:
 	aborted = ""
 	_t = 0.0
 	_moving_until = 0.0
+	_hold_until = 0.0
+	_held = 0.0
+	_focus_sent = false
 	_returning = -1.0
 	_last_focus = _focus()
 	_prev_focus = Vector3.INF
@@ -179,7 +188,7 @@ func _process(d: float) -> void:
 		if _returning < 0.0:
 			_begin_return()           # the body is gone: just go back
 	_t += dt
-	if _t > max_seconds + return_seconds + 0.5:
+	if _t > max_seconds + _held + return_seconds + 0.5:
 		stop("too long")
 		return
 	Engine.time_scale = _time_scale(_t)
@@ -204,14 +213,25 @@ func _process(d: float) -> void:
 		# still on its feet), up to the limit
 		if _still_going():
 			_moving_until = _t
+		if not _focus_sent and _t >= impact_seconds + slow_seconds + recover_seconds:
+			_focus_sent = true
+			focus_started.emit(_target if is_instance_valid(_target) else null)
 		# a moment on it once it has come to rest (a long fall lands in shot)
-		var end := maxf(_end_focus, _moving_until + 0.7)
-		if _t >= end or _t >= max_seconds:
+		var end := maxf(maxf(_end_focus, _moving_until + 0.7), _hold_until)
+		if _t >= end or _t >= max_seconds + _held:
 			_begin_return()
 		else:
 			_frame(focus, dt)
 	if _returning >= 0.0:
 		_return(dt)
+
+
+## Stay on the body `seconds` longer from now (beyond max_seconds if need be).
+func hold(seconds: float) -> void:
+	if not active:
+		return
+	_hold_until = maxf(_hold_until, _t + seconds)
+	_held = maxf(_held, _hold_until - max_seconds)
 
 
 ## Game speed over the sequence: eased down at the impact, held, eased back.

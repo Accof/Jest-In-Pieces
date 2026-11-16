@@ -12,6 +12,11 @@ extends Node3D
 ##   klapper   a Klappersoldat as the last: it waits for it to fall
 ##   fall      a clown killed at the edge of a high platform: it follows the fall
 ##   event     an event room cleared: the last kill there starts it too
+##   injuries  the coroner's report: rounds placed on the eye, jaw, heart, a
+##             lung, the guts, the hip; a close explosion; a Klappersoldat's
+##             engineer's wording
+##   report    a floor finale with the brutality report: shown over the
+##             killcam, which waits for it; tickets paid; all put back
 ## Add "render" (with a window) for /tmp/kc_<section>_*.png frames.
 
 var render := false
@@ -44,7 +49,7 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var secs := ["floor", "variety", "double", "interrupt", "klapper", "fall", "event"]
+	var secs := ["injuries", "report", "floor", "variety", "double", "interrupt", "klapper", "fall", "event"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -172,7 +177,7 @@ func _floor() -> void:
 	print("      speed over time: %s" % [w.steps])
 	_check(w.min_ts <= 0.26 and w.min_ts >= 0.24, "slows to 25%% (%.2f)" % w.min_ts)
 	_check(w.max_jump < 0.12, "and smoothly (no jumps over 0.12 a frame: %.3f)" % w.max_jump)
-	_check(w.real > 3.0 and w.real < 5.6, "lasts about 3-4 s of real time (%.2f)" % w.real)
+	_check(w.real > 3.0 and w.real < 14.0, "lasts the 3-4 s of the shot plus the brutality report (%.2f s real)" % w.real)
 	_check(w.inside == 0, "the camera never sits inside the level")
 	_check(w.hidden <= w.frames * 0.15, "the body stays in view (hidden %d of %d frames)" % [w.hidden, w.frames])
 	_check(not kc.active and Engine.time_scale == 1.0, "over, at full speed")
@@ -298,7 +303,7 @@ func _klapper() -> void:
 	var w := await _watch("klapper")
 	print("      %.2f s real, ragdoll by the end %s" % [w.real, k.ragdoll.active if is_instance_valid(k) else "?"])
 	_check(is_instance_valid(k) and k.ragdoll.active, "it stayed until the Klappersoldat went over")
-	_check(w.real <= kc.max_seconds + kc.return_seconds + 0.2, "and no longer than the limit (%.2f s)" % w.real)
+	_check(w.real <= kc.max_seconds + kc._held + kc.return_seconds + 0.2, "and no longer than the limit plus the report (%.2f s)" % w.real)
 
 
 func _fall() -> void:
@@ -396,3 +401,127 @@ func _event() -> void:
 	_check(not kc.active and Engine.time_scale == 1.0, "event room: over and back")
 	room.queue_free()
 	await _frames(2)
+
+
+# --- the injury report --------------------------------------------------------------------
+## A world point on a standing body from a point on its rest pose.
+func _at_rest(c: Clown, bone: StringName, rest: Vector3) -> Vector3:
+	var sk := c.skeleton
+	var i := sk.find_bone(bone)
+	return sk.global_transform * (c.ragdoll.bone_pose(i) * (sk.get_bone_global_rest(i).affine_inverse() * rest))
+
+
+func _shoot_at(c: Clown, bone: StringName, rest: Vector3, dmg: float) -> void:
+	var pb: PhysicalBone3D = c.ragdoll.bones[bone]
+	var at := _at_rest(c, bone, rest)
+	c.hit({collider = pb, position = at, direction = (c.global_basis * Vector3.BACK * -1.0).normalized(), damage = dmg, impulse = 8.0, shot_id = randi()})
+
+
+func _report_text(r: Dictionary) -> String:
+	var out: Array[String] = []
+	for l: Dictionary in r.lines:
+		out.append("%s (+%d)" % [l.text, l.points])
+	return ", ".join(out)
+
+
+func _injuries() -> void:
+	print("-- injuries")
+	if game:
+		game.queue_free()
+		game = null
+		await _frames(2)
+	var room := Node3D.new()
+	add_child(room)
+	var cases := [
+		["eye", &"Neck", Vector3(0.043, 1.725, 0.11), 40.0, ["Through the left eye", "Brain destroyed"]],
+		["jaw", &"Neck", Vector3(0.0, 1.62, 0.09), 40.0, ["Jaw shot away"]],
+		["heart", &"Chest", Vector3(0.05, 1.3, 0.13), 60.0, ["Shot through the heart"]],
+		["lung", &"Chest", Vector3(-0.11, 1.3, 0.13), 60.0, ["Right lung punctured"]],
+		["guts", &"Spine", Vector3(0.0, 1.1, 0.13), 60.0, ["Gut-shot"]],
+		["liver", &"Spine", Vector3(-0.09, 1.1, 0.12), 60.0, ["Liver ruptured"]],
+	]
+	for cs: Array in cases:
+		var c := Clown.new()
+		room.add_child(c)
+		c.max_health = 50.0
+		c.health = 50.0
+		await _frames(3)
+		_shoot_at(c, cs[1], cs[2], cs[3])
+		await _frames(2)
+		var r := Injuries.assess(c)
+		var txt := _report_text(r)
+		var ok := true
+		for want: String in cs[4]:
+			ok = ok and txt.contains(want)
+		_check(ok, "%s: %s  [score %d, %s, %d tickets]" % [cs[0], txt, r.score, r.rank, r.tickets])
+		c.queue_free()
+		await _frames(1)
+	# an explosion close by
+	var b := Clown.new()
+	room.add_child(b)
+	await _frames(3)
+	b.caught_in_blast(b.global_position + Vector3(0, 1.0, 1.0), 6.0)
+	await _frames(3)
+	var rb := Injuries.assess(b)
+	var tb := _report_text(rb)
+	_check(tb.contains("Caught in an explosion") and (tb.contains("Ribs") or tb.contains("Ribcage")), "explosion: %s  [score %d, %s]" % [tb, rb.score, rb.rank])
+	b.queue_free()
+	# the Klappersoldat's wording
+	var k := Klappersoldat.new()
+	room.add_child(k)
+	await _frames(3)
+	k.health = 10.0
+	var e: Vector3 = k.spec.eyes[0]
+	_shoot_at(k, &"Neck", e + Vector3(0, 0, 0.01), 40.0)
+	await _frames(2)
+	var rk := Injuries.assess(k)
+	var tk := _report_text(rk)
+	_check(tk.contains("optic lens shattered") and tk.contains("governor"), "Klappersoldat: %s  [%s]" % [tk, rk.rank])
+	room.queue_free()
+	await _frames(2)
+
+
+func _report() -> void:
+	print("-- report")
+	await _new_game(6060)
+	var kc: KillCam = game.kill_cam
+	var all := _living()
+	for i in all.size() - 1:
+		_kill(all[i])
+	await _frames(3)
+	var last: Clown = _living()[0]
+	_face(last)
+	await _frames(2)
+	# a shotgun blast to the chest, close: messy
+	var p: FpsPlayer = game.player
+	var chest: PhysicalBone3D = last.ragdoll.bones[&"Chest"]
+	var dir := (chest.global_position - p.camera.global_position).normalized()
+	var sid := 4242
+	for i in 10:
+		last.hit({collider = chest, position = chest.global_position - dir * 0.1 + Vector3(randf_range(-0.05, 0.05), randf_range(-0.08, 0.08), 0), direction = dir, damage = 16.0, impulse = 3.0, shot_id = sid, can_dismember = true, weapon = "Shotgun", dist = 2.0})
+	var tickets_before: int = game.run_tickets
+	await _frames(1)
+	_check(kc.active, "the last kill starts the killcam")
+	var saw_report := false
+	var lines_max := 0
+	var t_real := 0.0
+	var n := 0
+	while kc.active and n < 1500:
+		await get_tree().process_frame
+		n += 1
+		t_real += get_process_delta_time() / maxf(Engine.time_scale, 0.01)
+		if game.brutality.shown:
+			saw_report = true
+			lines_max = maxi(lines_max, game.brutality.lines_shown)
+		if render and n % 12 == 0:
+			await _shot("report_%03d" % (n / 12))
+	var r: Dictionary = game.last_report
+	print("      report: %s" % _report_text(r))
+	print("      score %d, %s, %d tickets; killcam %.2f s real" % [r.get("score", 0), r.get("rank", "?"), r.get("tickets", 0), t_real])
+	_check(saw_report and lines_max == (r.lines as Array).size(), "the report ran over the killcam, every injury shown (%d)" % lines_max)
+	_check(game.run_tickets - tickets_before == int(r.tickets) + 0, "its tickets were paid (%d)" % (game.run_tickets - tickets_before))
+	_check(t_real > 6.0 and t_real < 14.0, "the killcam waited for it (%.2f s)" % t_real)
+	_check(not kc.active and Engine.time_scale == 1.0 and get_viewport().get_camera_3d() == p.camera and not p.cinematic, "then back to the player, all restored")
+	await _frames(40)
+	_check(not game.brutality.shown, "and the report is gone")
+
