@@ -34,6 +34,10 @@ uniform vec3 blood_color : source_color = vec3(0.25, 0.012, 0.016);
 uniform vec3 hole_color : source_color = vec3(0.035, 0.0, 0.002);
 uniform vec3 meat_color : source_color = vec3(0.42, 0.035, 0.04);
 uniform vec3 inside_color : source_color = vec3(0.16, 0.008, 0.012);
+// A box of the rest pose cut away (the Klappersoldat loses the gas mask's
+// canister under its porcelain face). Off unless cut_max is above cut_min.
+uniform vec3 cut_min = vec3(1.0);
+uniform vec3 cut_max = vec3(0.0);
 
 varying vec3 rest_pos;
 varying float hide;
@@ -76,6 +80,9 @@ void vertex() {
 
 void fragment() {
 	if (hide > 0.5) {
+		discard;
+	}
+	if (all(greaterThan(rest_pos, cut_min)) && all(lessThan(rest_pos, cut_max))) {
 		discard;
 	}
 	vec3 col = albedo_color.rgb;

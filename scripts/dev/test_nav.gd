@@ -70,6 +70,8 @@ func _run() -> void:
 					if o != c and is_instance_valid(o) and not o.dead and not o.downed and not o.crawling and absf(o.global_position.y - pos.y) < 1.0:
 						if Vector2(o.global_position.x - pos.x, o.global_position.z - pos.z).length() < 0.4:
 							totals.merged += 1
+							var pair := "%s+%s" % [c.body, o.body]
+							totals[pair] = totals.get(pair, 0) + 1
 							break
 				var cell := m.cell_of(pos)
 				if not m.is_open(cell):
@@ -95,12 +97,18 @@ func _run() -> void:
 					prev[1] += 1.0 / 60.0
 					if prev[1] > 3.0:
 						totals.stuck += 1
+						totals["stuck_" + c.body] = totals.get("stuck_" + c.body, 0) + 1
 						if totals.stuck % 600 == 1:
 							print("   stuck: %s at %s cell %s, %.1fm from player, gun=%s rifle=%s pocket=%s" % [c.body, pos.snapped(Vector3.ONE * 0.01), cell, pos.distance_to(p.global_position), c.has_gun, c.has_rifle, _in_pocket(m, pos)])
 				else:
 					prev = [pos, 0.0]
 				still[key] = prev
 	print("TOTAL living-clown frames %d: in a wall %d, overlapping geometry %d, sunk below floor %d, in a stair pocket %d, stuck >3s %d, inside another clown %d" % [totals.frames, totals.in_wall, totals.overlap, totals.sunk, totals.pocket, totals.stuck, totals.merged])
+	var extra := {}
+	for key: String in totals:
+		if "+" in key or key.begins_with("stuck_"):
+			extra[key] = totals[key]
+	print("   by kind: ", extra)
 	get_tree().quit()
 
 

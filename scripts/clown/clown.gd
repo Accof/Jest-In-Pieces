@@ -22,6 +22,20 @@ const BODIES := {
 		shapes = {&"UpperLeg": 1.3, &"LowerLeg": 1.12, &"UpperArm": 1.25, &"LowerArm": 1.05,
 			&"Hips": 1.2, &"Spine": 1.2, &"Chest": 1.2, &"Neck": 1.12, &"Foot": 1.15},
 	},
+	# Der Klappersoldat: the WitzSoldat's body and rig, re-dressed as clockwork
+	# (see klappersoldat.gd). Placeholder: no model of its own yet.
+	"klappersoldat": {
+		model = "res://art/witzsoldat/witzsoldat.glb", gibs = "res://art/witzsoldat/witzsoldat_gibs.glb",
+		rest_min = Vector3(-0.91675, -0.005, -0.28225), rest_size = Vector3(1.83328, 1.91, 0.56441),
+		helmet = "res://art/witzsoldat/witzsoldat_helmet.glb",
+		helmet_center = Vector3(0.0, 1.80985, 0.04376), helmet_size = Vector3(0.268, 0.232, 0.288),
+		shapes = {&"UpperLeg": 1.3, &"LowerLeg": 1.12, &"UpperArm": 1.25, &"LowerArm": 1.05,
+			&"Hips": 1.2, &"Spine": 1.2, &"Chest": 1.2, &"Neck": 1.12, &"Foot": 1.15},
+		texture = "res://art/klapper/klapper_body.jpg",
+		helmet_texture = "res://art/klapper/klapper_helmet.jpg",
+		# the gas mask's canister is cut away; a porcelain face goes on instead
+		cut_min = Vector3(-0.13, 1.55, 0.1), cut_max = Vector3(0.13, 1.68, 0.4),
+	},
 }
 
 ## Which body this enemy wears (a key of BODIES). Set before adding to the tree.
@@ -45,6 +59,9 @@ var spec: Dictionary
 ## are dead: the legs go one way, the top half the other.
 @export var halve_chance := 0.4
 @export var crawl_share := 0.5
+## A clockwork body (the Klappersoldat): oil instead of blood, gears instead
+## of guts. Set before it enters the tree.
+var mechanical := false
 ## True while this clown is a torso dragging itself along the floor.
 var crawling := false
 ## "Left" or "Right" once that leg is broken: it limps, and the knee bends wrong.
@@ -102,6 +119,7 @@ func _ready() -> void:
 	set_process(false)
 	ragdoll = ClownRagdoll.new()
 	add_child(ragdoll)
+	ragdoll.oil = mechanical
 	ragdoll.build(skeleton, spec.shapes)
 	for pb: PhysicalBone3D in ragdoll.bones.values():
 		pb.set_meta(&"clown", self)
@@ -132,7 +150,7 @@ func hit(info: Dictionary) -> void:
 	if zone == &"Neck" and has_helmet and randf() < helmet_pop_chance:
 		knock_off_helmet(dir, info.position)
 	gore.add_wound(bone, info.position, raw)
-	Blood.spawn_hit(info.position, dir, amount)
+	Blood.spawn_hit(info.position, dir, amount, mechanical)
 
 	# Shotgun-class shots add up across their pellets. Enough of them on one
 	# part blows it open; on a limb or (sometimes) the head, takes it off.
@@ -325,7 +343,7 @@ func _wear(zone: StringName, bone: StringName, at: Vector3, dir: Vector3, raw: f
 			_head_open = true
 			knock_off_helmet(dir, at)
 			if done == stages.size():
-				Blood.mist(at, dir, 2.0)          # the last of the skull goes in a burst
+				Blood.mist(at, dir, 2.0, mechanical)          # the last of the skull goes in a burst
 		gore.blast(blast_bone, at, dir, size)
 	_wear_stage[region] = done
 
@@ -357,7 +375,7 @@ func _break_leg(side: String, at: Vector3, dir: Vector3) -> void:
 	if broken_leg != "":
 		return
 	broken_leg = side
-	Blood.spawn_hit(at, dir, 1.4)
+	Blood.spawn_hit(at, dir, 1.4, mechanical)
 	gore.add_wound(StringName(side + "LowerLeg"), at, 40.0)
 	gore.show_broken_knee(side)
 	if dead:
@@ -618,7 +636,7 @@ func _blast_gore(center: Vector3, dir: Vector3, s: float) -> Array:
 	# a lot of blood, every way
 	var chest := _bone_world(&"Chest")
 	for i in int(2 + s * 7):
-		Blood.spawn_hit(chest + Vector3(randf_range(-0.2, 0.2), randf_range(-0.4, 0.3), randf_range(-0.2, 0.2)), (dir + Vector3(randf_range(-0.8, 0.8), randf_range(-0.2, 0.8), randf_range(-0.8, 0.8))).normalized(), 0.9 + s * 1.1)
+		Blood.spawn_hit(chest + Vector3(randf_range(-0.2, 0.2), randf_range(-0.4, 0.3), randf_range(-0.2, 0.2)), (dir + Vector3(randf_range(-0.8, 0.8), randf_range(-0.2, 0.8), randf_range(-0.8, 0.8))).normalized(), 0.9 + s * 1.1, mechanical)
 	if s > 0.38 and ragdoll.bones.has(&"Spine") and randf() < 0.35 + s * 0.6:
 		gore.blast(&"Spine", near.call(&"Spine"), dir, clampf(0.08 + s * 0.06, 0.08, 0.14))      # belly open, guts out
 	if s > 0.5 and randf() < s * 0.9:
@@ -728,6 +746,13 @@ var aim_amount := 0.0
 var velocity := Vector3.ZERO
 var has_gun := false
 var always_pose := false            # true while an AI is driving this clown
+## When false the stride is not advanced here from the body's speed: a subclass
+## sets walk_phase itself (the Klappersoldat's clockwork gait).
+var drive_phase := true
+## Thigh swing either way of upright, degrees, if set (> 0): a subclass that
+## knows its own step length sizes the swing to match, so the planted foot
+## stays put. Otherwise it follows walk/run speed.
+var stride_override := 0.0
 
 var _model: Node3D
 var _base_rot := {}
@@ -779,7 +804,7 @@ func _process(delta: float) -> void:
 	var fwd_amt := 1.0
 	var side_amt := 0.0
 	var back := 1.0
-	if speed > 0.05:
+	if speed > 0.05 and drive_phase:
 		var f := flat.dot(global_basis.z.normalized()) / speed
 		var sd := flat.dot(global_basis.x.normalized()) / speed
 		fwd_amt = absf(f)
@@ -788,15 +813,21 @@ func _process(delta: float) -> void:
 		# slower walking takes shorter steps rather than slower ones
 		var stride_len := lerpf(lerpf(0.85, 1.3, clampf(speed / 1.5, 0.0, 1.0)), 1.9, run_amount) * (0.55 if broken_leg != "" else 1.0)
 		walk_phase += speed * delta * TAU / stride_len * back
-	elif walk_amount > 0.01:
+	elif walk_amount > 0.01 and drive_phase:
 		walk_phase += delta * 4.0            # marking time
+	if speed > 0.05 and not drive_phase:
+		var f2 := flat.dot(global_basis.z.normalized()) / speed
+		var sd2 := flat.dot(global_basis.x.normalized()) / speed
+		fwd_amt = absf(f2)
+		side_amt = absf(sd2)
+		back = -1.0 if f2 < -0.25 else 1.0
 	var bob := 0.0
 	# How much the legs swing: any real movement gets a full step (the step
 	# rate already follows the speed), so a slow side-step still lifts its feet.
 	var gait := maxf(walk_amount, clampf(speed / 0.9, 0.0, 1.0)) if speed > 0.05 else walk_amount
 	if gait > 0.01:
 		var sw := sin(walk_phase)
-		var stride := lerpf(27.0, 44.0 if has_rifle else 50.0, run_amount) * clampf(fwd_amt + 0.3, 0.0, 1.0)
+		var stride := (stride_override if stride_override > 0.0 else lerpf(27.0, 44.0 if has_rifle else 50.0, run_amount)) * clampf(fwd_amt + 0.3, 0.0, 1.0)
 		var knee := lerpf(62.0, 75.0 if has_rifle else 90.0, run_amount)
 		var arm := lerpf(22.0, 48.0, run_amount)
 		_turn("Spine", Vector3.RIGHT, deg_to_rad(lerpf(4.0, 9.0 if has_rifle else 20.0, run_amount)) * gait * fwd_amt * back)
@@ -1064,7 +1095,7 @@ func knock_off_helmet(dir: Vector3, at: Vector3) -> void:
 	flying.angular_velocity = spin_axis.normalized() * randf_range(16.0, 26.0)
 	if _helmet_hitbox and is_instance_valid(_helmet_hitbox):
 		_helmet_hitbox.queue_free()
-	Blood.spawn_hit(at, dir, 0.4)
+	Blood.spawn_hit(at, dir, 0.4, mechanical)
 
 
 # --- weapons ----------------------------------------------------------------------

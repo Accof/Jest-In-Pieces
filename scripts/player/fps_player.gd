@@ -384,7 +384,7 @@ func _pierce(first: Clown, at: Vector3, origin: Vector3, dir: Vector3, w: Dictio
 		var exit_hit := ss.intersect_ray(back)
 		if not exit_hit.is_empty() and exit_hit.collider is PhysicalBone3D and exit_hit.collider.get_meta(&"clown", null) == victim:
 			out = exit_hit.position
-		Blood.spawn_hit(out, dir, 1.3 * stats.blood)
+		Blood.spawn_hit(out, dir, 1.3 * stats.blood, victim.mechanical)
 		mult *= 0.85
 		left -= 1
 		var q := PhysicsRayQueryParameters3D.create(out, out + dir * 120.0, LAYER_WORLD | LAYER_RAGDOLL)

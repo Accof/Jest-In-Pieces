@@ -55,6 +55,8 @@ const FALL_CAP := 55.0
 @export var landing_kick := 0.17
 ## True once there is nothing under the body: the balance "strings" let go,
 ## it falls at plain 1 g, and it lands with a slight bounce.
+## Slams onto the floor splash machine oil, not blood (the Klappersoldat).
+var oil := false
 var airborne := false
 ## Joints whose dying muscles should pull toward a given local rotation
 ## instead of the pose the body died in (bone name -> Basis). Used once by
@@ -943,7 +945,7 @@ func _slam(speed: float) -> void:
 	# a hard enough landing bursts it
 	if speed > 11.0 and bones.has(&"Chest"):
 		var at: Vector3 = bones[&"Chest"].global_position
-		Blood.spawn_hit(at, Vector3(randf_range(-1, 1), 0.6, randf_range(-1, 1)).normalized(), clampf(speed / 9.0, 1.0, 2.4))
+		Blood.spawn_hit(at, Vector3(randf_range(-1, 1), 0.6, randf_range(-1, 1)).normalized(), clampf(speed / 9.0, 1.0, 2.4), oil)
 
 
 ## Drop what is left of the balance: no support, no levelling. The body is

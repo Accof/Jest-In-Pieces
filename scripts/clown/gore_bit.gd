@@ -7,6 +7,8 @@ const MAX_LIVE := 70
 static var _live: Array = []
 
 var marks := true
+## Leaves an oil mark rather than blood (a Klappersoldat part).
+var oil := false
 var _marked := false
 var _age := 0.0
 
@@ -55,5 +57,5 @@ func _physics_process(delta: float) -> void:
 		var q := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP * 0.05, global_position + Vector3.DOWN * 0.35, 1)
 		var hit := get_world_3d().direct_space_state.intersect_ray(q)
 		if not hit.is_empty():
-			Blood.spawn_decal(hit.position, hit.normal, randf_range(0.16, 0.32), "drip")
+			Blood.spawn_decal(hit.position, hit.normal, randf_range(0.16, 0.32), "drip", Vector3.ZERO, 1.0, 1.0, oil)
 		_marked = true

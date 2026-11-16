@@ -92,6 +92,20 @@ Everyone's walk (clowns too): the stepping knee folds up to about 60 degrees as 
 
 It fights from cover: after a shot in the open it looks within two corridor cells for a spot the player cannot see a crouched head at, with a firing spot a step away. It runs there, crouches (working the bolt), steps out, aims, fires once and ducks back. It gives the cover up if the player gets within 4 m or can see the hiding place.
 
+## Der Klappersoldat
+
+A WW1 German infantryman built out of clockwork by a deranged carnival engineer: field-grey uniform, rusted Stahlhelm, a cracked porcelain clown face with a fixed grin, a faded red nose and dim amber eyes, a small dirty red-and-cream ruff, a brass wind-up key in its back over a gearbox, and brass gears at the elbows and knees. It turns up from floor 2 (10% of a floor's enemies, 2% more each floor, at most 20%; `klapper_base`, `klapper_per_floor`, `klapper_max` on the game node).
+
+It is slow (0.45 of a soldier's walking speed, never runs, never lunges), a little tougher (1.75x health) and hits harder (1.25x) with one slow, telegraphed blow: the arm is cranked up overhead in three ratchet clicks, held cocked, brought down in one abrupt strike about a second in, then cranked slowly back. A strong hit (20+) staggers it one time in five; everything else only jolts it and it keeps coming. Every setting is an export on `Klappersoldat` (`scripts/clown/klappersoldat.gd`).
+
+How it moves: it uses the same fully jointed walk as everyone else (knees fold, feet lift and plant heel first, ankles push off, hips and shoulders counter-turn), but the stride is driven by a clockwork clock rather than by distance. Each step catches with both feet planted, drives through with a short spin-up and brake, overshoots a hair and settles; steps vary in length; the body surges and stops with the legs so the planted foot stays put (the leg swing is sized to the step, and the body's progress through a step is mapped onto the leg cycle). Every few seconds the escapement jams for 0.1-0.3 s with a grind of gears and a corrective jerk of a shoulder or the head, then carries on. The head holds unnaturally still, then snaps part of the way toward you, pauses, and snaps the rest, sometimes at a tilt. The body turns in segments of up to 35 degrees, shuffling its feet round when standing. The arms swing a beat behind the legs with the elbows always bent. Idle, it stands almost perfectly still, ticking, broken now and then by a head tilt, a shoulder jerking, fingers clenching, the jaw clacking, or the eyes guttering.
+
+Shot, it throws sparks and pings like metal, drips machine oil (never blood), and its eyes sometimes flicker. The existing gore runs in a mechanical mode: wear on the chest or belly first shows a riveted inner panel, then rips it away to show brass gears (turning while it lives), a mainspring, pistons, a steel housing where the ribs would be, and wiring; the head shows an iron skull with gears and wires. The porcelain face cracks, then a half breaks away (and that eye goes dark), then the jaw. Limbs come off as oily clockwork gibs (steel stump faces round a brass core) with a burst of sparks and oil, leaving a snapped rod and torn wires at the stump; the brass joint cover (or the whole face) goes with the piece. A broken knee shows a snapped steel rod and torn wiring. Debris is gears, springs, sheet metal and porcelain shards.
+
+Dead, it goes straight to the shared ragdoll (heavier, 1.45x mass), with a burst of sparks, a mechanical failure and a spray of oil, then 3-5 s of shorting out (spits of sparks, crackle, small jerks) while its gears wind down and its eyes fade, then nothing. Where it comes to rest it leaves an oil puddle. Oil puddles are permanent: no lifetime, no cap, never faded out, not attached to the body; they outlast the corpse and only go when the floor is torn down (`Blood.clear()`).
+
+Placeholder art: there is no Klappersoldat model yet. It wears the WitzSoldat's mesh and rig in a field-grey retexture (`tools/gen_klapper_textures.py`), the gas mask's canister is cut away by the body shader, and the face, ruff, key, gearbox and joint gears are built in code. The sounds (`art/klapper/sfx/`) are synthesised placeholders (`tools/gen_klapper_sfx.py`): ticks, a ratchet wind-up, gear grinding, squeaks, iron footsteps, bell-metal clangs, bullet pings, crackle, a spring running down.
+
 ## Fuel drums
 
 Red fuel drums stand in corners of the bunkers and halls (more on bigger floors), never inside a crate, a wall piece or a mess-table chair: once a floor is dressed, any drum that ended up inside something slides toward the middle of its cell until it stands clear, or is taken away. Shoot one and it goes up: a hard hit sets it off at once, a lighter one punches a hole that spits flame for a second first. Drums near a blast go up too.
@@ -111,6 +125,7 @@ The blast hurts you too (up to 85 at point blank, much less behind cover) and sh
 |---|---|---|
 | Clown | `art/clown/` | Melee, or a pistol (gunmen strafe and keep their distance) |
 | WitzSoldat | `art/witzsoldat/` | Bolt-action rifle: slower to aim and reload, 24 damage a hit, reaches 24 m. Helmet comes off on half of headshots, always on a shotgun blast to the head |
+| Klappersoldat | WitzSoldat body (placeholder), `art/klapper/` | Clockwork. Slow heavy melee blow, 1.75x health, never runs; oil, sparks and gears instead of blood and guts |
 
 Every body uses the same 21 bone names and 15 dismemberment segments, so the ragdoll, deaths and gore work on all of them. A new body is added to `Clown.BODIES` in `clown.gd`: model, gibs, the rest-pose box from its `.json`, how much thicker its collision shapes are than the clown's, and optionally a helmet.
 
@@ -136,6 +151,10 @@ Every body uses the same 21 bone names and 15 dismemberment segments, so the rag
 | `scripts/clown/clown_crawler.gd` | A clown torn in half, crawling away until it bleeds out |
 | `scripts/world/level_art.gd` | The trench and bunker look: walls, floors, props, lanterns |
 | `scripts/clown/clown_brain.gd` | Clown AI: hunting, melee, gunmen |
+| `scripts/clown/klappersoldat.gd` | Der Klappersoldat: dressing, clockwork gait, head, blow, staggers, face damage, death, oil puddle |
+| `scripts/clown/clockwork.gd` | Gears, springs, rods, wires, shards and their materials |
+| `scripts/fx/mech_fx.gd` | Pooled sparks and the clockwork sounds |
+| `tools/gen_klapper_textures.py`, `tools/gen_klapper_sfx.py`, `tools/gen_oil_textures.py` | Regenerate the Klappersoldat's textures, sounds and the oil splats |
 | `shaders/funhouse.gdshader` | Checker floors and striped walls |
 | `tools/gen_blood_textures.py` | Regenerates the splatter textures in `art/blood/` |
 | `tools/gen_level_textures.py` | Regenerates the level textures in `art/level/` (planks, mud, harlequin, poster...) |
@@ -186,6 +205,7 @@ godot --headless --fixed-fps 60 res://scenes/test_stairs_walk.tscn  # walks the 
 godot --path . res://scenes/test_punch.tscn                    # point-blank shotgun hole: renders /tmp/punch_*.png (needs a window)
 godot --path . res://scenes/test_soldier_pose.tscn             # WitzSoldat stand/walk/run/aim/thrust from the side, /tmp/pose_*.png (needs a window)
 godot --headless --fixed-fps 60 res://scenes/test_nav.tscn     # a crowd chasing the player round three floors with stairs: counts frames inside walls, sunk, beside a stair, stuck, inside another clown
+godot --headless --fixed-fps 60 res://scenes/test_klapper.tscn     # Klappersoldat: speed, knees/ankles/elbows, foot slide, head snaps, the blow, staggers, mechanical gore, oil puddle, ordinary clowns unchanged (sections: walk fight gore crowd; "film render" for pictures)
 godot --headless res://scenes/test_drum_clear.tscn          # twelve floors: counts fuel drums standing inside anything solid (should be 0)
 godot res://scenes/test_seethrough.tscn -- 3 [full]          # needs a window: paints every pixel with its distance and checks it against physics rays from every cell; drawn further than the wall = a hole you can see through
 godot --headless --fixed-fps 60 res://scenes/test_wander.tscn  # unaware clowns wandering and searching: how often a step runs into a wall or doorway pillar

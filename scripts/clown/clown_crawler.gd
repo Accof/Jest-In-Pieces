@@ -92,7 +92,7 @@ func _physics_process(delta: float) -> void:
 	var strength := clampf(1.0 - pow(t / life, 3.0), 0.0, 1.0)
 	if t >= life:
 		# the last of it runs out on the floor
-		Blood.spawn_pool(_floor_at(_waist_point()), Vector3.UP, 0.9)
+		Blood.spawn_pool(_floor_at(_waist_point()), Vector3.UP, 0.9, clown.mechanical)
 		clown.bleed_out()
 		return
 	_fall = minf(_fall + delta / 0.45, 1.0)
@@ -129,7 +129,7 @@ func _physics_process(delta: float) -> void:
 	if _next_pause <= 0.0 and _fall >= 1.0:
 		_pause = randf_range(1.2, 2.4) * lerpf(1.0, 2.0, 1.0 - strength)
 		_next_pause = randf_range(5.0, 9.0)
-		Blood.spawn_pool(_floor_at(_waist_point()), Vector3.UP, randf_range(0.3, 0.45))
+		Blood.spawn_pool(_floor_at(_waist_point()), Vector3.UP, randf_range(0.3, 0.45), clown.mechanical)
 	if maze:
 		_y = move_toward(_y, maze.floor_height(clown.global_position), delta * 3.0)
 		clown.global_position.y = _y
@@ -154,9 +154,9 @@ func _trail() -> void:
 	if moved.length() < 0.16:
 		return
 	var floor_p := _floor_at(w - moved * 0.5)
-	Blood.spawn_decal(floor_p, Vector3.UP, randf_range(0.34, 0.46), "streak", moved, 1.0, 1.5)
+	Blood.spawn_decal(floor_p, Vector3.UP, randf_range(0.34, 0.46), "streak", moved, 1.0, 1.5, clown.mechanical)
 	if randf() < 0.5:
-		Blood.add_droplet(w, Vector3(randf_range(-0.3, 0.3), 0.2, randf_range(-0.3, 0.3)), randf_range(0.04, 0.08))
+		Blood.add_droplet(w, Vector3(randf_range(-0.3, 0.3), 0.2, randf_range(-0.3, 0.3)), randf_range(0.04, 0.08), clown.mechanical)
 	_trail_from = w
 
 

@@ -15,7 +15,15 @@ const SEGMENT_BONE := {&"Pelvis": &"Hips", &"Torso": &"Spine", &"Head": &"Neck"}
 const CHAIN := {"UpperArm": ["UpperArm", "LowerArm", "Hand"], "LowerArm": ["LowerArm", "Hand"], "Hand": ["Hand"],
 	"UpperLeg": ["UpperLeg", "LowerLeg", "Foot"], "LowerLeg": ["LowerLeg", "Foot"], "Foot": ["Foot"]}
 
+## A limb, the head or the legs came off as `gib` (the Klappersoldat moves its
+## brass joint covers and porcelain face onto the piece).
+signal part_severed(segment: StringName, gib: Node3D)
+
 var clown: Clown
+## Clockwork insides that turn while the body still runs: [node, axis, speed].
+## Filled only on a mechanical body; whoever owns the body spins them.
+var spin_parts: Array = []
+var _mech_open := {}            # region -> how many times it has been torn into
 var hidden_mask := 0
 ## Stump faces never to show: segments below the top of a cut.
 var cap_mask := 0
@@ -53,6 +61,8 @@ func setup(c: Clown) -> void:
 				sm.set_shader_parameter("use_tex", true)
 		sm.set_shader_parameter("rest_min", clown.spec.rest_min)
 		sm.set_shader_parameter("rest_size", clown.spec.rest_size)
+		if clown.mechanical:
+			_mech_surface(sm, src)
 		clown.mesh.set_surface_override_material(i, sm)
 		_materials.append(sm)
 	_push_wounds()
@@ -128,10 +138,14 @@ func punch_through(bone: StringName, world_pos: Vector3, dir: Vector3, radius: f
 			part.queue_free()
 	# everything that was in there goes out the back
 	var out := world_pos + dir * 0.28
-	Blood.spawn_hit(world_pos, -dir, 1.2)
+	if clown.mechanical:
+		_mech_tear(region, 1.0)
+		MechFx.sparks(clown, world_pos, -dir, 1.6)
+		MechFx.sparks(clown, out, dir, 1.6)
+	Blood.spawn_hit(world_pos, -dir, 1.2, clown.mechanical)
 	for k in 3:
-		Blood.spawn_hit(out + Vector3(_rng.randf_range(-0.05, 0.05), _rng.randf_range(-0.05, 0.05), _rng.randf_range(-0.05, 0.05)), (dir + Vector3(_rng.randf_range(-0.3, 0.3), _rng.randf_range(-0.1, 0.4), _rng.randf_range(-0.3, 0.3))).normalized(), 2.4)
-	Blood.mist(out, dir, 2.0)
+		Blood.spawn_hit(out + Vector3(_rng.randf_range(-0.05, 0.05), _rng.randf_range(-0.05, 0.05), _rng.randf_range(-0.05, 0.05)), (dir + Vector3(_rng.randf_range(-0.3, 0.3), _rng.randf_range(-0.1, 0.4), _rng.randf_range(-0.3, 0.3))).normalized(), 2.4, clown.mechanical)
+	Blood.mist(out, dir, 2.0, clown.mechanical)
 	_throw_chunks(out, dir, 9, false)
 	var pb: PhysicalBone3D = clown.ragdoll.bones.get(bone)
 	if pb:
@@ -156,8 +170,12 @@ func blast(bone: StringName, world_pos: Vector3, dir: Vector3, size: float) -> v
 		# The shot carries on through: a second, smaller hole out the back.
 		_add_wound_entry(bone, world_pos + dir * 0.2, size * 0.9, size * 0.2, size * 0.7)
 	set_process(true)
-	Blood.spawn_hit(world_pos, dir, 1.8)
-	Blood.spawn_hit(world_pos, -dir, 0.9)
+	if clown.mechanical:
+		_mech_tear(region, size)
+		MechFx.sparks(clown, world_pos, -dir, 1.4)
+		MechFx.sound(clown, "spark", world_pos, -4.0)
+	Blood.spawn_hit(world_pos, dir, 1.8, clown.mechanical)
+	Blood.spawn_hit(world_pos, -dir, 0.9, clown.mechanical)
 	_throw_chunks(world_pos, dir, 5 if region != &"head" else 4, region == &"head")
 	var pb: PhysicalBone3D = clown.ragdoll.bones.get(bone)
 	if pb:
@@ -171,6 +189,9 @@ func blast(bone: StringName, world_pos: Vector3, dir: Vector3, size: float) -> v
 
 
 func _throw_chunks(pos: Vector3, dir: Vector3, count: int, skull: bool) -> void:
+	if clown.mechanical:
+		_throw_debris(pos, dir, count, skull)
+		return
 	for i in count:
 		var bone_bit := skull and i < 2
 		var r := _rng.randf_range(0.022, 0.045)
@@ -187,9 +208,10 @@ func _throw_chunks(pos: Vector3, dir: Vector3, count: int, skull: bool) -> void:
 func _hang_guts(pb: PhysicsBody3D, world_pos: Vector3, out: Vector3, links: int = 6, keep: bool = false) -> void:
 	var prev: PhysicsBody3D = pb
 	var at := world_pos + out * 0.04
-	var mesh := _gut_mesh()
+	var mesh := _cable_mesh() if clown.mechanical else _gut_mesh()
 	for i in links:
-		var link := GoreBit.make(mesh, 0.024, 0.08, 0.1)
+		var link := GoreBit.make(mesh, 0.018 if clown.mechanical else 0.024, 0.08, 0.1)
+		link.oil = clown.mechanical
 		link.marks = i == links - 1
 		link.add_to_group(&"blast_movable")
 		if keep:
@@ -210,6 +232,9 @@ func _hang_guts(pb: PhysicsBody3D, world_pos: Vector3, out: Vector3, links: int 
 
 func _show_innards(region: StringName) -> void:
 	if _innards.has(region):
+		return
+	if clown.mechanical:
+		_show_machinery(region)
 		return
 	var skel := clown.skeleton
 	var bone := {&"head": "Head", &"chest": "Chest", &"belly": "Spine"}[region] as String
@@ -397,8 +422,10 @@ func _physics_process(delta: float) -> void:
 			var out: Vector3 = (spb.global_basis * sp.dir).normalized()
 			var force: float = 1.2 + 0.55 * sp.left
 			for k in 5 + sp.left:
-				Blood.add_droplet(from, out * force * _rng.randf_range(0.7, 1.15) + Vector3(_rng.randf_range(-0.35, 0.35), _rng.randf_range(-0.1, 0.5), _rng.randf_range(-0.35, 0.35)), _rng.randf_range(0.04, 0.1))
-			Blood.mist(from, out, 0.5 + 0.1 * sp.left)
+				Blood.add_droplet(from, out * force * _rng.randf_range(0.7, 1.15) + Vector3(_rng.randf_range(-0.35, 0.35), _rng.randf_range(-0.1, 0.5), _rng.randf_range(-0.35, 0.35)), _rng.randf_range(0.04, 0.1), clown.mechanical)
+			Blood.mist(from, out, 0.5 + 0.1 * sp.left, clown.mechanical)
+			if clown.mechanical and _rng.randf() < 0.5:
+				MechFx.sparks(clown, from, out, 0.6)      # shorting out as the oil goes
 	_spurts = _spurts.filter(func(sp: Dictionary) -> bool: return sp.left > 0)
 	var space := clown.get_world_3d().direct_space_state
 	# A bleeding body dragging its back down a wall leaves a smear behind it.
@@ -417,9 +444,9 @@ func _physics_process(delta: float) -> void:
 				var moved: Vector3 = wall.position - _smear_last[bn]
 				if moved.length() < 0.1:
 					continue
-				Blood.spawn_decal(wall.position - moved * 0.5, wall.normal, _rng.randf_range(0.2, 0.3), "streak", moved, 1.0, clampf(moved.length() / 0.12, 1.0, 1.8))
+				Blood.spawn_decal(wall.position - moved * 0.5, wall.normal, _rng.randf_range(0.2, 0.3), "streak", moved, 1.0, clampf(moved.length() / 0.12, 1.0, 1.8), clown.mechanical)
 			else:
-				Blood.spawn_decal(wall.position, wall.normal, _rng.randf_range(0.3, 0.42), "impact")   # where it first hits
+				Blood.spawn_decal(wall.position, wall.normal, _rng.randf_range(0.3, 0.42), "impact", Vector3.ZERO, 1.0, 1.0, clown.mechanical)   # where it first hits
 			_smear_last[bn] = wall.position
 	var open := false
 	for b: Dictionary in _bleeds:
@@ -436,14 +463,14 @@ func _physics_process(delta: float) -> void:
 		b.drip -= delta
 		if b.drip <= 0.0 and _bleed_time < 7.0:
 			b.drip = _rng.randf_range(0.12, 0.4) / b.amount
-			Blood.add_droplet(pos, Vector3(_rng.randf_range(-0.4, 0.4), _rng.randf_range(-0.2, 0.5), _rng.randf_range(-0.4, 0.4)), _rng.randf_range(0.035, 0.08))
+			Blood.add_droplet(pos, Vector3(_rng.randf_range(-0.4, 0.4), _rng.randf_range(-0.2, 0.5), _rng.randf_range(-0.4, 0.4)), _rng.randf_range(0.035, 0.08), clown.mechanical)
 		# Once the wound stops moving near the floor, the pool starts there.
 		b.still = b.still + delta if speed < 0.3 else 0.0
 		if b.still > 0.4 or clown.ragdoll.is_settled:
 			var q := PhysicsRayQueryParameters3D.create(pos + Vector3.UP * 0.1, pos + Vector3.DOWN * 0.7, LAYER_WORLD)
 			var hit := space.intersect_ray(q)
 			if not hit.is_empty() and hit.normal.y > 0.6:
-				Blood.spawn_pool(hit.position, hit.normal, (0.2 + 0.24 * b.amount) * _rng.randf_range(0.9, 1.15))
+				Blood.spawn_pool(hit.position, hit.normal, (0.2 + 0.24 * b.amount) * _rng.randf_range(0.9, 1.15), clown.mechanical)
 				b.pooled = true
 			elif clown.ragdoll.is_settled:
 				b.pooled = true
@@ -499,10 +526,10 @@ func _impacts(delta: float) -> void:
 		var n: Vector3 = hit.normal
 		var slide := v - n * v.dot(n)
 		var size := clampf(0.4 + sp * 0.05, 0.45, 1.1)
-		Blood.spawn_decal(hit.position, n, size, "impact")
+		Blood.spawn_decal(hit.position, n, size, "impact", Vector3.ZERO, 1.0, 1.0, clown.mechanical)
 		if slide.length() > 0.5:
-			Blood.spawn_decal(hit.position + slide.normalized() * size * 0.5, n, size * 0.8, "streak", slide, 1.0, 1.6)
-		Blood.spawn_hit(hit.position + n * 0.05, (n + slide.normalized() * 0.5).normalized(), clampf(sp / 6.0, 0.6, 1.8))
+			Blood.spawn_decal(hit.position + slide.normalized() * size * 0.5, n, size * 0.8, "streak", slide, 1.0, 1.6, clown.mechanical)
+		Blood.spawn_hit(hit.position + n * 0.05, (n + slide.normalized() * 0.5).normalized(), clampf(sp / 6.0, 0.6, 1.8), clown.mechanical)
 
 
 ## Torn in half at the waist: the pelvis and each leg piece come away as
@@ -525,8 +552,10 @@ func cut_waist(impulse: Vector3) -> void:
 		var gib := Gib.new()
 		gib.setup(src.mesh, _shape_for(bone_name, src.position), _mass_for(bone_name))
 		gib.add_to_group(&"blast_movable")
+		_mech_gib(gib, s)
 		clown.get_parent().add_child(gib)
 		gib.global_transform = xf
+		part_severed.emit(s, gib)
 		# thrown with the blast, each piece its own way, tumbling but not spinning wildly
 		var scatter := Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0.2, 1.0), _rng.randf_range(-1, 1)) * speed * 0.3
 		gib.linear_velocity = away * speed * _rng.randf_range(0.5, 0.9) + scatter
@@ -555,9 +584,14 @@ func cut_waist(impulse: Vector3) -> void:
 	# Everything that was inside spills: guts, blood, chunks both ways.
 	var cut: Vector3 = xfs[&"Pelvis"].origin
 	_show_innards(&"belly")
+	if clown.mechanical:
+		_mech_tear(&"belly", 1.0)
+		for k in 3:
+			MechFx.sparks(clown, cut, Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0.2, 1), _rng.randf_range(-1, 1)), 1.6)
+		MechFx.sound(clown, "failure", cut, 0.0)
 	_add_wound_entry(&"Spine", cut + Vector3.UP * 0.12, 0.13, 0.06, 0.11)
 	for i in 4:
-		Blood.spawn_hit(cut, (impulse.normalized() + Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0, 1), _rng.randf_range(-1, 1))).normalized(), 1.8)
+		Blood.spawn_hit(cut, (impulse.normalized() + Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0, 1), _rng.randf_range(-1, 1))).normalized(), 1.8, clown.mechanical)
 	_throw_chunks(cut, impulse.normalized(), 7, false)
 	set_process(true)
 
@@ -573,6 +607,9 @@ func add_bleed(bone: StringName, world_pos: Vector3, amount: float) -> void:
 ## the splintered top of the shin beside it, raw meat round both, and a hole
 ## that keeps bleeding.
 func show_broken_knee(side: String) -> void:
+	if clown.mechanical:
+		_mech_broken_knee(side)
+		return
 	var skel := clown.skeleton
 	var s := 1.0 if side == "Left" else -1.0
 	var knee: Vector3 = skel.get_bone_global_rest(skel.find_bone(side + "LowerLeg")).origin
@@ -610,7 +647,7 @@ func show_broken_knee(side: String) -> void:
 	_add_wound_entry(StringName(side + "LowerLeg"), front, 0.075, 0.03, 0.035)
 	_add_wound_entry(StringName(side + "LowerLeg"), world * (knee + Vector3(s * 0.065, -0.05, 0.02)), 0.05, 0.02, 0.02)
 	add_bleed(StringName(side + "LowerLeg"), front, 1.3)
-	Blood.spawn_hit(front, (world.basis * Vector3(0, 0.3, 1)).normalized(), 1.6)
+	Blood.spawn_hit(front, (world.basis * Vector3(0, 0.3, 1)).normalized(), 1.6, clown.mechanical)
 	set_process(true)
 	set_physics_process(true)
 	_bleeding = true
@@ -674,8 +711,10 @@ func sever(bone: StringName, impulse: Vector3) -> void:
 			stump_pos = xf.origin
 		var gib := Gib.new()
 		gib.setup(src.mesh, _shape_for(bone_name, src.position), _mass_for(bone_name))
+		_mech_gib(gib, s)
 		clown.get_parent().add_child(gib)
 		gib.global_transform = xf
+		part_severed.emit(s, gib)
 		if pb and clown.ragdoll.active:
 			gib.linear_velocity = PhysicsServer3D.body_get_state(pb.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY)
 		gib.apply_central_impulse(impulse * (0.35 if i == 0 else 0.12) + Vector3.UP * gib.mass * _rng.randf_range(0.5, 1.6))
@@ -690,8 +729,10 @@ func sever(bone: StringName, impulse: Vector3) -> void:
 		sm.set_shader_parameter("cap_hide_mask", cap_mask)
 	if removed.is_empty():
 		return
+	if clown.mechanical:
+		_mech_stump(parts[0], stump_pos, impulse, spawned[0] if not spawned.is_empty() else null)
 	# The stump bleeds hard: a spurt now and a large pool where the body ends up.
-	Blood.spawn_hit(stump_pos, impulse.normalized() if impulse.length() > 0.01 else Vector3.UP, 1.6)
+	Blood.spawn_hit(stump_pos, impulse.normalized() if impulse.length() > 0.01 else Vector3.UP, 1.6, clown.mechanical)
 	var parent_bone := _stump_parent(parts[0])
 	var ppb: PhysicalBone3D = clown.ragdoll.bones.get(parent_bone)
 	if ppb:
@@ -749,3 +790,278 @@ func _shape_for(bone: StringName, gib_origin: Vector3) -> CollisionShape3D:
 		cs.shape = sp
 	cs.position = clown.ragdoll.centres.get(bone, gib_origin) - gib_origin
 	return cs
+
+
+# --- clockwork bodies (the Klappersoldat) -------------------------------------------
+# The same wounds, holes, stumps and gibs as flesh, but what shows inside is
+# machinery: brass gears, springs, pistons, a riveted housing, wires; it
+# leaks machine oil and sparks instead of bleeding. Nothing here runs for a
+# body that is not `mechanical`.
+
+## Make one body surface clockwork: the uniform in field grey, stump faces in
+## oily steel round a brass core, wounds soaking with oil, torn edges showing
+## bare metal and frayed cloth rather than meat.
+func _mech_surface(sm: ShaderMaterial, src: BaseMaterial3D) -> void:
+	var kind := src.resource_name if src else ""
+	if kind == "Gore":
+		sm.set_shader_parameter("use_tex", false)
+		sm.set_shader_parameter("albedo_color", Color(0.12, 0.115, 0.1))
+		sm.set_shader_parameter("metallic", 0.75)
+		sm.set_shader_parameter("roughness", 0.32)
+	elif kind == "BoneCore":
+		sm.set_shader_parameter("use_tex", false)
+		sm.set_shader_parameter("albedo_color", Color(0.62, 0.45, 0.2))
+		sm.set_shader_parameter("metallic", 0.9)
+		sm.set_shader_parameter("roughness", 0.35)
+	elif kind == "Scalp":
+		sm.set_shader_parameter("use_tex", false)
+		sm.set_shader_parameter("albedo_color", Color(0.14, 0.13, 0.12))
+		sm.set_shader_parameter("metallic", 0.7)
+	elif clown.spec.has("texture"):
+		sm.set_shader_parameter("albedo_tex", load(clown.spec.texture))
+		sm.set_shader_parameter("use_tex", true)
+		sm.set_shader_parameter("albedo_color", Color.WHITE)
+	sm.set_shader_parameter("blood_color", Color(0.035, 0.032, 0.026))
+	sm.set_shader_parameter("hole_color", Color(0.008, 0.008, 0.007))
+	sm.set_shader_parameter("meat_color", Color(0.17, 0.16, 0.14))
+	sm.set_shader_parameter("inside_color", Color(0.08, 0.072, 0.06))
+	if clown.spec.has("cut_min"):
+		sm.set_shader_parameter("cut_min", clown.spec.cut_min)
+		sm.set_shader_parameter("cut_max", clown.spec.cut_max)
+
+
+## Torn into again: the first time a riveted inner panel shows through the
+## cloth; the next (or one big blast) rips the panel away and the gears,
+## springs and wiring behind it are open to see.
+func _mech_tear(region: StringName, size: float) -> void:
+	var n: int = _mech_open.get(region, 0) + 1
+	_mech_open[region] = n
+	if not _innards.has(region):
+		return
+	var holder: Node3D = _innards[region]
+	if (n >= 2 or size >= 0.1) and holder.has_meta(&"panel"):
+		var panel: Node3D = holder.get_meta(&"panel")
+		holder.remove_meta(&"panel")
+		if is_instance_valid(panel):
+			var at := panel.global_position
+			panel.queue_free()
+			_throw_debris(at, (at - clown.ragdoll.bones[&"Chest"].global_position if clown.ragdoll.bones.has(&"Chest") else Vector3.UP).normalized(), 3, false)
+			MechFx.sound(clown, "clatter", at, -2.0)
+
+
+## How far into the clockwork a region is open: 0 shut, 1 the panel, 2 the gears.
+func mech_stage(region: StringName) -> int:
+	if not _innards.has(region):
+		return 0
+	return 1 if (_innards[region] as Node3D).has_meta(&"panel") else 2
+
+
+func _show_machinery(region: StringName) -> void:
+	var skel := clown.skeleton
+	var bone := {&"head": "Head", &"chest": "Chest", &"belly": "Spine"}[region] as String
+	var att := BoneAttachment3D.new()
+	att.bone_name = bone
+	skel.add_child(att)
+	var holder := Node3D.new()
+	att.add_child(holder)
+	holder.transform = skel.get_bone_global_rest(skel.find_bone(bone)).affine_inverse()
+	var C := Clockwork
+	match region:
+		&"chest":
+			# the housing: steel hoops where the ribs would be, round a spine of iron
+			for k in 5:
+				var y := 1.29 + k * 0.045
+				var rx := 0.15 + 0.01 * sin(k * 0.7)
+				for a in 12:
+					var ang := TAU * a / 12.0
+					var p := Vector3(cos(ang) * rx, y, sin(ang) * 0.1)
+					C.part(holder, C.box(), C.mat("steel"), p, Vector3(0.042, 0.012, 0.01), Vector3(0, -ang + PI * 0.5, 0))
+			C.part(holder, C.box(), C.mat("iron"), Vector3(0, 1.39, -0.09), Vector3(0.04, 0.27, 0.03))
+			C.part(holder, C.box(), C.mat("iron"), Vector3(0, 1.39, 0.0), Vector3(0.2, 0.2, 0.16))     # the dark of the case behind
+			_spin(C.gear_at(holder, Vector3(0.035, 1.405, 0.03), 0.15, Vector3.BACK, 16), Vector3.BACK, 1.3)
+			_spin(C.gear_at(holder, Vector3(-0.065, 1.445, 0.045), 0.085, Vector3.BACK, 10, "steel"), Vector3.BACK, -2.4)
+			_spin(C.gear_at(holder, Vector3(-0.05, 1.335, 0.04), 0.1, Vector3.BACK, 12), Vector3.BACK, -1.95)
+			_spin(C.gear_at(holder, Vector3(0.075, 1.32, 0.05), 0.06, Vector3.BACK, 8, "steel"), Vector3.BACK, 3.2)
+			C.part(holder, C.spring(7.0), C.mat("steel"), Vector3(0.095, 1.44, 0.02), Vector3(0.045, 0.1, 0.045))
+			C.span(holder, C.mat("brass"), Vector3(0.035, 1.405, -0.05), Vector3(0.035, 1.405, 0.06), 0.012)   # axles
+			C.span(holder, C.mat("brass"), Vector3(-0.05, 1.335, -0.05), Vector3(-0.05, 1.335, 0.06), 0.01)
+			C.cable(holder, C.mat("wire_red"), Vector3(-0.11, 1.47, 0.03), Vector3(0.1, 1.3, 0.05), 0.03, 0.007)
+			C.cable(holder, C.mat("wire_black"), Vector3(-0.1, 1.31, 0.05), Vector3(0.11, 1.46, 0.035), 0.025, 0.007)
+			var panel := Node3D.new()
+			holder.add_child(panel)
+			C.part(panel, C.box(), C.mat("panel"), Vector3(0, 1.39, 0.085), Vector3(0.21, 0.19, 0.012))
+			for corner: Vector2 in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
+				C.part(panel, C.ball(), C.mat("brass"), Vector3(corner.x * 0.09, 1.39 + corner.y * 0.08, 0.093), Vector3.ONE * 0.012)
+			holder.set_meta(&"panel", panel)
+		&"belly":
+			C.part(holder, C.box(), C.mat("iron"), Vector3(0, 1.15, -0.085), Vector3(0.036, 0.2, 0.03))
+			C.part(holder, C.box(), C.mat("iron"), Vector3(0, 1.14, -0.01), Vector3(0.19, 0.16, 0.13))
+			for sx: float in [-0.055, 0.055]:          # the pistons that carry the hips
+				C.span(holder, C.mat("iron"), Vector3(sx, 1.06, 0.02), Vector3(sx, 1.15, 0.02), 0.03)
+				C.span(holder, C.mat("steel"), Vector3(sx, 1.14, 0.02), Vector3(sx, 1.23, 0.02), 0.016)
+			_spin(C.gear_at(holder, Vector3(0.0, 1.15, 0.045), 0.11, Vector3.BACK, 12), Vector3.BACK, -1.6)
+			_spin(C.gear_at(holder, Vector3(0.06, 1.1, 0.04), 0.07, Vector3.BACK, 9, "steel"), Vector3.BACK, 2.5)
+			C.part(holder, C.spring(5.0), C.mat("steel"), Vector3(-0.03, 1.1, 0.04), Vector3(0.06, 0.07, 0.06), Vector3(0, 0, PI * 0.5))
+			C.cable(holder, C.mat("wire_black"), Vector3(-0.09, 1.2, 0.04), Vector3(0.08, 1.07, 0.05), 0.03, 0.008)
+			C.cable(holder, C.mat("copper"), Vector3(0.09, 1.21, 0.03), Vector3(-0.07, 1.08, 0.05), 0.02, 0.005)
+			var panel := Node3D.new()
+			holder.add_child(panel)
+			C.part(panel, C.box(), C.mat("panel"), Vector3(0, 1.145, 0.078), Vector3(0.19, 0.15, 0.012))
+			for corner: Vector2 in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
+				C.part(panel, C.ball(), C.mat("brass"), Vector3(corner.x * 0.08, 1.145 + corner.y * 0.06, 0.086), Vector3.ONE * 0.011)
+			holder.set_meta(&"panel", panel)
+		&"head":
+			# an iron skull frame, its works, and the wiring to the eyes
+			C.part(holder, C.ball(), C.mat("iron"), Vector3(0, 1.735, 0.03), Vector3(0.15, 0.15, 0.17))
+			for k in 3:
+				C.span(holder, C.mat("steel"), Vector3(-0.07, 1.68 + k * 0.04, 0.06), Vector3(0.07, 1.68 + k * 0.04, 0.06), 0.008)
+			_spin(C.gear_at(holder, Vector3(0.03, 1.76, 0.085), 0.05, Vector3.BACK, 10), Vector3.BACK, 2.8)
+			_spin(C.gear_at(holder, Vector3(-0.025, 1.725, 0.09), 0.04, Vector3.BACK, 8, "steel"), Vector3.BACK, -3.5)
+			C.cable(holder, C.mat("wire_red"), Vector3(-0.05, 1.7, 0.05), Vector3(0.0, 1.65, 0.02), 0.01, 0.005)
+			C.cable(holder, C.mat("wire_red"), Vector3(0.05, 1.7, 0.05), Vector3(0.0, 1.65, 0.02), 0.01, 0.005)
+			C.span(holder, C.mat("steel"), Vector3(0, 1.6, 0.0), Vector3(0, 1.69, 0.02), 0.03)      # the neck post
+	_innards[region] = holder
+
+
+func _spin(node: Node3D, axis: Vector3, speed: float) -> void:
+	spin_parts.append([node, axis, speed])
+
+
+## Debris instead of meat: brass gears, springs, scraps of sheet metal, and
+## (from the head) shards of the porcelain face.
+func _throw_debris(pos: Vector3, dir: Vector3, count: int, porcelain: bool) -> void:
+	var C := Clockwork
+	for i in count:
+		var mesh: Mesh
+		var mat: Material
+		var r := _rng.randf_range(0.018, 0.034)
+		var pick := _rng.randi() % 4
+		if porcelain and i < 3:
+			mesh = C.shard(_rng.randi() % 6); mat = C.mat("porcelain"); r = _rng.randf_range(0.022, 0.04)
+		elif pick == 0 or pick == 1:
+			mesh = C.gear(8 + _rng.randi() % 8); mat = C.mat("brass" if pick == 0 else "steel")
+		elif pick == 2:
+			mesh = C.spring(4.0); mat = C.mat("steel")
+		else:
+			mesh = C.shard(10 + _rng.randi() % 6); mat = C.mat("panel")
+		var g := GoreBit.make(mesh, r * 0.7, 0.08)
+		g.oil = true
+		(g.get_child(0) as MeshInstance3D).material_override = mat
+		(g.get_child(0) as MeshInstance3D).scale = Vector3.ONE * r * 2.0
+		clown.get_parent().add_child(g)
+		g.global_position = pos + dir * 0.1 + Vector3(_rng.randf_range(-0.05, 0.05), _rng.randf_range(-0.05, 0.05), _rng.randf_range(-0.05, 0.05))
+		g.linear_velocity = dir * _rng.randf_range(2.0, 6.0) + Vector3.UP * _rng.randf_range(0.8, 3.5) + Vector3(_rng.randf_range(-1.5, 1.5), 0, _rng.randf_range(-1.5, 1.5))
+		g.angular_velocity = Vector3(_rng.randf_range(-15, 15), _rng.randf_range(-15, 15), _rng.randf_range(-15, 15))
+
+
+static func _cable_mesh() -> Mesh:
+	if not _cache.has("cablemesh"):
+		var c := CapsuleMesh.new()
+		c.radius = 0.012
+		c.height = 0.1
+		c.radial_segments = 6
+		c.rings = 2
+		c.material = Clockwork.mat("wire_black")
+		_cache["cablemesh"] = c
+	return _cache["cablemesh"]
+
+
+## A smashed knee joint: the steel thigh rod snapped and driven out through
+## the front, the knee's gear cracked, wires torn loose; oil and sparks.
+func _mech_broken_knee(side: String) -> void:
+	var skel := clown.skeleton
+	var s := 1.0 if side == "Left" else -1.0
+	var knee: Vector3 = skel.get_bone_global_rest(skel.find_bone(side + "LowerLeg")).origin
+	var C := Clockwork
+	for pair: Array in [[side + "UpperLeg", true], [side + "LowerLeg", false]]:
+		var att := BoneAttachment3D.new()
+		att.bone_name = pair[0]
+		skel.add_child(att)
+		var holder := Node3D.new()
+		att.add_child(holder)
+		holder.transform = skel.get_bone_global_rest(skel.find_bone(pair[0])).affine_inverse()
+		if pair[1]:
+			var p0 := knee + Vector3(s * 0.01, 0.08, -0.01)
+			var p1 := knee + Vector3(s * 0.025, -0.04, 0.16)
+			C.span(holder, C.mat("steel"), p0, p1, 0.022)
+			C.part(holder, C.shard(3), C.mat("steel"), p1, Vector3.ONE * 0.03, Vector3(0.4, 0.2, 0))
+			C.cable(holder, C.mat("wire_red"), knee + Vector3(0, 0.03, 0.05), knee + Vector3(s * 0.05, -0.06, 0.12), 0.03, 0.006)
+			C.cable(holder, C.mat("wire_black"), knee + Vector3(-s * 0.02, 0.02, 0.05), knee + Vector3(-s * 0.01, -0.08, 0.1), 0.02, 0.006)
+		else:
+			C.gear_at(holder, knee + Vector3(s * 0.08, -0.02, 0.0), 0.07, Vector3.RIGHT, 10)
+			C.span(holder, C.mat("iron"), knee + Vector3(s * 0.02, -0.12, 0.0), knee + Vector3(s * 0.12, -0.03, 0.06), 0.02)
+	var bi := skel.find_bone(side + "LowerLeg")
+	var world := skel.global_transform * clown.ragdoll.bone_pose(bi) * skel.get_bone_global_rest(bi).affine_inverse()
+	var front := world * (knee + Vector3(s * 0.02, 0.0, 0.06))
+	_add_wound_entry(StringName(side + "LowerLeg"), front, 0.075, 0.03, 0.035)
+	add_bleed(StringName(side + "LowerLeg"), front, 0.8)
+	Blood.spawn_hit(front, (world.basis * Vector3(0, 0.3, 1)).normalized(), 1.0, true)
+	MechFx.sparks(clown, front, (world.basis * Vector3(0, 0.3, 1)).normalized(), 1.5)
+	MechFx.sound(clown, "grind", front, 0.0)
+	set_process(true)
+	set_physics_process(true)
+	_bleeding = true
+
+
+## A gib off a clockwork body: field-grey cloth, an oily steel stump face
+## round a brass core, and it drips oil.
+func _mech_gib(gib: Gib, _seg: StringName) -> void:
+	if not clown.mechanical:
+		return
+	gib.oil = true
+	var mi := gib.get_child(0) as MeshInstance3D
+	if mi == null or mi.mesh == null:
+		return
+	for i in mi.mesh.get_surface_count():
+		var src := mi.mesh.surface_get_material(i) as BaseMaterial3D
+		var kind := src.resource_name if src else ""
+		var m: StandardMaterial3D
+		if kind == "Gore":
+			m = Clockwork.mat("iron")
+		elif kind == "BoneCore":
+			m = Clockwork.mat("brass")
+		else:
+			if not _cache.has("mech_cloth"):
+				var c := StandardMaterial3D.new()
+				c.albedo_texture = load(clown.spec.get("texture", "res://art/klapper/klapper_body.jpg"))
+				c.roughness = 0.85
+				c.cull_mode = BaseMaterial3D.CULL_DISABLED
+				_cache["mech_cloth"] = c
+			m = _cache["mech_cloth"]
+		mi.set_surface_override_material(i, m)
+
+
+## Where a limb came off a clockwork body: the stub of its rod sticking out,
+## two torn wires hanging, a burst of sparks and a spray of oil.
+func _mech_stump(seg: StringName, stump_pos: Vector3, impulse: Vector3, gib: Node3D) -> void:
+	var skel := clown.skeleton
+	var parent_bone := _stump_parent(seg)
+	var bone_name: StringName = SEGMENT_BONE.get(seg, seg)
+	var joint: Vector3 = skel.get_bone_global_rest(skel.find_bone(bone_name)).origin
+	var parent_rest: Vector3 = skel.get_bone_global_rest(skel.find_bone(parent_bone)).origin
+	var out := (joint - parent_rest).normalized()
+	var att := BoneAttachment3D.new()
+	att.bone_name = parent_bone
+	skel.add_child(att)
+	var holder := Node3D.new()
+	att.add_child(holder)
+	holder.transform = skel.get_bone_global_rest(skel.find_bone(parent_bone)).affine_inverse()
+	var C := Clockwork
+	C.span(holder, C.mat("steel"), joint - out * 0.04, joint + out * 0.05, 0.022)
+	C.part(holder, C.shard(5), C.mat("steel"), joint + out * 0.05, Vector3.ONE * 0.028)
+	var side := out.cross(Vector3.UP if absf(out.y) < 0.9 else Vector3.RIGHT).normalized()
+	C.cable(holder, C.mat("wire_red"), joint + side * 0.015, joint + out * 0.07 + side * 0.03, 0.04, 0.006)
+	C.cable(holder, C.mat("wire_black"), joint - side * 0.015, joint + out * 0.06 - side * 0.025, 0.05, 0.006)
+	var away := impulse.normalized() if impulse.length() > 0.01 else Vector3.UP
+	MechFx.sparks(clown, stump_pos, away, 2.0)
+	MechFx.sparks(clown, stump_pos, -away + Vector3.UP, 1.2)
+	MechFx.sound(clown, "spark", stump_pos, 0.0)
+	MechFx.sound(clown, "clatter", stump_pos, -3.0)
+	Blood.mist(stump_pos, away, 1.6, true)
+	# a few more spits of sparks from the torn wires over the next second
+	for k in 3:
+		get_tree().create_timer(0.2 + 0.3 * k).timeout.connect(func() -> void:
+			if is_instance_valid(holder) and holder.is_inside_tree():
+				MechFx.sparks(clown, holder.global_transform * (joint + out * 0.05), out, 0.5))
+	if gib and is_instance_valid(gib):
+		MechFx.sparks(clown, gib.global_position, -away, 0.8)

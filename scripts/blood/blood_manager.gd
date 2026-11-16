@@ -1,6 +1,11 @@
 extends Node
 ## Autoload "Blood": splatter decals, flying droplets, mist and growing pools.
 ## Everything is pooled and capped so a long fight cannot tank the frame rate.
+##
+## Every call takes an `oil` flag (last argument, default false). The
+## Klappersoldat bleeds machine oil instead: near-black splats, dark spray,
+## and oil puddles, which (unlike blood pools) are never recycled: they stay
+## until the floor is cleared.
 
 const LAYER_WORLD := 1
 const MAX_DECALS := 320
@@ -12,6 +17,7 @@ const FRESH := Color(1, 1, 1, 1)
 const DRIED := Color(0.55, 0.42, 0.40, 1)
 
 var _tex := {}                          # kind -> Array of [albedo, normal]
+var _tex_oil := {}                      # the same, in oil
 var _orm: Texture2D
 var _decals: Array[Decal] = []
 var _born := PackedFloat32Array()
@@ -22,11 +28,18 @@ var _drop_pos := PackedVector3Array()
 var _drop_vel := PackedVector3Array()
 var _drop_size := PackedFloat32Array()
 var _drop_life := PackedFloat32Array()
+var _drop_oil := PackedByteArray()
+var _decal_oil := PackedByteArray()
 
 var _pools: Array = []                  # {node, r, target, born}
 var _pool_material: ShaderMaterial
 var _pool_mesh: PlaneMesh
 var _mist: Array[GPUParticles3D] = []
+var _mist_oil: Array[GPUParticles3D] = []
+var _oil_material: ShaderMaterial
+var _oil_mesh: PlaneMesh
+## Oil puddles: permanent until clear() (a new floor). {node, r, target}
+var _oil_pools: Array = []
 var _mist_next := 0
 var _rng := RandomNumberGenerator.new()
 
@@ -39,6 +52,10 @@ func _ready() -> void:
 			var base := "res://art/blood/splat_%s_%d" % [spec[0], i]
 			list.append([load(base + ".png"), load(base + "_n.png")])
 		_tex[spec[0]] = list
+		var oil := []
+		for i in spec[1]:
+			oil.append([load("res://art/oil/splat_%s_%d.png" % [spec[0], i]), list[i][1]])
+		_tex_oil[spec[0]] = oil
 	_orm = load("res://art/blood/splat_orm.png")
 	for i in MAX_DECALS:
 		var d := Decal.new()
@@ -54,13 +71,21 @@ func _ready() -> void:
 		add_child(d)
 		_decals.append(d)
 	_born.resize(MAX_DECALS)
+	_decal_oil.resize(MAX_DECALS)
 	_pool_material = ShaderMaterial.new()
 	_pool_material.shader = load("res://shaders/blood_pool.gdshader")
 	_pool_material.set_shader_parameter("noise_tex", load("res://art/blood/pool_noise.png"))
 	_pool_mesh = PlaneMesh.new()
 	_pool_mesh.size = Vector2.ONE * POOL_QUAD_RADIUS * 2.0
 	_pool_mesh.material = _pool_material
-	_build_mist()
+	_oil_material = _pool_material.duplicate()
+	_oil_material.set_shader_parameter("thin_color", Color(0.055, 0.048, 0.036))
+	_oil_material.set_shader_parameter("deep_color", Color(0.011, 0.010, 0.008))
+	_oil_material.set_shader_parameter("sheen", 1.0)
+	_oil_mesh = _pool_mesh.duplicate()
+	_oil_mesh.material = _oil_material
+	_mist = _build_mist(Color(0.2, 0.01, 0.012, 0.9))
+	_mist_oil = _build_mist(Color(0.03, 0.027, 0.02, 0.92))
 
 
 func clear() -> void:
@@ -69,15 +94,18 @@ func clear() -> void:
 	for p in _pools:
 		p.node.queue_free()
 	_pools.clear()
-	_drop_pos.clear(); _drop_vel.clear(); _drop_size.clear(); _drop_life.clear()
+	for p in _oil_pools:
+		p.node.queue_free()
+	_oil_pools.clear()
+	_drop_pos.clear(); _drop_vel.clear(); _drop_size.clear(); _drop_life.clear(); _drop_oil.clear()
 
 
 # --- splatter -----------------------------------------------------------------
 ## A bullet passing through flesh at `pos` travelling along `dir`.
 ## `amount` 0..2 scales how much blood comes out.
-func spawn_hit(pos: Vector3, dir: Vector3, amount: float = 1.0) -> void:
+func spawn_hit(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false) -> void:
 	dir = dir.normalized()
-	_burst(pos, dir, amount)
+	_burst(pos, dir, amount, oil)
 	# Exit spray onto whatever is behind the target.
 	var rays := 2 + int(amount * 4.0)
 	for i in rays:
@@ -87,44 +115,47 @@ func spawn_hit(pos: Vector3, dir: Vector3, amount: float = 1.0) -> void:
 			continue
 		var dist: float = pos.distance_to(hit.position)
 		var size := _rng.randf_range(0.2, 0.5) * (0.55 + 0.6 * amount) * clampf(1.25 - dist * 0.16, 0.45, 1.0)
-		_splat_on(hit.position, hit.normal, d, size)
+		_splat_on(hit.position, hit.normal, d, size, oil)
 	# A little back spatter toward the shooter.
 	for i in 1 + int(amount):
 		var d := (-dir + _rand_unit() * 0.7).normalized()
 		var hit := _ray(pos + d * 0.05, pos + d * 1.6)
 		if not hit.is_empty():
-			spawn_decal(hit.position, hit.normal, _rng.randf_range(0.08, 0.2), "drip")
+			spawn_decal(hit.position, hit.normal, _rng.randf_range(0.08, 0.2), "drip", Vector3.ZERO, 1.0, 1.0, oil)
 	# Heavy drops that arc away and land on the floor.
 	for i in 3 + int(amount * 7.0):
 		var v := dir * _rng.randf_range(0.8, 4.2) + Vector3.UP * _rng.randf_range(0.3, 2.6) + _rand_unit() * 1.3
-		add_droplet(pos, v, _rng.randf_range(0.05, 0.13))
+		add_droplet(pos, v, _rng.randf_range(0.05, 0.13), oil)
 
 
 ## A single falling drop, for wounds that keep bleeding.
-func add_droplet(pos: Vector3, vel: Vector3, size: float = 0.07) -> void:
+func add_droplet(pos: Vector3, vel: Vector3, size: float = 0.07, oil := false) -> void:
 	if _drop_pos.size() >= MAX_DROPLETS:
 		return
 	_drop_pos.append(pos); _drop_vel.append(vel); _drop_size.append(size); _drop_life.append(4.0)
+	_drop_oil.append(1 if oil else 0)
 
 
-func _splat_on(pos: Vector3, normal: Vector3, travel: Vector3, size: float) -> void:
+func _splat_on(pos: Vector3, normal: Vector3, travel: Vector3, size: float, oil := false) -> void:
 	var facing: float = absf(travel.dot(normal))
 	var along := (travel - normal * travel.dot(normal))
 	if facing < 0.5 and along.length() > 0.05:
 		# Glancing hit: the blood smears along the surface.
-		spawn_decal(pos, normal, size * 1.1, "streak", along, 1.0, lerpf(2.2, 1.3, facing * 2.0))
+		spawn_decal(pos, normal, size * 1.1, "streak", along, 1.0, lerpf(2.2, 1.3, facing * 2.0), oil)
 	elif size > 0.3:
-		spawn_decal(pos, normal, size, "impact")
+		spawn_decal(pos, normal, size, "impact", Vector3.ZERO, 1.0, 1.0, oil)
 	else:
-		spawn_decal(pos, normal, size * 1.3, "spray", along)
+		spawn_decal(pos, normal, size * 1.3, "spray", along, 1.0, 1.0, oil)
 
 
 ## Place one decal. `along` (optional) points the texture's "up" along the surface.
-func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along: Vector3 = Vector3.ZERO, stretch_x: float = 1.0, stretch_z: float = 1.0) -> void:
+func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along: Vector3 = Vector3.ZERO, stretch_x: float = 1.0, stretch_z: float = 1.0, oil := false) -> void:
 	var d := _decals[_next]
 	_born[_next] = Time.get_ticks_msec() / 1000.0
+	_decal_oil[_next] = 1 if oil else 0
 	_next = (_next + 1) % MAX_DECALS
-	var pair: Array = _tex[kind][_rng.randi() % _tex[kind].size()]
+	var set_: Dictionary = _tex_oil if oil else _tex
+	var pair: Array = set_[kind][_rng.randi() % set_[kind].size()]
 	d.texture_albedo = pair[0]
 	d.texture_normal = pair[1]
 	var y := normal.normalized()
@@ -143,8 +174,11 @@ func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along
 
 # --- pools --------------------------------------------------------------------
 ## Start (or feed) a pool on the floor. `radius` is where it will stop spreading.
-func spawn_pool(pos: Vector3, normal: Vector3, radius: float) -> void:
+func spawn_pool(pos: Vector3, normal: Vector3, radius: float, oil := false) -> void:
 	radius = minf(radius, POOL_QUAD_RADIUS * 0.8)
+	if oil:
+		spawn_oil_puddle(pos, normal, radius)
+		return
 	for p in _pools:
 		if p.node.global_position.distance_to(pos) < 0.35:
 			p.target = minf(sqrt(p.target * p.target + radius * radius * 0.6), POOL_QUAD_RADIUS * 0.8)
@@ -171,18 +205,55 @@ func spawn_pool(pos: Vector3, normal: Vector3, radius: float) -> void:
 	_pools.append({node = m, r = 0.02, target = radius})
 
 
+## A puddle of machine oil. Permanent: no lifetime, no cap, never faded out;
+## only clear() (the floor being torn down) removes them. One landing within
+## 0.35 m of an existing puddle feeds that one instead of stacking another.
+func spawn_oil_puddle(pos: Vector3, normal: Vector3, radius: float) -> void:
+	radius = minf(radius, POOL_QUAD_RADIUS * 0.8)
+	for p in _oil_pools:
+		if p.node.global_position.distance_to(pos) < 0.35:
+			p.target = minf(sqrt(p.target * p.target + radius * radius * 0.6), POOL_QUAD_RADIUS * 0.8)
+			set_process(true)
+			return
+	var m := MeshInstance3D.new()
+	m.mesh = _oil_mesh
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	m.layers = 2
+	add_child(m)
+	var y := normal.normalized()
+	var x := y.cross(Vector3.FORWARD)
+	if x.length() < 0.01:
+		x = y.cross(Vector3.RIGHT)
+	x = x.normalized()
+	# a hair above any blood pool, so where they overlap the oil shows on top
+	m.global_transform = Transform3D(Basis(x, y, x.cross(y)).rotated(y, _rng.randf() * TAU), pos + y * 0.006)
+	m.set_instance_shader_parameter("seed", _rng.randf() * 10.0)
+	m.set_instance_shader_parameter("grow", 0.0)
+	m.set_instance_shader_parameter("fade", 1.0)
+	_oil_pools.append({node = m, r = 0.02, target = radius})
+
+
+## How many oil puddles there are (tests).
+func oil_puddle_count() -> int:
+	return _oil_pools.size()
+
+
 func _process(delta: float) -> void:
 	# Pools spread quickly at first and slow as they thin out.
 	for p in _pools:
 		if p.r < p.target - 0.002:
 			p.r += (p.target - p.r) * (1.0 - exp(-delta / 3.2))
 			p.node.set_instance_shader_parameter("grow", p.r / POOL_QUAD_RADIUS)
+	for p in _oil_pools:
+		if p.r < p.target - 0.002:
+			p.r += (p.target - p.r) * (1.0 - exp(-delta / 2.4))   # oil runs a little quicker
+			p.node.set_instance_shader_parameter("grow", p.r / POOL_QUAD_RADIUS)
 	# Darken a few decals each frame as the blood dries.
 	var now := Time.get_ticks_msec() / 1000.0
 	for i in 12:
 		_dry_cursor = (_dry_cursor + 1) % MAX_DECALS
 		var d := _decals[_dry_cursor]
-		if d.visible:
+		if d.visible and _decal_oil[_dry_cursor] == 0:      # oil does not dry
 			d.modulate = FRESH.lerp(DRIED, clampf((now - _born[_dry_cursor]) / DRY_TIME, 0.0, 1.0))
 
 
@@ -198,13 +269,13 @@ func _physics_process(delta: float) -> void:
 			var s := _drop_size[i]
 			var along: Vector3 = v - hit.normal * v.dot(hit.normal)
 			var slant: float = clampf(along.length() / maxf(v.length(), 0.01), 0.0, 1.0)
-			spawn_decal(hit.position, hit.normal, s * 2.2, "drip", along, 1.0, 1.0 + slant * 0.8)
+			spawn_decal(hit.position, hit.normal, s * 2.2, "drip", along, 1.0, 1.0 + slant * 0.8, _drop_oil[i] == 1)
 			_drop_life[i] = 0.0
 		if _drop_life[i] <= 0.0:
 			var last := _drop_pos.size() - 1
 			_drop_pos[i] = _drop_pos[last]; _drop_vel[i] = _drop_vel[last]
-			_drop_size[i] = _drop_size[last]; _drop_life[i] = _drop_life[last]
-			_drop_pos.resize(last); _drop_vel.resize(last); _drop_size.resize(last); _drop_life.resize(last)
+			_drop_size[i] = _drop_size[last]; _drop_life[i] = _drop_life[last]; _drop_oil[i] = _drop_oil[last]
+			_drop_pos.resize(last); _drop_vel.resize(last); _drop_size.resize(last); _drop_life.resize(last); _drop_oil.resize(last)
 		else:
 			_drop_pos[i] = q
 			_drop_vel[i] = v
@@ -222,7 +293,8 @@ func _rand_unit() -> Vector3:
 	return Vector3(_rng.randf_range(-1, 1), _rng.randf_range(-1, 1), _rng.randf_range(-1, 1)).limit_length(1.0)
 
 
-func _build_mist() -> void:
+func _build_mist(colour: Color) -> Array[GPUParticles3D]:
+	var list: Array[GPUParticles3D] = []
 	var grad := Gradient.new()
 	grad.set_color(0, Color(1, 1, 1, 1))
 	grad.set_color(1, Color(1, 1, 1, 0))
@@ -234,7 +306,7 @@ func _build_mist() -> void:
 	tex.width = 32
 	tex.height = 32
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.2, 0.01, 0.012, 0.9)
+	mat.albedo_color = colour
 	mat.albedo_texture = tex
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
@@ -269,17 +341,19 @@ func _build_mist() -> void:
 		g.emitting = false
 		g.layers = 2
 		add_child(g)
-		_mist.append(g)
+		list.append(g)
+	return list
 
 
 ## A puff of fine blood spray.
-func mist(pos: Vector3, dir: Vector3, amount: float = 1.0) -> void:
-	_burst(pos, dir, amount)
+func mist(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false) -> void:
+	_burst(pos, dir, amount, oil)
 
 
-func _burst(pos: Vector3, dir: Vector3, amount: float) -> void:
-	var g := _mist[_mist_next]
-	_mist_next = (_mist_next + 1) % _mist.size()
+func _burst(pos: Vector3, dir: Vector3, amount: float, oil := false) -> void:
+	var list := _mist_oil if oil else _mist
+	var g := list[_mist_next % list.size()]
+	_mist_next = (_mist_next + 1) % list.size()
 	g.global_position = pos
 	(g.process_material as ParticleProcessMaterial).direction = dir
 	g.amount_ratio = clampf(0.35 + amount * 0.45, 0.2, 1.0)

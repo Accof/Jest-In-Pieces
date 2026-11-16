@@ -11,6 +11,16 @@ const LAYER_WORLD := 1
 ## Seconds it can keep a run up, and the breather it then needs.
 @export var run_burst := 3.5
 @export var run_rest := 1.4
+## False: never breaks into a run or lunges (the Klappersoldat).
+@export var can_run := true
+## Melee swing: its length, when in it the blow lands, and the wait after.
+@export var attack_time := 0.55
+@export var attack_hit_at := 0.3
+@export var attack_recover := 0.95
+## Multiplies every step the body takes (a clockwork gait surges and stops).
+var speed_scale := 1.0
+## How fast it meant to move on its last step, before speed_scale (m/s).
+var intended_speed := 0.0
 ## Range a gunman tries to hold.
 @export var keep_distance := 6.5
 @export var weave_rate := 2.0
@@ -237,14 +247,14 @@ func _physics_process(delta: float) -> void:
 	if _attack_t >= 0.0:
 		_attack_t += delta
 		_face(flat, delta, 6.0)
-		clown.attack_amount = sin(clampf(_attack_t / 0.55, 0.0, 1.0) * PI)
-		if not _attack_hit and _attack_t > 0.3:
+		clown.attack_amount = sin(clampf(_attack_t / attack_time, 0.0, 1.0) * PI)
+		if not _attack_hit and _attack_t > attack_hit_at:
 			_attack_hit = true
 			if dist < melee_range + 0.35 and absf(to_player.y) < 1.6:
 				player.take_damage(melee_damage, flat.normalized())
-		if _attack_t > 0.55:
+		if _attack_t > attack_time:
 			_attack_t = -1.0
-			_cooldown = 0.95
+			_cooldown = attack_recover
 			clown.attack_amount = 0.0
 		_settle(delta, false)
 		return
@@ -321,7 +331,7 @@ func _physics_process(delta: float) -> void:
 	_burst -= delta
 	if _burst <= -run_rest:
 		_burst = randf_range(run_burst * 0.7, run_burst * 1.3)
-	var running := not hunting_blind and _burst > 0.0 and dist > 1.6
+	var running := can_run and not hunting_blind and _burst > 0.0 and dist > 1.6
 	# A melee clown charging down a straight line of fire jinks from side to side.
 	if running and seen and not clown.has_gun and dist > 3.0:
 		_weave += delta
@@ -341,7 +351,7 @@ func _physics_process(delta: float) -> void:
 		move = Vector3.ZERO
 	var speed := run_speed if running else move_speed
 	# The last couple of metres are a lunge.
-	if not clown.has_gun and seen and dist < 2.8 and _cooldown <= 0.0:
+	if can_run and not clown.has_gun and seen and dist < 2.8 and _cooldown <= 0.0:
 		speed = run_speed * 1.25
 	var vel := move.limit_length(1.0) * speed
 	_step(vel, delta)
@@ -526,7 +536,8 @@ func _keep_apart(want: Vector3, delta: float) -> Vector3:
 
 
 func _step(vel: Vector3, delta: float) -> void:
-	var want := Vector3(vel.x, 0.0, vel.z) * delta
+	intended_speed = Vector2(vel.x, vel.z).length()
+	var want := Vector3(vel.x, 0.0, vel.z) * delta * speed_scale
 	want = _keep_apart(want, delta)
 	var move := _collide(clown.global_position, want)
 	if want.length() > 0.004:
@@ -551,6 +562,7 @@ func _step(vel: Vector3, delta: float) -> void:
 
 
 func _settle(delta: float, drop_arm: bool = true) -> void:
+	intended_speed = 0.0
 	clown.walk_amount = move_toward(clown.walk_amount, 0.0, delta * 5.0)
 	clown.run_amount = move_toward(clown.run_amount, 0.0, delta * 4.0)
 	clown.velocity = Vector3.ZERO

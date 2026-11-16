@@ -100,8 +100,8 @@ func _skewer(pb: PhysicalBone3D, at: Vector3) -> void:
 		queue_free()
 		return
 	_clown.gore.add_wound(pb.bone_name, at + dir * 0.22, 70.0)       # out the back
-	Blood.spawn_hit(at + dir * 0.25, dir, 2.2)
-	Blood.spawn_hit(at, -dir, 0.8)
+	Blood.spawn_hit(at + dir * 0.25, dir, 2.2, _clown.mechanical)
+	Blood.spawn_hit(at, -dir, 0.8, _clown.mechanical)
 	# none of this body's other parts stop the stake now
 	for b: PhysicalBone3D in _clown.ragdoll.bones.values():
 		_exclude.append(b.get_rid())
@@ -137,12 +137,12 @@ func _embed(at: Vector3, normal: Vector3) -> void:
 	var dir := vel.normalized()
 	global_position = at + dir * 0.12
 	if _clown:
-		Blood.spawn_decal(at, normal, randf_range(0.7, 0.95), "impact")
+		Blood.spawn_decal(at, normal, randf_range(0.7, 0.95), "impact", Vector3.ZERO, 1.0, 1.0, _clown.mechanical)
 		var down := (Vector3.DOWN - normal * Vector3.DOWN.dot(normal)).normalized()
 		if down.length() > 0.1:
 			for i in 3:
-				Blood.spawn_decal(at + down * (0.2 + i * 0.22), normal, 0.32, "drip", down, 1.0, 2.0)
-		Blood.spawn_hit(at - dir * 0.1, -normal, 1.6)
+				Blood.spawn_decal(at + down * (0.2 + i * 0.22), normal, 0.32, "drip", down, 1.0, 2.0, _clown.mechanical)
+		Blood.spawn_hit(at - dir * 0.1, -normal, 1.6, _clown.mechanical)
 		var rd := _clown.ragdoll
 		get_tree().create_timer(0.6).timeout.connect(func() -> void:
 			if is_instance_valid(rd):

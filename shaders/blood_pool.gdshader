@@ -5,6 +5,8 @@ render_mode blend_mix, depth_draw_never, cull_back, shadows_disabled, specular_s
 uniform sampler2D noise_tex : repeat_enable, filter_linear_mipmap;
 uniform vec3 thin_color : source_color = vec3(0.13, 0.008, 0.010);
 uniform vec3 deep_color : source_color = vec3(0.035, 0.001, 0.003);
+// Oil (the Klappersoldat): a faint rainbow film over the dark surface. 0 for blood.
+uniform float sheen = 0.0;
 instance uniform float grow = 0.0;   // 0..1, pool radius as a fraction of the quad
 instance uniform float seed = 0.0;
 instance uniform float fade = 1.0;
@@ -22,6 +24,12 @@ void fragment() {
 	float edge = smoothstep(0.0, 0.008, d);
 	float depth = smoothstep(0.0, 0.05 + grow * 0.22, d);
 	ALBEDO = mix(thin_color, deep_color, depth);
+	if (sheen > 0.0) {
+		float film = n * 9.0 + r * 5.0 + dot(VIEW, NORMAL) * 4.0;
+		vec3 rainbow = 0.5 + 0.5 * cos(film + vec3(0.0, 2.1, 4.2));
+		// strongest in the thin film near the edge, barely there in the deep middle
+		ALBEDO += rainbow * sheen * 0.012 * (1.0 - depth * 0.7);
+	}
 	ROUGHNESS = mix(0.2, 0.025, depth);
 	SPECULAR = 0.5;
 	METALLIC = 0.0;

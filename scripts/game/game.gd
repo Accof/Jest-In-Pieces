@@ -36,6 +36,11 @@ const NEW_SAVE := {tickets = 0, best_floor = 0, total_kills = 0, perks = {}, sta
 	weapon_kills = {}, history = [], fortune = {}, start_weapon = 0}
 
 var state := State.MENU
+## Share of each floor's enemies that are Klappersoldats: from floor 2 at
+## klapper_base, rising by klapper_per_floor each floor, up to klapper_max.
+@export var klapper_base := 0.1
+@export var klapper_per_floor := 0.02
+@export var klapper_max := 0.2
 var floor_number := 0
 var kills := 0
 var run_tickets := 0
@@ -187,6 +192,8 @@ func next_floor() -> void:
 	var gun_share := clampf(0.12 + 0.06 * floor_number, 0.0, 0.5)
 	# WitzSoldats: riflemen in gas masks. One in eight on floor 1, rising to a third.
 	var soldier_share := clampf(0.07 + 0.05 * floor_number, 0.0, 0.33)
+	# Klappersoldats: clockwork infantry, from floor 2.
+	var klapper_share := clampf(klapper_base + klapper_per_floor * (floor_number - 2), 0.0, klapper_max) if floor_number >= 2 else 0.0
 	var cells := maze.cells_far_from(maze.start_cell, 3)
 	if cells.is_empty():
 		cells = maze.cells_far_from(maze.start_cell, 1)
@@ -196,8 +203,12 @@ func next_floor() -> void:
 	_clear_drums.call_deferred()
 	for i in maxi(count - seated, 0):
 		var cell: Vector2i = cells[rng.randi() % cells.size()]
-		var soldier := rng.randf() < soldier_share
-		var c := _spawn_clown(soldier, not soldier and rng.randf() < gun_share)
+		var c: Clown
+		if rng.randf() < klapper_share:
+			c = spawn_klapper()
+		else:
+			var soldier := rng.randf() < soldier_share
+			c = _spawn_clown(soldier, not soldier and rng.randf() < gun_share)
 		c.global_position = maze.cell_center(cell) + Vector3(rng.randf_range(-0.8, 0.8), 0, rng.randf_range(-0.8, 0.8))
 		c.rotation.y = rng.randf() * TAU
 	remaining = clowns.size()
@@ -224,6 +235,26 @@ func _spawn_clown(soldier: bool, gun: bool) -> Clown:
 	brain.run_speed = minf(rng.randf_range(4.9, 5.8) + 0.1 * floor_number, 6.8)
 	if soldier:
 		brain.rifleman()
+	brain.name = "Brain"
+	c.add_child(brain)
+	c.died.connect(_on_clown_died)
+	clowns.append(c)
+	return c
+
+
+## A Klappersoldat, set up like an ordinary soldier and then given its own
+## (slower, heavier-hitting, never-running) settings. Not yet placed.
+func spawn_klapper() -> Klappersoldat:
+	var c := Klappersoldat.new()
+	c.max_health = 100.0 * (1.0 + 0.1 * (floor_number - 1))     # the Klappersoldat multiplies this
+	_world.add_child(c)
+	var brain := ClownBrain.new()
+	brain.maze = maze
+	brain.player = player
+	brain.others = clowns
+	brain.move_speed = rng.randf_range(2.8, 3.5) + 0.06 * floor_number
+	brain.run_speed = minf(rng.randf_range(4.9, 5.8) + 0.1 * floor_number, 6.8)
+	c.setup_brain(brain)
 	brain.name = "Brain"
 	c.add_child(brain)
 	c.died.connect(_on_clown_died)

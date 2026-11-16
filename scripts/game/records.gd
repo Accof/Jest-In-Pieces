@@ -74,7 +74,7 @@ static func at_least(save: Dictionary, key: String, n: int) -> void:
 static func kill(save: Dictionary, c: Clown) -> void:
 	save.total_kills = int(save.get("total_kills", 0)) + 1
 	var d: Dictionary = c.death
-	add(save, "soldiers" if c.body == "witzsoldat" else "clowns")
+	add(save, "soldiers" if c.body in ["witzsoldat", "klappersoldat"] else "clowns")
 	if d.get("zone", &"") == &"Neck":
 		add(save, "headshots")
 	if d.get("blast", false):
