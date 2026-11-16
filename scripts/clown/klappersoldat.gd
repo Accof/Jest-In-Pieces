@@ -105,7 +105,7 @@ var _atk_marks := {}
 # eyes
 var _eye_mat: StandardMaterial3D
 var _eye_light: OmniLight3D
-var _eyes: Array[MeshInstance3D] = []
+var _eyes: Array = []
 var _flicker_t := 0.0
 var _eye_level := 1.0
 # dressing, by the body segment it moves with
@@ -667,10 +667,12 @@ func _eyes_update(d: float) -> void:
 
 func _spin(d: float) -> void:
 	var rate := _motor * (1.4 if _moving else 0.7)
+	# gears can be destroyed (a shot through the chest frees the ones in its
+	# path), so check before touching them and forget the ones that are gone
+	_spinners = _spinners.filter(func(sp: Array) -> bool: return is_instance_valid(sp[0]))
+	gore.spin_parts = gore.spin_parts.filter(func(sp: Array) -> bool: return is_instance_valid(sp[0]))
 	for sp: Array in _spinners + gore.spin_parts:
-		var n: Node3D = sp[0]
-		if is_instance_valid(n):
-			n.rotate_object_local(Vector3.BACK, float(sp[2]) * rate * d)
+		(sp[0] as Node3D).rotate_object_local(Vector3.BACK, float(sp[2]) * rate * d)
 	if _key and is_instance_valid(_key):
 		# the key turns in ticks, a notch at a time
 		var notch := floorf(Time.get_ticks_msec() / 450.0 * _motor)
@@ -735,29 +737,29 @@ func _head_damage(raw: float, pos: Vector3, dir: Vector3) -> void:
 	if _head_dmg >= 30.0 and not _face_cracked:
 		_face_cracked = true
 		for k: String in _face:
-			var mi: MeshInstance3D = _face[k]
+			var mi: Variant = _face[k]
 			if is_instance_valid(mi):
-				mi.material_override = Clockwork.face_mat(true)
+				(mi as MeshInstance3D).material_override = Clockwork.face_mat(true)
 		_shards(pos, -dir, 2)
 	if _head_dmg >= 75.0 or _head_open:
 		var local := skeleton.global_transform.affine_inverse() * pos
 		var side := "left" if local.x < 0.0 else "right"
 		if not is_instance_valid(_face.get(side)):
 			side = "right" if side == "left" else "left"
-		var piece: MeshInstance3D = _face.get(side)
+		var piece: Variant = _face.get(side)
 		if is_instance_valid(piece):
 			_face.erase(side)
-			piece.queue_free()
+			(piece as Node).queue_free()
 			_shards(pos, -dir + Vector3.UP * 0.3, 4)
 			MechFx.sparks(self, pos, -dir, 1.4)
 			MechFx.sound(self, "clatter", pos, -2.0, 1.3)
-			var eye := _eyes[0 if side == "left" else 1]
+			var eye: Variant = _eyes[0 if side == "left" else 1]
 			if is_instance_valid(eye):
-				eye.material_override = Clockwork.mat("iron")
+				(eye as MeshInstance3D).material_override = Clockwork.mat("iron")
 	if _head_dmg >= 140.0 and is_instance_valid(_face.get("jaw")):
-		var jaw: MeshInstance3D = _face["jaw"]
+		var jaw: Variant = _face["jaw"]
 		_face.erase("jaw")
-		jaw.queue_free()
+		(jaw as Node).queue_free()
 		_shards(pos, -dir, 3)
 
 
@@ -777,9 +779,9 @@ func _shards(pos: Vector3, dir: Vector3, count: int) -> void:
 ## A part came off: its brass joint cover (or the face, eyes and all) goes
 ## with the gib rather than staying in the air where the bone was.
 func _on_part_severed(segment: StringName, gib: Node3D) -> void:
-	for h: Node3D in _dress_parts.get(segment, []):
-		if is_instance_valid(h):
-			h.reparent(gib, true)
+	for h: Variant in _dress_parts.get(segment, []):
+		if is_instance_valid(h) and is_instance_valid(gib):
+			(h as Node3D).reparent(gib, true)
 	_dress_parts.erase(segment)
 	if segment == &"Head":
 		_eye_level = 0.0
@@ -829,8 +831,9 @@ func _dead_process(delta: float) -> void:
 			_residual_next = randf_range(0.2, 0.6) * (1.0 + t / _dead_for)
 			var bones := ragdoll.bones.values()
 			if not bones.is_empty():
-				var pb: PhysicalBone3D = bones.pick_random()
-				if is_instance_valid(pb):
+				var picked: Variant = bones.pick_random()
+				if is_instance_valid(picked):
+					var pb := picked as PhysicalBone3D
 					MechFx.sparks(self, pb.global_position, Vector3(randf_range(-1, 1), 1.0, randf_range(-1, 1)), 0.5 * (1.0 - t / _dead_for) + 0.2)
 					if randf() < 0.45:
 						MechFx.sound(self, "spark", pb.global_position, -8.0)

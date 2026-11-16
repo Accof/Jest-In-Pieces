@@ -338,6 +338,13 @@ func _gore() -> void:
 	_check(_has_flesh(k) == false, "no meat, bone or gut anywhere inside it")
 	_check(_oil_decals() > oil_before and _blood_decals_since(oil_before) == 0, "it splashes oil, not blood")
 	await _shot("2_gears")
+	# a shotgun point blank through the chest mid-swing: the gears in the
+	# shot's path are destroyed while the rest keep turning (this crashed once)
+	k.health = k.max_health * 10.0
+	k.hit({collider = chest, position = chest.global_position + Vector3(0, 0, 0.12), direction = -front, damage = 130.0, impulse = 6.0, can_dismember = true, shot_id = 99, weapon = "Shotgun", dist = 1.0})
+	for i in 30:
+		await get_tree().physics_frame
+	_check(k.gore._tunnels.size() == 1 and not k.dead, "a point-blank shotgun hole through the working chest, and it keeps going")
 	# an arm blown off
 	var arm: PhysicalBone3D = k.ragdoll.bones[&"LeftLowerArm"]
 	k.health = k.max_health

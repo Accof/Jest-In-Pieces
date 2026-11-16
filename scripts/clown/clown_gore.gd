@@ -840,11 +840,11 @@ func _mech_tear(region: StringName, size: float) -> void:
 		return
 	var holder: Node3D = _innards[region]
 	if (n >= 2 or size >= 0.1) and holder.has_meta(&"panel"):
-		var panel: Node3D = holder.get_meta(&"panel")
+		var panel: Variant = holder.get_meta(&"panel")
 		holder.remove_meta(&"panel")
 		if is_instance_valid(panel):
-			var at := panel.global_position
-			panel.queue_free()
+			var at: Vector3 = (panel as Node3D).global_position
+			(panel as Node3D).queue_free()
 			_throw_debris(at, (at - clown.ragdoll.bones[&"Chest"].global_position if clown.ragdoll.bones.has(&"Chest") else Vector3.UP).normalized(), 3, false)
 			MechFx.sound(clown, "clatter", at, -2.0)
 
