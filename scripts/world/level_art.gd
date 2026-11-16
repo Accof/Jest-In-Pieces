@@ -199,30 +199,49 @@ func _walls() -> void:
 						var face := centre + dv * (half + t)
 						_wall_quad(conc if bunker_style else "planks", face, -along, half, lb, top)
 						var u0 := centre + dv * (half - t); var u1 := centre + dv * (half + t)
-						_quad("ceil_conc" if bunker_style else "planks_dark", Vector3(u0.x, lb, u0.z) + along * half, Vector3(u1.x, lb, u1.z) + along * half, Vector3(u1.x, lb, u1.z) - along * half, Vector3(u0.x, lb, u0.z) - along * half)
-						_quad("ground", Vector3(u0.x, top, u0.z) - along * half, Vector3(u1.x, top, u1.z) - along * half, Vector3(u1.x, top, u1.z) + along * half, Vector3(u0.x, top, u0.z) + along * half)
+						# (underside faces down, top faces up: both were wound the wrong
+						# way and showed a strip of sky over every trench doorway)
+						_quad("ceil_conc" if bunker_style else "planks_dark", Vector3(u0.x, lb, u0.z) - along * half, Vector3(u1.x, lb, u1.z) - along * half, Vector3(u1.x, lb, u1.z) + along * half, Vector3(u0.x, lb, u0.z) + along * half)
+						_quad("ground", Vector3(u0.x, top, u0.z) + along * half, Vector3(u1.x, top, u1.z) + along * half, Vector3(u1.x, top, u1.z) - along * half, Vector3(u0.x, top, u0.z) - along * half)
 					continue
 				var face := centre + dv * (half - t)
 				var span := half - t
+				# How far the painted face runs each way. Into a corner it stops at
+				# the other wall's face; where the corridor carries on past the
+				# wall it runs on to the cell edge to meet the next cell's face;
+				# where the wall ends at an opening it runs to the wall's end, which
+				# the end cap below closes. Stopping short left a slit at every
+				# cell edge you could see straight through.
+				var reach: Array[float] = []
+				for side: int in [-1, 1]:
+					var nb := c + Vector2i(roundi(along.x) * side, roundi(along.z) * side)
+					if not (m.in_bounds(nb) and m.linked(c, nb)):
+						reach.append(half - t)
+					elif _blocked(nb, dir):
+						reach.append(half)
+					else:
+						reach.append(half + t)
+				var wface := face + along * (reach[1] - reach[0]) * 0.5
+				var wspan := (reach[0] + reach[1]) * 0.5
 				if trench:
-					_wall_quad("planks", face, along, span, f, f + 2.2)
-					_wall_quad("sandbags", face, along, span, f + 2.2, top)
+					_wall_quad("planks", wface, along, wspan, f, f + 2.2)
+					_wall_quad("sandbags", wface, along, wspan, f + 2.2, top)
 				elif bunker_style:
-					_wall_quad("wall_low", face, along, span, f, f + 0.9)
-					_wall_quad("wall_conc", face, along, span, f + 0.9, ceil)
+					_wall_quad("wall_low", wface, along, wspan, f, f + 0.9)
+					_wall_quad("wall_conc", wface, along, wspan, f + 0.9, ceil)
 					if not _stair_side(c, dir):
 						_bunker_wall_detail(c, dir, face, along, span, f, ceil)
 				else:
-					_wall_quad("planks_dark", face, along, span, f, f + 1.0)
-					_wall_quad(style, face, along, span, f + 1.0, ceil)
+					_wall_quad("planks_dark", wface, along, wspan, f, f + 1.0)
+					_wall_quad(style, wface, along, wspan, f + 1.0, ceil)
 				# top of the wall: ground level, plus the wall's end caps where it stops
 				var a := centre + dv * (half - t); var b := centre + dv * (half + t)
-				_quad("ground", Vector3(a.x, top, a.z) - along * (half + t), Vector3(b.x, top, b.z) - along * (half + t), Vector3(b.x, top, b.z) + along * (half + t), Vector3(a.x, top, a.z) + along * (half + t))
+				_quad("ground", Vector3(a.x, top, a.z) + along * (half + t), Vector3(b.x, top, b.z) + along * (half + t), Vector3(b.x, top, b.z) - along * (half + t), Vector3(a.x, top, a.z) - along * (half + t))
 				if not m.in_bounds(n):
 					_wall_quad(conc, centre + dv * (half + t), -along, half + t, 0.0, top)
 				for side: float in [-1.0, 1.0]:
 					var nb := c + Vector2i(int(along.x * side), int(along.z * side))
-					if m.in_bounds(nb) and m.linked(c, nb):
+					if m.in_bounds(nb) and m.linked(c, nb) and not _blocked(nb, dir):
 						var e := centre + dv * half + along * side * (half + t)
 						_wall_quad("planks_dark" if trench else conc, e, dv * side, t, f, top)
 				if trench:
@@ -664,7 +683,10 @@ func _corner_spot(c: Vector2i) -> Dictionary:
 		for sz: int in [-1, 1]:
 			var a := Vector2i(sx, 0); var b := Vector2i(0, sz)
 			if _blocked(c, a) and _blocked(c, b) and not _stair_side(c, a) and not _stair_side(c, b):
-				options.append(centre + Vector3(sx * 0.92, 0, sz * 0.92))
+				# a wide piece already against either wall reaches into this corner
+				if _used.has(_wall_key(c, a)) or _used.has(_wall_key(c, b)):
+					continue
+				options.append(_corner_pos(centre, sx, sz))
 	if options.is_empty():
 		return {}
 	var key := "%d,%d" % [c.x, c.y]
@@ -679,6 +701,14 @@ func _corner_spot(c: Vector2i) -> Dictionary:
 var _used := {}
 
 
+func _corner_pos(centre: Vector3, sx: int, sz: int) -> Vector3:
+	return centre + Vector3(sx * 0.92, 0, sz * 0.92)
+
+
+func _wall_key(c: Vector2i, dir: Vector2i) -> String:
+	return "w%d,%d,%d,%d" % [c.x, c.y, dir.x, dir.y]
+
+
 ## Against the middle of a blank wall, facing into the cell, or {}.
 func _wall_spot(c: Vector2i, depth: float) -> Dictionary:
 	var m := maze
@@ -689,11 +719,22 @@ func _wall_spot(c: Vector2i, depth: float) -> Dictionary:
 		if not _blocked(c, dir) or _stair_side(c, dir):
 			continue
 		var dv := Vector3(dir.x, 0, dir.y)
-		var key := "w%d,%d,%d,%d" % [c.x, c.y, dir.x, dir.y]
+		var key := _wall_key(c, dir)
 		if _used.has(key):
 			continue
-		_used[key] = true
+		# wall pieces are nearly a cell wide: both corners on this wall must be free
 		var along := Vector3(-dv.z, 0, dv.x)
+		var corners: Array = []
+		for k: int in [-1, 1]:
+			var a := Vector2i(dir.x, dir.y) + Vector2i(roundi(along.x) * k, roundi(along.z) * k)
+			corners.append(_corner_pos(centre, a.x, a.y))
+		var ckey := "%d,%d" % [c.x, c.y]
+		var used: Array = _used.get(ckey, [])
+		if used.has(corners[0]) or used.has(corners[1]):
+			continue
+		used.append_array(corners)
+		_used[ckey] = used
+		_used[key] = true
 		return {pos = centre + dv * (Maze.CELL * 0.5 - Maze.WALL_T * 0.5 - depth * 0.5 - 0.03), basis = Basis(along, Vector3.UP, -dv)}
 	return {}
 

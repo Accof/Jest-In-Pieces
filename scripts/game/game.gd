@@ -193,6 +193,7 @@ func next_floor() -> void:
 	clowns.clear()
 	# A table or two in the side rooms with some of them sat round it.
 	var seated := _place_tables(soldier_share)
+	_clear_drums.call_deferred()
 	for i in maxi(count - seated, 0):
 		var cell: Vector2i = cells[rng.randi() % cells.size()]
 		var soldier := rng.randf() < soldier_share
@@ -232,6 +233,17 @@ func _spawn_clown(soldier: bool, gun: bool) -> Clown:
 
 ## Tables in dead-end side rooms (one on early floors, now and then two),
 ## each with two or three sat round it. Returns how many were seated.
+## Fuel drums are placed with the rest of the dressing; once the tables are in
+## too, nudge any drum that ended up inside something.
+func _clear_drums() -> void:
+	await get_tree().physics_frame
+	if not is_instance_valid(maze):
+		return
+	for b: ExplosiveBarrel in get_tree().get_nodes_in_group(&"barrels"):
+		if is_instance_valid(b) and b.is_inside_tree():
+			b.clear_spot(maze.cell_center(maze.cell_of(b.global_position)))
+
+
 func _place_tables(soldier_share: float) -> int:
 	var rooms: Array[Vector2i] = []
 	for c: Vector2i in maze.side_cells:

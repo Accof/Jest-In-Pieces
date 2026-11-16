@@ -94,7 +94,7 @@ It fights from cover: after a shot in the open it looks within two corridor cell
 
 ## Fuel drums
 
-Red fuel drums stand in corners of the bunkers and halls (more on bigger floors). Shoot one and it goes up: a hard hit sets it off at once, a lighter one punches a hole that spits flame for a second first. Drums near a blast go up too.
+Red fuel drums stand in corners of the bunkers and halls (more on bigger floors), never inside a crate, a wall piece or a mess-table chair: once a floor is dressed, any drum that ended up inside something slides toward the middle of its cell until it stands clear, or is taken away. Shoot one and it goes up: a hard hit sets it off at once, a lighter one punches a hole that spits flame for a second first. Drums near a blast go up too.
 
 How badly a clown comes apart depends on how close it was (and whether anything stood between it and the drum):
 
@@ -186,6 +186,8 @@ godot --headless --fixed-fps 60 res://scenes/test_stairs_walk.tscn  # walks the 
 godot --path . res://scenes/test_punch.tscn                    # point-blank shotgun hole: renders /tmp/punch_*.png (needs a window)
 godot --path . res://scenes/test_soldier_pose.tscn             # WitzSoldat stand/walk/run/aim/thrust from the side, /tmp/pose_*.png (needs a window)
 godot --headless --fixed-fps 60 res://scenes/test_nav.tscn     # a crowd chasing the player round three floors with stairs: counts frames inside walls, sunk, beside a stair, stuck
+godot --headless res://scenes/test_drum_clear.tscn          # twelve floors: counts fuel drums standing inside anything solid (should be 0)
+godot res://scenes/test_seethrough.tscn -- 3 [full]          # needs a window: paints every pixel with its distance and checks it against physics rays from every cell; drawn further than the wall = a hole you can see through
 godot --headless --fixed-fps 60 res://scenes/test_wander.tscn  # unaware clowns wandering and searching: how often a step runs into a wall or doorway pillar
 godot --headless --fixed-fps 60 res://scenes/test_base.tscn    # title -> base -> every station -> a run with a table -> death -> base -> new game (--render for /tmp/base_*.png)
 godot --path . res://scenes/test_soldier_anim.tscn             # WitzSoldat walk cycle, side-step, carry/aim front and 3/4, three deaths; /tmp/sa_*.png and joint angles

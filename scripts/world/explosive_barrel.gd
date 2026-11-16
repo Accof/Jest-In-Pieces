@@ -32,6 +32,39 @@ func _ready() -> void:
 	add_child(cs)
 
 
+## Once the whole floor is dressed (tables and chairs included), make sure the
+## drum is not standing inside anything: slide it toward the middle of its cell
+## until it is clear, or take it away if there is no room.
+func clear_spot(towards: Vector3) -> void:
+	var space := get_world_3d().direct_space_state
+	var q := PhysicsShapeQueryParameters3D.new()
+	var cyl := CylinderShape3D.new()
+	cyl.radius = RADIUS + 0.02
+	cyl.height = HEIGHT - 0.1
+	q.shape = cyl
+	q.collision_mask = 1
+	q.exclude = [get_rid()]
+	var start := global_position
+	var flat := Vector3(towards.x - start.x, 0, towards.z - start.z)
+	var tries: Array[Vector3] = [Vector3.ZERO]
+	for k in range(1, 6):
+		var step := flat.normalized() * minf(0.15 * k, flat.length())
+		tries.append(step)
+		tries.append(step.rotated(Vector3.UP, 0.6))
+		tries.append(step.rotated(Vector3.UP, -0.6))
+	for t: Vector3 in tries:
+		q.transform = Transform3D(Basis.IDENTITY, start + t + Vector3.UP * (HEIGHT * 0.5 + 0.03))
+		var hits := space.intersect_shape(q, 4)
+		var blocked := false
+		for h: Dictionary in hits:
+			if not (h.collider is ExplosiveBarrel):
+				blocked = true
+		if not blocked:
+			global_position = start + t
+			return
+	queue_free()
+
+
 ## Called by the player's shots. A hit that does not set it off punches a hole
 ## that sprays burning fuel; it goes up a moment later anyway.
 func shot(at: Vector3, dir: Vector3, damage: float) -> void:
@@ -123,7 +156,7 @@ static func _drum_mesh() -> Mesh:
 			var a0 := TAU * i / seg
 			var a1 := TAU * (i + 1) / seg
 			var pts := [Vector3(0, y, 0), Vector3(sin(a1), 0, cos(a1)) * RADIUS + Vector3.UP * y, Vector3(sin(a0), 0, cos(a0)) * RADIUS + Vector3.UP * y]
-			if up > 0.0:
+			if up < 0.0:
 				pts = [pts[0], pts[2], pts[1]]
 			for p: Vector3 in pts:
 				caps.set_normal(Vector3.UP * up)
@@ -131,10 +164,10 @@ static func _drum_mesh() -> Mesh:
 				caps.add_vertex(p)
 	caps.commit(mesh)
 	var cm := StandardMaterial3D.new()
-	cm.albedo_color = Color(0.3, 0.06, 0.04)
+	cm.albedo_color = Color(0.62, 0.16, 0.1)
 	cm.albedo_texture = load("res://art/level/metal.png")
-	cm.metallic = 0.5
-	cm.roughness = 0.5
+	cm.metallic = 0.2
+	cm.roughness = 0.6
 	mesh.surface_set_material(1, cm)
 	_mesh = mesh
 	return _mesh
