@@ -162,6 +162,13 @@ var _atk_marks := {}
 # eyes
 var _eye_mat: StandardMaterial3D
 var _eye_light: OmniLight3D
+## How bright the eyes burn (emission), the glow round them (metres across),
+## and the little light they throw on the face.
+@export var eye_glow := 14.0
+@export var eye_halo_size := 0.13
+@export var eye_light_energy := 0.2
+var _halo_mat: StandardMaterial3D
+var _halos := {}                 # 1.0 / -1.0 -> halo quad
 var _eyes: Array = []
 var _flicker_t := 0.0
 var _eye_level := 1.0
@@ -254,14 +261,27 @@ func _dress() -> void:
 	# light: two dim amber eyes, glowing from inside the porcelain sockets.
 	var head := _holder("Head", &"Head")
 	_eye_mat = Clockwork.mat("amber").duplicate()
+	_halo_mat = _make_halo_mat()
 	for e: Vector3 in spec.get("eyes", []):
 		var eye := Clockwork.part(head, Clockwork.ball(), _eye_mat, e + Vector3(0, 0, -0.004), Vector3.ONE * 0.016)
 		_eyes.append(eye)
 		_eye_side[signf(e.x)] = eye
+		# a soft glow round each eye that carries a long way in the dark
+		var halo := MeshInstance3D.new()
+		var q := QuadMesh.new()
+		q.size = Vector2.ONE * eye_halo_size
+		q.material = _halo_mat
+		halo.mesh = q
+		halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		halo.layers = 2
+		halo.position = e + Vector3(0, 0, 0.05)        # out in front of the face, so the porcelain never hides it
+		halo.name = "Halo"
+		head.add_child(halo)
+		_halos[signf(e.x)] = halo
 	_eye_light = OmniLight3D.new()
 	_eye_light.light_color = Color(1.0, 0.55, 0.18)
-	_eye_light.omni_range = 0.45
-	_eye_light.light_energy = 0.06
+	_eye_light.omni_range = 0.7
+	_eye_light.light_energy = eye_light_energy
 	_eye_light.shadow_enabled = false
 	var eyes: Array = spec.get("eyes", [Vector3(0, 1.74, 0.1)])
 	_eye_light.position = (eyes[0] as Vector3) * Vector3(0, 1, 1) + Vector3(0, 0, 0.2)
@@ -688,10 +708,37 @@ func _eyes_update(d: float) -> void:
 	if _flicker_t > 0.0:
 		_flicker_t -= d
 		lit *= 0.15 if fmod(Time.get_ticks_msec() / 45.0, 2.0) < 1.0 and randf() < 0.7 else 1.0
-	_eye_mat.emission_energy_multiplier = 2.2 * lit
+	_eye_mat.emission_energy_multiplier = eye_glow * lit
 	_eye_mat.albedo_color = Color(1.0, 0.6, 0.2).lerp(Color(0.15, 0.1, 0.05), 1.0 - lit)
+	if _halo_mat:
+		_halo_mat.albedo_color = Color(1.0, 0.55, 0.15, 1.0) * Color(1.6 * lit, 1.6 * lit, 1.6 * lit, lit)
 	if _eye_light and is_instance_valid(_eye_light):
-		_eye_light.light_energy = 0.06 * lit
+		_eye_light.light_energy = eye_light_energy * lit
+
+
+## A soft round glow, drawn additive and always facing the camera.
+static func _make_halo_mat() -> StandardMaterial3D:
+	var g := Gradient.new()
+	g.set_color(0, Color(1, 1, 1, 1))
+	g.set_color(1, Color(1, 1, 1, 0))
+	g.add_point(0.18, Color(1, 1, 1, 0.75))
+	g.add_point(0.45, Color(1, 1, 1, 0.18))
+	var tex := GradientTexture2D.new()
+	tex.gradient = g
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(1.0, 0.5)
+	tex.width = 64
+	tex.height = 64
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	m.albedo_texture = tex
+	m.albedo_color = Color(1.6, 0.88, 0.24, 1.0)
+	m.disable_receive_shadows = true
+	return m
 
 
 func _spin(d: float) -> void:
@@ -783,6 +830,9 @@ func _head_damage(raw: float, pos: Vector3, dir: Vector3) -> void:
 		var eye: Variant = _eye_side.get(side)
 		if is_instance_valid(eye):
 			(eye as MeshInstance3D).material_override = Clockwork.mat("iron")
+		var halo: Variant = _halos.get(side)
+		if is_instance_valid(halo):
+			(halo as Node3D).visible = false
 
 
 func _shards(pos: Vector3, dir: Vector3, count: int) -> void:

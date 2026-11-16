@@ -102,7 +102,7 @@ It fights from cover: after a shot in the open it looks within two corridor cell
 
 ## Der Klappersoldat
 
-A WW1 German infantryman built out of clockwork by a deranged carnival engineer: dark uniform, Stahlhelm, a cracked porcelain clown face with a fixed grin, a red nose and dim amber eyes, a red ruff, a brass wind-up key, and brass joints at the elbows and knees. It turns up from floor 2 (10% of a floor's enemies, 2% more each floor, at most 20%; `klapper_base`, `klapper_per_floor`, `klapper_max` on the game node).
+A WW1 German infantryman built out of clockwork by a deranged carnival engineer: dark uniform, Stahlhelm, a cracked porcelain clown face with a fixed grin, a red nose and burning amber eyes (bright enough to bloom, with a soft glow round each, so they read in the dark from the far end of a corridor; `eye_glow`, `eye_halo_size`, `eye_light_energy`), a red ruff, a brass wind-up key, and brass joints at the elbows and knees. It turns up from floor 2 (10% of a floor's enemies, 2% more each floor, at most 20%; `klapper_base`, `klapper_per_floor`, `klapper_max` on the game node).
 
 It is slow (0.45 of a soldier's walking speed, never runs, never lunges), very tough (4x an ordinary enemy's health: about 13 pistol rounds to the body or 4 to the head; blowing part of its skull open does not kill it outright) and hits harder (1.25x) with one slow, telegraphed blow: the arm is cranked up overhead in three ratchet clicks, held cocked, brought down in one abrupt strike about a second in, then cranked slowly back. A strong hit (20+) staggers it one time in five; everything else only jolts it and it keeps coming. Every setting is an export on `Klappersoldat` (`scripts/clown/klappersoldat.gd`).
 
