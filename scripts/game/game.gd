@@ -75,6 +75,8 @@ var kill_cam: KillCam
 ## The final-kill fanfare shown over the end of the killcam.
 var brutality: BrutalityReport
 var last_report := {}
+var _pending_report := {}
+var _exit_banner_due := false
 var _floor_finale := false
 var events: EventManager
 var _event_upgrade := false
@@ -147,9 +149,11 @@ func _make_player() -> void:
 		brutality.name = "Brutality"
 		add_child(brutality)
 		kill_cam.focus_started.connect(_on_finale_focus)
-		kill_cam.finished.connect(func() -> void:
-			if kill_cam.aborted != "" and brutality:
-				brutality.clear())
+		kill_cam.finished.connect(_on_finale_over)
+		brutality.done.connect(func() -> void:
+			if _exit_banner_due and state == State.PLAYING:
+				_flash("EXIT OPEN")
+			_exit_banner_due = false)
 	kill_cam.stop("new player")
 	kill_cam.player = player
 	kill_cam.hide_nodes = [_hud, _health_bar, _banner]
@@ -353,10 +357,25 @@ func _clear_floor() -> void:
 ## The killcam has come back to full speed on the last body: the coroner's
 ## report, its brutality score and the tickets it is worth, with fanfare.
 func _on_finale_focus(c: Clown) -> void:
+	_pending_report = {}
 	if c == null or not is_instance_valid(c):
 		return
-	last_report = Injuries.assess(c)
-	kill_cam.hold(brutality.show_report(last_report))
+	# worked out now, while the body is fresh; shown once the camera is back
+	_pending_report = Injuries.assess(c)
+
+
+## The killcam is completely over and the view is back with the player: now
+## the brutality report and its tickets. (Nothing if it was cut short.)
+func _on_finale_over() -> void:
+	var r := _pending_report
+	_pending_report = {}
+	if kill_cam.aborted != "" or r.is_empty() or state != State.PLAYING:
+		if _exit_banner_due and state == State.PLAYING:
+			_flash("EXIT OPEN")
+		_exit_banner_due = false
+		return
+	last_report = r
+	brutality.show_report(last_report)
 	run_tickets += int(last_report.tickets)
 	Records.add(save, "brutality_tickets", int(last_report.tickets))
 	save["best_brutality"] = maxi(int(save.get("best_brutality", 0)), int(last_report.score))
@@ -387,10 +406,7 @@ func _on_clown_died(c: Clown) -> void:
 		_floor_finale = true
 		_slow_until = 0
 		if kill_cam and kill_cam.play(c):
-			# the banner waits until the camera is back with the player
-			kill_cam.finished.connect(func() -> void:
-				if state == State.PLAYING:
-					_flash("EXIT OPEN"), CONNECT_ONE_SHOT)
+			_exit_banner_due = true       # shown once the camera and the report are done
 		else:
 			_flash("EXIT OPEN")
 	if remaining <= 0:
@@ -726,6 +742,8 @@ func _set_state(s: State) -> void:
 		n.queue_free()
 	if s != State.MENU and main_menu:
 		main_menu.close()
+	if s != State.PLAYING and brutality and brutality.shown:
+		brutality.clear()
 	_hud.visible = s in [State.PLAYING, State.UPGRADE, State.BASE]
 	_health_bar.visible = _hud.visible
 	match s:

@@ -342,6 +342,7 @@ func _fall() -> void:
 	room.add_child(c)
 	c.global_position = Vector3(0, 5.0, -0.3)       # right on the edge (the platform ends at z = 0)
 	c.rotation.y = PI
+	c.force_variant = "blown_back"                  # backwards, off the edge (it faces the player)
 	await _frames(5)
 	p.look_at(Vector3(c.global_position.x, p.global_position.y, c.global_position.z))
 	var chest: PhysicalBone3D = c.ragdoll.bones[&"Chest"]
@@ -502,26 +503,34 @@ func _report() -> void:
 	var tickets_before: int = game.run_tickets
 	await _frames(1)
 	_check(kc.active, "the last kill starts the killcam")
-	var saw_report := false
-	var lines_max := 0
+	var during := false
 	var t_real := 0.0
 	var n := 0
 	while kc.active and n < 1500:
 		await get_tree().process_frame
 		n += 1
 		t_real += get_process_delta_time() / maxf(Engine.time_scale, 0.01)
-		if game.brutality.shown:
-			saw_report = true
-			lines_max = maxi(lines_max, game.brutality.lines_shown)
+		during = during or (kc.active and game.brutality.shown)
 		if render and n % 12 == 0:
 			await _shot("report_%03d" % (n / 12))
+	_check(not during, "nothing of the report while the killcam runs (%.2f s)" % t_real)
+	_check(t_real > 3.0 and t_real < 6.0, "the killcam is its usual length again (%.2f s)" % t_real)
+	_check(get_viewport().get_camera_3d() == p.camera and not p.cinematic and Engine.time_scale == 1.0, "back with the player, all restored, before the report")
+	await _frames(2)
+	_check(game.brutality.shown, "then the report starts")
+	var lines_max := 0
+	var m := 0
+	while game.brutality.shown and m < 900:
+		await get_tree().process_frame
+		m += 1
+		lines_max = maxi(lines_max, game.brutality.lines_shown)
+		if render and m % 12 == 0:
+			await _shot("report_after_%03d" % (m / 12))
 	var r: Dictionary = game.last_report
 	print("      report: %s" % _report_text(r))
-	print("      score %d, %s, %d tickets; killcam %.2f s real" % [r.get("score", 0), r.get("rank", "?"), r.get("tickets", 0), t_real])
-	_check(saw_report and lines_max == (r.lines as Array).size(), "the report ran over the killcam, every injury shown (%d)" % lines_max)
-	_check(game.run_tickets - tickets_before == int(r.tickets) + 0, "its tickets were paid (%d)" % (game.run_tickets - tickets_before))
-	_check(t_real > 6.0 and t_real < 14.0, "the killcam waited for it (%.2f s)" % t_real)
-	_check(not kc.active and Engine.time_scale == 1.0 and get_viewport().get_camera_3d() == p.camera and not p.cinematic, "then back to the player, all restored")
-	await _frames(40)
+	print("      score %d, %s, %d tickets; report %.1f s" % [r.get("score", 0), r.get("rank", "?"), r.get("tickets", 0), m / 60.0])
+	_check(lines_max == (r.lines as Array).size(), "every injury shown (%d)" % lines_max)
+	_check(game.run_tickets - tickets_before == int(r.tickets), "its tickets were paid (%d)" % (game.run_tickets - tickets_before))
+	_check(game.brutality.volume_db <= -10.0, "its sounds are turned down (%.0f dB)" % game.brutality.volume_db)
 	_check(not game.brutality.shown, "and the report is gone")
 

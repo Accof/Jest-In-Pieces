@@ -13,6 +13,8 @@ signal done
 const SFX := "res://art/ui/sfx/%s.wav"
 @export var line_gap := 0.36          ## seconds between injuries
 @export var hold := 1.7               ## on screen once it is all up
+## All its sounds are played this much quieter (dB).
+@export var volume_db := -12.0
 
 var shown := false                    ## tests
 var tickets_shown := 0
@@ -303,5 +305,5 @@ func _sfx_play(sound: String, db := 0.0) -> void:
 	var pl := _sfx[_sfx_i]
 	_sfx_i = (_sfx_i + 1) % _sfx.size()
 	pl.stream = load(path)
-	pl.volume_db = db
+	pl.volume_db = db + volume_db
 	pl.play()
