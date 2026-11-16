@@ -40,7 +40,11 @@ var spec: Dictionary
 @export var freeze_after := 6.0
 ## Chance that a clown caught close to an explosion is torn in half and lives,
 ## crawling away on its arms until it bleeds out.
-@export var crawl_chance := 0.4
+## Close to a blast (but not on top of it): the chance it is torn in half at
+## the waist, and of those, the share that live a while and crawl. The rest
+## are dead: the legs go one way, the top half the other.
+@export var halve_chance := 0.4
+@export var crawl_share := 0.5
 ## True while this clown is a torso dragging itself along the floor.
 var crawling := false
 ## "Left" or "Right" once that leg is broken: it limps, and the knee bends wrong.
@@ -61,6 +65,7 @@ var last_hit_zone := &""         # where the killing shot landed
 ## How it died, for the lifetime stats: weapon name, zone, and flags
 ## (blast, stake, seated...). Filled in by _die before `died` goes out.
 var death := {}
+var _halved := false                 # torn in half by a blast (dead or crawling)
 var skeleton: Skeleton3D
 var mesh: MeshInstance3D
 var ragdoll: ClownRagdoll
@@ -271,7 +276,7 @@ func _die(info: Dictionary, zone: StringName) -> void:
 		weapon = info.get("weapon", "Stake Gun" if info.get("stake", false) else ""),
 		zone = zone, blast = info.get("blast", false), stake = info.get("stake", false),
 		head_open = _head_open, limbs = limbs, broken_leg = broken_leg != "",
-		crawler = crawling, through = gore._tunnels.size() > 0,
+		crawler = crawling or _halved, through = gore._tunnels.size() > 0,
 	}
 	died.emit(self)
 
@@ -541,9 +546,13 @@ func caught_in_blast(center: Vector3, radius: float) -> void:
 		return
 	var away := to / maxf(d, 0.01)
 	var dir := (Vector3(away.x, 0, away.z).normalized() + Vector3.UP * lerpf(0.25, 0.6, s)).normalized()
-	# Close, but not right on top of it: sometimes torn in half and still alive.
-	if not dead and not crawling and s > 0.5 and s < 0.86 and cover.is_empty() and randf() < crawl_chance:
-		_tear_in_half(center, dir, s)
+	# Close, but not right on top of it: sometimes torn in half; some of
+	# those are still alive.
+	if not dead and not crawling and s > 0.5 and s < 0.86 and cover.is_empty() and randf() < halve_chance:
+		if randf() < crawl_share:
+			_tear_in_half(center, dir, s)
+		else:
+			_halve_dead(center, dir, s)
 		return
 	var was_dead := dead
 	var limbs := _blast_gore(center, dir, s)
@@ -670,6 +679,23 @@ func _tear_in_half(center: Vector3, dir: Vector3, s: float) -> void:
 	crawler.name = "Crawler"
 	add_child(crawler)
 	crawler.begin(self, b.maze if b else null, dir)
+
+
+## Torn in half and killed outright: the legs fly off as one piece, the top
+## half is thrown, dead, trailing its guts.
+func _halve_dead(center: Vector3, dir: Vector3, s: float) -> void:
+	if has_helmet and randf() < 0.6:
+		knock_off_helmet(dir, _bone_world(&"Neck"))
+	gore.cut_waist(dir * lerpf(4.0, 7.0, s) + Vector3.UP * 1.5)
+	for i in 4:
+		var bn: StringName = [&"Chest", &"Spine", &"LeftUpperArm", &"RightUpperArm", &"Neck"].pick_random()
+		gore.add_wound(bn, _bone_world(bn) + (center - _bone_world(bn)).normalized() * 0.1, 30.0)
+	health = 0.0
+	last_hit_zone = &"Spine"
+	var fling := dir * lerpf(3.0, 9.0, s) * randf_range(0.85, 1.1)
+	ragdoll.max_bone_speed = 26.0
+	_halved = true
+	_die({direction = dir, heavy = true, blast = true, collider = ragdoll.bones[&"Chest"], fling = fling}, &"Spine")
 
 
 ## Called by the crawler when the minute is up.

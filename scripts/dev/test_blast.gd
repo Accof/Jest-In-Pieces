@@ -41,10 +41,9 @@ func _run() -> void:
 		room.add_child(c)
 		c.position = centre + Vector3(cos(a), 0, sin(a)) * dists[i]
 		c.rotation.y = randf() * TAU
-		if i == 2:
-			c.crawl_chance = 1.0
-		else:
-			c.crawl_chance = 0.0
+		# 2.3 m: torn in half and crawling; 3.0 m: torn in half and dead
+		c.halve_chance = 1.0 if i in [2, 3] else 0.0
+		c.crawl_share = 1.0 if i == 2 else 0.0
 		clowns.append(c)
 		room.clowns.append(c)
 	var start := {}
@@ -70,7 +69,7 @@ func _run() -> void:
 		var c := clowns[i]
 		var hips: PhysicalBone3D = c.ragdoll.bones.get(&"Chest")
 		var moved: float = (hips.global_position - start[c]).length() if hips else 0.0
-		print("%.1fm: dead=%s crawling=%s health=%.0f limbs_off=%d head_open=%s chest moved %.1fm" % [dists[i], c.dead, c.crawling, c.health, _count_bits(c.gore.hidden_mask), c._head_open, moved])
+		print("%.1fm: dead=%s crawling=%s halved=%s health=%.0f limbs_off=%d head_open=%s chest moved %.1fm" % [dists[i], c.dead, c.crawling, c._halved, c.health, _count_bits(c.gore.hidden_mask), c._head_open, moved])
 	print("player health %.0f -> %.0f" % [hp, room.player.health])
 	# the crawler: does it move, and does it die by itself?
 	var cr := clowns[2]

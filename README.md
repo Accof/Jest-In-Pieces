@@ -101,7 +101,7 @@ How badly a clown comes apart depends on how close it was (and whether anything 
 - **Right next to it:** thrown across the room or into the walls, two or three limbs torn off, belly and ribs blown open, often part of the skull gone. Every part that hits a wall at speed bursts blood across it.
 - **A couple of metres:** guts out, ribs showing, maybe a piece of skull and a limb, flung a few metres.
 - **Further:** peppered with wounds and knocked down, or knocked about and very angry.
-- **Torn in half (40% of clowns caught at 1-3 m):** the legs go flying, the torso lives. It drags itself away from you on its hands, guts trailing, smearing a blood trail and stopping to gasp in its own pool. It bleeds out after a minute, or you can finish it.
+- **Torn in half (40% of clowns caught at 1-3 m):** the legs go flying one way and the torso the other. Half of them are dead outright. The other half live: the torso drags itself away from you on its hands, guts trailing, smearing a blood trail and stopping to gasp in its own pool. It bleeds out after a minute, or you can finish it.
 
 The blast hurts you too (up to 85 at point blank, much less behind cover) and shakes the view. In the gore sandbox there are three drums among the clowns.
 
@@ -164,7 +164,7 @@ All of these are in `clown_ragdoll.gd`.
 - **Stake gun:** `SPEED`, `CARRY_SPEED`, `MAX_CARRY` in `stake.gd`; reload timing `STAKE_RELOAD` / `STAKE_SEAT` in `view_model.gd`.
 - **Legs and cover:** `knee_damage`, `KNEE_RADIUS`, `leg_off_chance` and the get-up timing (`GETUP_KNEEL`, `GETUP_STAND`) in `clown.gd`; how slow a limper is in `limp()` in `clown_brain.gd`; cover search and timings in `_find_cover()` and `_cover_fight()` there.
 - **Events:** which rooms exist and how they are dealt out in `event_manager.gd` (`FEATURES`, `ODDITIES`); doors per floor `MAX_EVENT_DOORS` in `level_art.gd`; the nest's waves, time and prize tiers at the top of `mg_nest.gd`; the gun's heat in `mounted_gun.gd`; the Maxim's numbers in `WEAPONS` / `MOUNTED_MG` in `fps_player.gd`.
-- **Explosions:** `RADIUS` and `PLAYER_DAMAGE` in `scripts/fx/explosion.gd`; `toughness` on the drum (`explosive_barrel.gd`); how hard and how messily clowns are thrown in `caught_in_blast()` and `_blast_gore()` in `clown.gd`; `crawl_chance` on the clown for being torn in half; `life` and `speed` in `clown_crawler.gd`; how many drums per floor in `_dress_bunker()` in `level_art.gd`.
+- **Explosions:** `RADIUS` and `PLAYER_DAMAGE` in `scripts/fx/explosion.gd`; `toughness` on the drum (`explosive_barrel.gd`); how hard and how messily clowns are thrown in `caught_in_blast()` and `_blast_gore()` in `clown.gd`; `halve_chance` on the clown for being torn in half and `crawl_share` for how many of those live and crawl; `life` and `speed` in `clown_crawler.gd`; how many drums per floor in `_dress_bunker()` in `level_art.gd`.
 - **Blood budget:** `MAX_DECALS`, `MAX_POOLS`, `DRY_TIME` in `blood_manager.gd`.
 
 ## Checks
