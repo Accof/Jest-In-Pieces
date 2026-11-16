@@ -38,6 +38,10 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 
 Continue (to the base), New Game, Quit. New Game asks first, then wipes everything: tickets, perks, trophies, every stat, the fortune and the armoury choice. The automated tests use their own save file (`clown_save_test.json`) so they never touch yours.
 
+## Title screen art
+
+The title screen fades slowly between two splash paintings (`art/ui/menu/`: the Klappersoldat peering round a bunker corner; a clown mask in the trench mud with the burning fair beyond), each pushing in a little while it is up (`hold_seconds` 7, `fade_seconds` 2.5, `drift_zoom` on `MainMenu`, `scripts/ui/main_menu.gd`), darkened on the left under the menu and round the edges. The title and menu are in German blackletter in fairground colours: "Jest in Pieces" in UnifrakturMaguntia, cream with a circus-red outline; "Ein Karneval des Grauens · 1916" in gold; the buttons in UnifrakturCook, alternating red with cream lettering and cream with red like the bunting, edged in gold, turning gold under the mouse or keyboard; the small print in Grenze Gotisch. The fonts are SIL Open Font License (`art/ui/fonts/`, licences alongside). `scenes/look_menu.tscn` films it (needs a window).
+
 ## The base
 
 A forward command bunker the circus moved into: concrete, sandbags, crates, a field telephone, bunting and strings of fairground bulbs, a carousel horse's head on a brass pole, a gramophone, an army cot where you come round after each death. Walk about and press [E]:

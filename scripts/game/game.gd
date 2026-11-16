@@ -63,6 +63,7 @@ var _world: Node3D
 var _exit: Node3D
 var _exit_light: OmniLight3D
 var _ui: CanvasLayer
+var main_menu: MainMenu
 var _hud: Label
 var _health_bar: ProgressBar
 var _banner: Label
@@ -681,6 +682,9 @@ func _build_exit() -> void:
 
 # --- interface ------------------------------------------------------------------
 func _build_ui() -> void:
+	main_menu = MainMenu.new()
+	main_menu.name = "MainMenu"
+	add_child(main_menu)
 	_ui = CanvasLayer.new()
 	_ui.layer = 5
 	add_child(_ui)
@@ -720,6 +724,8 @@ func _set_state(s: State) -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if s in [State.PLAYING, State.BASE] else Input.MOUSE_MODE_VISIBLE
 	for n in _panel.get_children():
 		n.queue_free()
+	if s != State.MENU and main_menu:
+		main_menu.close()
 	_hud.visible = s in [State.PLAYING, State.UPGRADE, State.BASE]
 	_health_bar.visible = _hud.visible
 	match s:
@@ -745,12 +751,9 @@ func _show_menu() -> void:
 	if is_instance_valid(player):
 		player.queue_free()
 	_set_state(State.MENU)
-	_title("JEST IN PIECES", 60)
-	_title("Best floor %d   |   %d kills all time   |   %d tickets   |   %d/%d trophies" % [int(save.best_floor), int(save.total_kills), int(save.tickets), (save.get("trophies", []) as Array).size(), Records.TROPHIES.size()], 20)
-	_button("CONTINUE  [Enter]", go_base)
-	_button("NEW GAME", new_game)
-	_button("QUIT", get_tree().quit)
-	_title("WASD move   Shift sprint   Mouse aim   Click fire   R reload   1-4, 6 weapons   E use   F light   G god mode", 16)
+	main_menu.open([["Continue", go_base], ["New Game", new_game], ["Quit", get_tree().quit]],
+		"Best floor %d   ·   %d kills   ·   %d tickets   ·   %d/%d trophies" % [int(save.best_floor), int(save.total_kills), int(save.tickets), (save.get("trophies", []) as Array).size(), Records.TROPHIES.size()],
+		"WASD move   ·   Shift sprint   ·   Mouse aim   ·   Click fire   ·   R reload   ·   1-4, 6 weapons   ·   E use   ·   F light   ·   G god mode")
 
 
 func _title(text: String, size: int) -> void:
