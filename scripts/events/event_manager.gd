@@ -115,6 +115,11 @@ func leave() -> void:
 
 
 func _on_finished(_r: EventRoom, result: Dictionary) -> void:
+	Records.add(game.save, "events")
+	if result.get("tier", "") == "GOLD":
+		Records.add(game.save, "golds")
+	if int(result.get("knockdowns", 0)) > 0:
+		Records.add(game.save, "knockdowns", int(result.knockdowns))
 	var lines: Array[String] = [result.get("line", "Done")]
 	var t: int = result.get("tickets", 0)
 	if t > 0:

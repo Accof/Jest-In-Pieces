@@ -26,7 +26,7 @@ func _frames(n: int) -> void:
 
 
 func _run() -> void:
-	game = load("res://scenes/game.tscn").instantiate()
+	game = _test_game_scene().instantiate()
 	add_child(game)
 	await get_tree().process_frame
 	FpsPlayer.god_mode = true
@@ -320,3 +320,9 @@ func _log_falls(room: EventRoom) -> void:
 		for k in 6:
 			await get_tree().physics_frame
 		t += 0.1
+
+
+## The game scene, set to use a throwaway save so a test never touches yours.
+func _test_game_scene() -> PackedScene:
+	Engine.set_meta(&"test_save", true)
+	return load("res://scenes/game.tscn")

@@ -1,10 +1,14 @@
 extends Node3D
-## The roguelite loop: menu, floors of funhouse maze, upgrades between floors,
-## death, and the tickets and perks that carry over between runs.
+## The roguelite loop: title screen, the base you come round in after every
+## death (shop, stats, trophies, fortune, armoury), floors of funhouse maze,
+## upgrades between floors, death, and everything that carries over.
 
-enum State { MENU, PLAYING, UPGRADE, DEAD }
+enum State { MENU, PLAYING, UPGRADE, DEAD, BASE, SHOP, CONFIRM }
 
 const SAVE_PATH := "user://clown_save.json"
+## The automated tests set Engine meta "test_save" so they never touch the real save.
+const TEST_SAVE_PATH := "user://clown_save_test.json"
+var save_path := SAVE_PATH
 
 ## One of three is offered after every floor.
 const UPGRADES := [
@@ -25,7 +29,11 @@ const PERKS := [
 	{id = "skin", name = "Thick Skin", desc = "+10 starting health", cost = 15, max = 5},
 	{id = "hair", name = "Hair Trigger", desc = "+5% fire rate", cost = 20, max = 5},
 	{id = "start", name = "Head Start", desc = "Begin each run with a random upgrade", cost = 60, max = 1},
+	{id = "pockets", name = "Deep Pockets", desc = "+20% tickets from every run", cost = 40, max = 3},
+	{id = "dressing", name = "Field Dressing", desc = "Heal 15 at the start of every floor", cost = 35, max = 2},
 ]
+const NEW_SAVE := {tickets = 0, best_floor = 0, total_kills = 0, perks = {}, stats = {}, trophies = [],
+	weapon_kills = {}, history = [], fortune = {}, start_weapon = 0}
 
 var state := State.MENU
 var floor_number := 0
@@ -34,7 +42,10 @@ var run_tickets := 0
 var remaining := 0
 var exit_open := false
 var taken: Array[String] = []
-var save := {tickets = 0, best_floor = 0, total_kills = 0, perks = {}}
+var save := NEW_SAVE.duplicate(true)
+var base: Base
+var _new_trophies: Array[String] = []
+var _run_best_pierce := 0
 
 var maze: Maze
 var player: FpsPlayer
@@ -61,6 +72,8 @@ func _ready() -> void:
 	# The project's internal name stays "Clown Shooter" so existing save files are still found.
 	get_window().title = "Jest In Pieces"
 	rng.randomize()
+	if Engine.has_meta(&"test_save"):
+		save_path = TEST_SAVE_PATH
 	_load()
 	_build_environment()
 	_build_ui()
@@ -76,7 +89,32 @@ func start_run() -> void:
 	floor_number = 0
 	kills = 0
 	run_tickets = 0
+	_run_best_pierce = 0
 	taken.clear()
+	_clear_floor()
+	_make_player()
+	events.player = player
+	events.new_run()
+	Records.add(save, "runs")
+	if int(save.perks.get("start", 0)) > 0:
+		_apply_upgrade(UPGRADES[rng.randi() % UPGRADES.size()].id)
+	# Madame Bonzo's card, if one was dealt
+	var f: Dictionary = save.get("fortune", {})
+	match String(f.get("kind", "")):
+		"upgrade":
+			_apply_upgrade(String(f.value))
+		"health":
+			player.stats.max_health += float(f.value)
+			player.heal(float(f.value))
+	save.fortune = {}
+	var sw := int(save.get("start_weapon", 0))
+	if sw != FpsPlayer.MAXIM and sw >= 0 and sw < FpsPlayer.WEAPONS.size():
+		player.select_weapon(sw)
+	_save()
+	next_floor()
+
+
+func _make_player() -> void:
 	if is_instance_valid(player):
 		player.queue_free()
 	player = FpsPlayer.new()
@@ -89,11 +127,41 @@ func start_run() -> void:
 	player.died.connect(_on_player_died)
 	player.fired.connect(_on_player_fired)
 	player.ammo_changed.connect(_refresh_hud)
-	events.player = player
-	events.new_run()
-	if int(save.perks.get("start", 0)) > 0:
-		_apply_upgrade(UPGRADES[rng.randi() % UPGRADES.size()].id)
-	next_floor()
+	player.pierced.connect(func(n: int) -> void:
+		_run_best_pierce = maxi(_run_best_pierce, n)
+		Records.at_least(save, "best_pierce", n))
+
+
+## The base: built fresh each visit, the player stood by the cot.
+func go_base() -> void:
+	Engine.time_scale = 1.0
+	_clear_floor()
+	_make_player()
+	_world = Node3D.new()
+	_world.add_to_group(&"world_root")
+	_world.process_mode = Node.PROCESS_MODE_PAUSABLE
+	add_child(_world)
+	base = Base.new()
+	base.game = self
+	_world.add_child(base)
+	base.build()
+	base.player = player
+	player.global_transform = base.global_transform * base.entry
+	player.velocity = Vector3.ZERO
+	var fresh := Records.new_trophies(save)
+	_save()
+	base.refresh()
+	floor_number = 0
+	_set_state(State.BASE)
+	if not fresh.is_empty():
+		var names := fresh.slice(0, 4)
+		if fresh.size() > 4:
+			names.append("and %d more" % (fresh.size() - 4))
+		event_banner("NEW TROPH%s\n" % ("Y" if fresh.size() == 1 else "IES") + "\n".join(names) + "\n+%d tickets each" % Records.TROPHY_BONUS)
+
+
+func save_now() -> void:
+	_save()
 
 
 func next_floor() -> void:
@@ -113,6 +181,8 @@ func next_floor() -> void:
 	_build_exit()
 	events.new_floor()
 
+	if floor_number > 1 and int(save.perks.get("dressing", 0)) > 0:
+		player.heal(15.0 * int(save.perks.dressing))
 	var count := mini(4 + floor_number * 2, 18)
 	var gun_share := clampf(0.12 + 0.06 * floor_number, 0.0, 0.5)
 	# WitzSoldats: riflemen in gas masks. One in eight on floor 1, rising to a third.
@@ -121,36 +191,69 @@ func next_floor() -> void:
 	if cells.is_empty():
 		cells = maze.cells_far_from(maze.start_cell, 1)
 	clowns.clear()
-	for i in count:
-		var c := Clown.new()
-		c.max_health = 100.0 * (1.0 + 0.1 * (floor_number - 1))
-		var soldier := rng.randf() < soldier_share
-		if soldier:
-			c.body = "witzsoldat"
-		_world.add_child(c)
+	# A table or two in the side rooms with some of them sat round it.
+	var seated := _place_tables(soldier_share)
+	for i in maxi(count - seated, 0):
 		var cell: Vector2i = cells[rng.randi() % cells.size()]
+		var soldier := rng.randf() < soldier_share
+		var c := _spawn_clown(soldier, not soldier and rng.randf() < gun_share)
 		c.global_position = maze.cell_center(cell) + Vector3(rng.randf_range(-0.8, 0.8), 0, rng.randf_range(-0.8, 0.8))
 		c.rotation.y = rng.randf() * TAU
-		if soldier:
-			c.give_rifle()
-		elif rng.randf() < gun_share:
-			c.give_gun()
-		var brain := ClownBrain.new()
-		brain.maze = maze
-		brain.player = player
-		brain.others = clowns
-		brain.move_speed = rng.randf_range(2.8, 3.5) + 0.06 * floor_number
-		brain.run_speed = minf(rng.randf_range(4.9, 5.8) + 0.1 * floor_number, 6.8)
-		if soldier:
-			brain.rifleman()
-		brain.name = "Brain"
-		c.add_child(brain)
-		c.died.connect(_on_clown_died)
-		clowns.append(c)
-	remaining = count
+	remaining = clowns.size()
 	exit_open = false
 	_set_state(State.PLAYING)
 	_flash("FLOOR %d" % floor_number)
+
+
+func _spawn_clown(soldier: bool, gun: bool) -> Clown:
+	var c := Clown.new()
+	c.max_health = 100.0 * (1.0 + 0.1 * (floor_number - 1))
+	if soldier:
+		c.body = "witzsoldat"
+	_world.add_child(c)
+	if soldier:
+		c.give_rifle()
+	elif gun:
+		c.give_gun()
+	var brain := ClownBrain.new()
+	brain.maze = maze
+	brain.player = player
+	brain.others = clowns
+	brain.move_speed = rng.randf_range(2.8, 3.5) + 0.06 * floor_number
+	brain.run_speed = minf(rng.randf_range(4.9, 5.8) + 0.1 * floor_number, 6.8)
+	if soldier:
+		brain.rifleman()
+	brain.name = "Brain"
+	c.add_child(brain)
+	c.died.connect(_on_clown_died)
+	clowns.append(c)
+	return c
+
+
+## Tables in dead-end side rooms (one on early floors, now and then two),
+## each with two or three sat round it. Returns how many were seated.
+func _place_tables(soldier_share: float) -> int:
+	var rooms: Array[Vector2i] = []
+	for c: Vector2i in maze.side_cells:
+		if maze.path_cells(maze.start_cell, c) >= 3 and c != maze.exit_cell:
+			rooms.append(c)
+	rooms.shuffle()
+	var tables := mini(rooms.size(), 1 if floor_number <= 2 or rng.randf() < 0.5 else 2)
+	var n := 0
+	for i in tables:
+		var cell: Vector2i = rooms[i]
+		var t := MessTable.new()
+		_world.add_child(t)
+		t.global_position = maze.cell_center(cell)
+		t.rotation.y = PI * 0.5 * (rng.randi() % 2)
+		t.player = player
+		var seats := 2 + rng.randi() % 2
+		for k in seats:
+			var soldier := rng.randf() < soldier_share * 1.5
+			var c := _spawn_clown(soldier, false)
+			t.seat(c, k)
+			n += 1
+	return n
 
 
 func _clear_floor() -> void:
@@ -163,11 +266,13 @@ func _clear_floor() -> void:
 	if is_instance_valid(_world):
 		_world.queue_free()
 	clowns.clear()
+	base = null
 	Blood.clear()
 
 
 func _on_clown_died(c: Clown) -> void:
 	kills += 1
+	Records.kill(save, c)
 	remaining -= 1
 	var headshot := c.last_hit_zone == &"Neck"
 	run_tickets += 2 if headshot else 1
@@ -205,9 +310,14 @@ func noise_at(where: Vector3, cells: int) -> void:
 
 
 func _on_player_died() -> void:
+	run_tickets = int(round(run_tickets * (1.0 + 0.2 * int(save.perks.get("pockets", 0)))))
 	save.tickets = int(save.tickets) + run_tickets
 	save.best_floor = maxi(int(save.best_floor), floor_number)
-	save.total_kills = int(save.total_kills) + kills
+	Records.add(save, "tickets_earned", run_tickets)
+	var hist: Array = save.get("history", [])
+	hist.push_front({floor = floor_number, kills = kills, tickets = run_tickets})
+	save.history = hist.slice(0, 6)
+	_new_trophies = Records.new_trophies(save)
 	_save()
 	_set_state(State.DEAD)
 
@@ -227,19 +337,31 @@ func _unhandled_input(event: InputEvent) -> void:
 	match state:
 		State.MENU:
 			if event.keycode in [KEY_ENTER, KEY_KP_ENTER, KEY_SPACE]:
-				start_run()
-			elif event.keycode in [KEY_1, KEY_2, KEY_3]:
+				go_base()
+		State.BASE:
+			if event.keycode == KEY_ESCAPE:
+				_show_menu()
+		State.SHOP:
+			if event.keycode in [KEY_ESCAPE, KEY_E]:
+				close_shop()
+			elif event.keycode >= KEY_1 and event.keycode <= KEY_9:
 				_buy_perk(event.keycode - KEY_1)
+		State.CONFIRM:
+			if event.keycode == KEY_ESCAPE:
+				_show_menu()
 		State.UPGRADE:
 			if event.keycode in [KEY_1, KEY_2, KEY_3]:
 				_pick_upgrade(event.keycode - KEY_1)
 		State.DEAD:
 			if event.keycode in [KEY_ENTER, KEY_KP_ENTER, KEY_SPACE, KEY_R]:
-				_show_menu()
+				go_base()
 
 
 # --- upgrades and perks ---------------------------------------------------------
 func _offer_upgrades() -> void:
+	if not _event_upgrade:
+		Records.add(save, "floors")
+		_save()
 	var pool := UPGRADES.filter(func(u: Dictionary) -> bool: return not (u.id in ["saw", "rush", "bath"] and u.id in taken))
 	pool.shuffle()
 	_offer = pool.slice(0, 3)
@@ -268,6 +390,7 @@ func offer_event_upgrade() -> void:
 ## A kill inside an event room: counts for the run, not for the floor.
 func event_kill(c: Clown) -> void:
 	kills += 1
+	Records.kill(save, c)
 	run_tickets += 2 if c.last_hit_zone == &"Neck" else 1
 	if player.stats.lifesteal > 0.0:
 		player.heal(player.stats.lifesteal)
@@ -315,7 +438,46 @@ func _buy_perk(i: int) -> void:
 	save.tickets = int(save.tickets) - p.cost
 	save.perks[p.id] = owned + 1
 	_save()
+	if state == State.SHOP:
+		open_shop()
+
+
+## The Quartermaster's booth: perks for tickets.
+func open_shop() -> void:
+	_set_state(State.SHOP)
+	_title("QUARTERMASTER", 44)
+	_title("%d tickets" % int(save.tickets), 24)
+	for i in PERKS.size():
+		var p: Dictionary = PERKS[i]
+		var owned := int(save.perks.get(p.id, 0))
+		var label := "[%d]  %s  -  %s   (%d/%d)   %s" % [i + 1, p.name, p.desc, owned, p.max, "MAXED" if owned >= p.max else "%d tickets" % p.cost]
+		var b := _button(label, _buy_perk.bind(i))
+		b.disabled = owned >= p.max or int(save.tickets) < p.cost
+	_button("Done  [E / Esc]", close_shop)
+
+
+func close_shop() -> void:
+	_set_state(State.BASE)
+	if base:
+		base.refresh()
+
+
+## Wipe the save: tickets, perks, trophies, stats, all of it.
+func new_game(confirmed := false) -> void:
+	if not confirmed:
+		_set_state(State.CONFIRM)
+		_title("NEW GAME", 48)
+		_title("This wipes everything: tickets, perks, trophies and every stat.", 22)
+		_title("It cannot be undone.", 22)
+		_button("Yes, wipe it all", new_game.bind(true))
+		_button("No  [Esc]", _show_menu)
+		return
+	save = NEW_SAVE.duplicate(true)
+	if FileAccess.file_exists(save_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(save_path))
+	_save()
 	_show_menu()
+	_flash("A FRESH START")
 
 
 # --- world dressing -------------------------------------------------------------
@@ -444,11 +606,11 @@ func _build_ui() -> void:
 
 func _set_state(s: State) -> void:
 	state = s
-	get_tree().paused = s == State.UPGRADE or s == State.MENU
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if s == State.PLAYING else Input.MOUSE_MODE_VISIBLE
+	get_tree().paused = s in [State.UPGRADE, State.MENU, State.SHOP, State.CONFIRM]
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if s in [State.PLAYING, State.BASE] else Input.MOUSE_MODE_VISIBLE
 	for n in _panel.get_children():
 		n.queue_free()
-	_hud.visible = s == State.PLAYING or s == State.UPGRADE
+	_hud.visible = s in [State.PLAYING, State.UPGRADE, State.BASE]
 	_health_bar.visible = _hud.visible
 	match s:
 		State.UPGRADE:
@@ -459,7 +621,11 @@ func _set_state(s: State) -> void:
 		State.DEAD:
 			_title("YOU DIED", 54)
 			_title("Floor %d   |   %d kills   |   +%d tickets" % [floor_number, kills, run_tickets], 22)
-			_button("Back to the menu  [Enter]", _show_menu)
+			if _run_best_pierce >= 2:
+				_title("Best rifle round: %d at once" % _run_best_pierce, 18)
+			for t: String in _new_trophies:
+				_title("NEW TROPHY: %s  (+%d tickets)" % [t, Records.TROPHY_BONUS], 20)
+			_button("Back to base  [Enter]", go_base)
 	_refresh_hud()
 
 
@@ -470,16 +636,11 @@ func _show_menu() -> void:
 		player.queue_free()
 	_set_state(State.MENU)
 	_title("JEST IN PIECES", 60)
-	_title("Best floor %d   |   %d kills all time   |   %d tickets" % [int(save.best_floor), int(save.total_kills), int(save.tickets)], 20)
-	_button("START RUN  [Enter]", start_run)
-	_title("Permanent perks", 22)
-	for i in PERKS.size():
-		var p: Dictionary = PERKS[i]
-		var owned := int(save.perks.get(p.id, 0))
-		var label := "[%d]  %s  -  %s   (%d/%d)   %s" % [i + 1, p.name, p.desc, owned, p.max, "MAXED" if owned >= p.max else "%d tickets" % p.cost]
-		var b := _button(label, _buy_perk.bind(i))
-		b.disabled = owned >= p.max or int(save.tickets) < p.cost
-	_title("WASD move   Shift sprint   Mouse aim   Click fire   R reload   1-4 weapons   F light   G god mode", 16)
+	_title("Best floor %d   |   %d kills all time   |   %d tickets   |   %d/%d trophies" % [int(save.best_floor), int(save.total_kills), int(save.tickets), (save.get("trophies", []) as Array).size(), Records.TROPHIES.size()], 20)
+	_button("CONTINUE  [Enter]", go_base)
+	_button("NEW GAME", new_game)
+	_button("QUIT", get_tree().quit)
+	_title("WASD move   Shift sprint   Mouse aim   Click fire   R reload   1-4, 6 weapons   E use   F light   G god mode", 16)
 
 
 func _title(text: String, size: int) -> void:
@@ -503,6 +664,11 @@ func _button(text: String, action: Callable) -> Button:
 func _refresh_hud() -> void:
 	if not is_instance_valid(player):
 		return
+	if state == State.BASE or state == State.SHOP:
+		_hud.text = "BASE     Tickets: %d     [E] use     [Esc] title screen%s" % [int(save.tickets), "     GOD MODE" if FpsPlayer.god_mode else ""]
+		_health_bar.max_value = player.stats.max_health
+		_health_bar.value = player.health
+		return
 	var w: Dictionary = FpsPlayer.WEAPONS[player.weapon]
 	_hud.text = "Floor %d     Clowns left: %d     Tickets: %d     %s %d/%d%s" % [floor_number, maxi(remaining, 0), run_tickets, w.name, player.ammo[player.weapon], w.mag,
 		("     EXIT OPEN - find the green door" if exit_open else "") + ("     GOD MODE" if FpsPlayer.god_mode else "")]
@@ -520,15 +686,21 @@ func _flash(text: String) -> void:
 
 # --- saving -------------------------------------------------------------------
 func _load() -> void:
-	if not FileAccess.file_exists(SAVE_PATH):
+	if not FileAccess.file_exists(save_path):
 		return
-	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(save_path))
 	if parsed is Dictionary:
 		for k: String in parsed:
 			save[k] = parsed[k]
+	# anything an older save lacks (numbers come back from JSON as floats,
+	# which is fine; only missing keys and wrong containers are replaced)
+	for k: String in NEW_SAVE:
+		var want: Variant = NEW_SAVE[k]
+		if not save.has(k) or (want is Dictionary and not (save[k] is Dictionary)) or (want is Array and not (save[k] is Array)):
+			save[k] = want.duplicate(true) if (want is Dictionary or want is Array) else want
 
 
 func _save() -> void:
-	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	var f := FileAccess.open(save_path, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(save))

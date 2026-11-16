@@ -1,7 +1,7 @@
 extends Node
 ## Renders a handful of views of a trench level to /tmp (needs a real renderer).
 func _ready() -> void:
-	var game: Node3D = load("res://scenes/game.tscn").instantiate()
+	var game: Node3D = _test_game_scene().instantiate()
 	add_child(game)
 	await get_tree().process_frame
 	game.start_run()
@@ -60,3 +60,9 @@ func _ready() -> void:
 		img.save_png("/tmp/lvl_%s.png" % v[0])
 		print("saved ", v[0])
 	get_tree().quit()
+
+
+## The game scene, set to use a throwaway save so a test never touches yours.
+func _test_game_scene() -> PackedScene:
+	Engine.set_meta(&"test_save", true)
+	return load("res://scenes/game.tscn")

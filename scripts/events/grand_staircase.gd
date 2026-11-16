@@ -450,6 +450,7 @@ func _drop_chandelier() -> void:
 func _finish() -> void:
 	var tickets := 5 + mini(knockdowns, 10) + full_flights
 	var r := {success = true, upgrade = knockdowns >= 4, tickets = tickets, heal = 25.0}
+	r.knockdowns = knockdowns
 	r.line = "THE GRAND STAIRCASE\n%d knocked flat by a falling friend   %d went all the way down" % [knockdowns, full_flights]
 	complete(r)
 

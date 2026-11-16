@@ -178,6 +178,7 @@ func _finish() -> void:
 		"BRONZE":
 			r.tickets = 4
 			r.heal = 25.0
+	r.tier = tier
 	r.line = "SHOOTING GALLERY  %s\nScore %d" % [tier if tier != "" else "- no prize", score]
 	complete(r)
 

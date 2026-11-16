@@ -302,6 +302,7 @@ func _finish() -> void:
 			r.heal = 30.0
 	if _breached == 0:
 		r.tickets += 5
+	r.tier = tier
 	r.line = "MACHINE-GUN NEST  %s\n%d killed%s" % [tier if tier != "" else "- no prize", kills, ("   nobody reached the trench" if _breached == 0 else "")]
 	r.extra = "[E] at the gun: rip it off the mount"
 	complete(r)

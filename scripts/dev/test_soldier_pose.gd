@@ -19,7 +19,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _run() -> void:
-	game = load("res://scenes/game.tscn").instantiate()
+	game = _test_game_scene().instantiate()
 	add_child(game)
 	await get_tree().process_frame
 	FpsPlayer.god_mode = true
@@ -77,3 +77,9 @@ func _run() -> void:
 		print("%s: hips %.2f  model y %.2f  arm stretch R/L %s  crouch %.2f" % [s[0], hips.y, soldier._model.position.y, stretch, soldier.crouch_amount])
 		get_viewport().get_texture().get_image().save_png("/tmp/pose_%s.png" % s[0])
 	get_tree().quit()
+
+
+## The game scene, set to use a throwaway save so a test never touches yours.
+func _test_game_scene() -> PackedScene:
+	Engine.set_meta(&"test_save", true)
+	return load("res://scenes/game.tscn")

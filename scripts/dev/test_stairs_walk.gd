@@ -7,7 +7,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	var game: Node3D = load("res://scenes/game.tscn").instantiate()
+	var game: Node3D = _test_game_scene().instantiate()
 	add_child(game)
 	await get_tree().process_frame
 	FpsPlayer.god_mode = true
@@ -64,3 +64,9 @@ func _walk(p: FpsPlayer, room: Node3D, dir: Vector3, lane: float, label: String)
 	await get_tree().physics_frame
 	var l2 := room.to_local(p.global_position)
 	print("lane %.1f %s: ended z=%.2f y=%.2f %s" % [lane, label, l2.z, l2.y, ("STUCK at z=%.2f y=%.2f" % [worst.z, worst.y]) if stuck > 0.5 else "ok"])
+
+
+## The game scene, set to use a throwaway save so a test never touches yours.
+func _test_game_scene() -> PackedScene:
+	Engine.set_meta(&"test_save", true)
+	return load("res://scenes/game.tscn")

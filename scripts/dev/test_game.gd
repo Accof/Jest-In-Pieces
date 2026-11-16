@@ -47,7 +47,7 @@ func _run() -> void:
 	print("mazes: 40 generated, problems=%d, stairs per maze=%.1f, biggest floor jump on a route=%.2fm" % [bad, stair_total / 40.0, worst_step])
 
 	# --- game loop
-	var game: Node3D = load("res://scenes/game.tscn").instantiate()
+	var game: Node3D = _test_game_scene().instantiate()
 	add_child(game)
 	await get_tree().process_frame
 	game.start_run()
@@ -104,6 +104,11 @@ func _run() -> void:
 	var lowest := 99.0
 	for c: Clown in game.clowns:
 		lowest = min(lowest, c.ragdoll.bones[&"Hips"].global_position.y - game.maze.floor_height(c.ragdoll.bones[&"Hips"].global_position))
+	for c: Clown in game.clowns:
+		var hip_at: Vector3 = c.ragdoll.bones[&"Hips"].global_position
+		var off: float = hip_at.y - game.maze.floor_height(hip_at)
+		if off < -0.2:
+			print("   below floor: %s seated=%s off=%.2f at %s cell %s" % [c.body, c.has_meta(&"seated"), off, hip_at.snapped(Vector3.ONE * 0.1), game.maze.cell_of(hip_at)])
 	print("all shot: remaining=%d exit_open=%s tickets=%d, lowest pelvis vs floor %.2fm (negative = fell through)" % [game.remaining, game.exit_open, game.run_tickets, lowest])
 	game.player.global_position = game._exit.global_position + Vector3.UP * 0.1
 	for f in 5:
@@ -120,3 +125,9 @@ func _run() -> void:
 	print("died: state=%d (3 = dead), saved tickets=%d best_floor=%d" % [game.state, int(game.save.tickets), int(game.save.best_floor)])
 	get_tree().paused = false
 	get_tree().quit()
+
+
+## The game scene, set to use a throwaway save so a test never touches yours.
+func _test_game_scene() -> PackedScene:
+	Engine.set_meta(&"test_save", true)
+	return load("res://scenes/game.tscn")

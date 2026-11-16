@@ -10,7 +10,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	var game: Node3D = load("res://scenes/game.tscn").instantiate()
+	var game: Node3D = _test_game_scene().instantiate()
 	add_child(game)
 	await get_tree().process_frame
 	FpsPlayer.god_mode = true
@@ -98,3 +98,9 @@ func _run() -> void:
 	print("time crouched in cover: %.1fs" % crouched)
 	FpsPlayer.god_mode = false
 	get_tree().quit()
+
+
+## The game scene, set to use a throwaway save so a test never touches yours.
+func _test_game_scene() -> PackedScene:
+	Engine.set_meta(&"test_save", true)
+	return load("res://scenes/game.tscn")

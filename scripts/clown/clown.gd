@@ -58,6 +58,9 @@ const ZONE_DAMAGE := {
 var health := 0.0
 var dead := false
 var last_hit_zone := &""         # where the killing shot landed
+## How it died, for the lifetime stats: weapon name, zone, and flags
+## (blast, stake, seated...). Filled in by _die before `died` goes out.
+var death := {}
 var skeleton: Skeleton3D
 var mesh: MeshInstance3D
 var ragdoll: ClownRagdoll
@@ -259,6 +262,17 @@ func _die(info: Dictionary, zone: StringName) -> void:
 	_drop_rifle()
 	gore.start_bleeding()
 	last_hit_zone = zone
+	var limbs := 0
+	var m := int(gore.hidden_mask)
+	while m:
+		limbs += m & 1
+		m >>= 1
+	death = {
+		weapon = info.get("weapon", "Stake Gun" if info.get("stake", false) else ""),
+		zone = zone, blast = info.get("blast", false), stake = info.get("stake", false),
+		head_open = _head_open, limbs = limbs, broken_leg = broken_leg != "",
+		crawler = crawling, through = gore._tunnels.size() > 0,
+	}
 	died.emit(self)
 
 

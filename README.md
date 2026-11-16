@@ -21,8 +21,9 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 | 6 | Bolt-action rifle |
 | G | God mode on/off (take no damage; for testing, stays on across runs until you turn it off or quit the game) |
 | F | Flashlight |
-| Enter | Start a run, or leave the death screen |
-| 1 / 2 / 3 | Pick an upgrade, or buy a perk on the menu |
+| Enter | Continue from the title screen, or leave the death screen for the base |
+| 1 / 2 / 3 | Pick an upgrade; in the Quartermaster's booth, 1-5 buy perks |
+| Esc | In the base: back to the title screen |
 | Esc | Free the mouse |
 
 ## The game
@@ -30,7 +31,24 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 - Each floor is one winding route: a short stretch of open trench, then down into a dieselpunk concrete bunker. Corridors run straight for a few cells at a time, framed by concrete pillars and steel beams, lit by caged bulbs, with wet floors, pipes and steel doors. There are a couple of stairwells down, a few wider halls (dormitory, mess, stores) and dead-end side rooms. A little of the circus survives: faded harlequin paint, a stencilled star, a clown's face over the way in, an old drum in the mess.
 - Kill every clown, then find the door (it turns green) to leave.
 - After each floor you pick one of three upgrades. Floors get bigger, with more clowns and more gunmen.
-- Kills earn tickets (two for a headshot). When you die they are banked and can be spent on permanent perks on the menu.
+- Kills earn tickets (two for a headshot). When you die they are banked, and you come round in the base.
+- Now and then a dead-end side room has a table in it with two or three of them sat round it playing cards under a lamp (one table on early floors, sometimes two later). They do not look up until they hear a shot, see you within about 5 m, or one of them is hit, and then each takes a moment to push its chair back and get up. Shot in the chair, a body slumps forward across the table.
+
+## Title screen
+
+Continue (to the base), New Game, Quit. New Game asks first, then wipes everything: tickets, perks, trophies, every stat, the fortune and the armoury choice. The automated tests use their own save file (`clown_save_test.json`) so they never touch yours.
+
+## The base
+
+A forward command bunker the circus moved into: concrete, sandbags, crates, a field telephone, bunting and strings of fairground bulbs, a carousel horse's head on a brass pole, a gramophone, an army cot where you come round after each death. Walk about and press [E]:
+
+- **Quartermaster** (west wall): a striped ticket booth with a clown behind the counter. Spend tickets on permanent perks: Thick Skin (+10 starting health, x5), Hair Trigger (+5% fire rate, x5), Head Start (a random upgrade at the start of each run), Deep Pockets (+20% tickets from a run, x3), Field Dressing (heal 15 at the start of every floor, x2).
+- **Chalkboard** (east wall): lifetime tallies. Total kills, clowns, WitzSoldats, headshots, blown up, staked to the wall, limbs taken off, skulls opened, shot clean through, knees broken, torn in half, killed at the table, knocked down the stairs, most in one rifle round, runs, floors cleared, deepest floor, steel doors opened, gold medals, tickets earned.
+- **Trophy wall** (south wall): sixteen plaques that fill as you hit milestones, each with its own trophy (a clown's nose, cups, a skull, a gas mask, a stake, a bowling pin, medals...). Locked ones show a "?" and how far along you are. Each new trophy pays 10 tickets.
+- **Madame Bonzo** (south-east corner): a clown automaton in a glass cabinet. 5 tickets for a card that changes your next run: a free upgrade, +50 health, a 25-ticket jackpot, or nothing at all. One card per run.
+- **Armoury** (north wall): the guns on a rack with how many each has killed. [E] on one to start every run holding it.
+- **Map table**: a painted map with pins, and a board with your last six runs.
+- **The steel door** (north wall, TO THE FRONT): start a run.
 
 ## Steel doors
 
@@ -167,6 +185,7 @@ godot --headless --fixed-fps 60 res://scenes/test_rifle.tscn    # one rifle roun
 godot --headless --fixed-fps 60 res://scenes/test_stairs_walk.tscn  # walks the player down the Grand Staircase and back up, five lanes
 godot --path . res://scenes/test_punch.tscn                    # point-blank shotgun hole: renders /tmp/punch_*.png (needs a window)
 godot --path . res://scenes/test_soldier_pose.tscn             # WitzSoldat stand/walk/run/aim/thrust from the side, /tmp/pose_*.png (needs a window)
+godot --headless --fixed-fps 60 res://scenes/test_base.tscn    # title -> base -> every station -> a run with a table -> death -> base -> new game (--render for /tmp/base_*.png)
 godot --path . res://scenes/test_soldier_anim.tscn             # WitzSoldat walk cycle, side-step, carry/aim front and 3/4, three deaths; /tmp/sa_*.png and joint angles
 godot --path . res://scenes/render_level.tscn                  # saves views of a level to /tmp/lvl_*.png (needs a window)
 ```

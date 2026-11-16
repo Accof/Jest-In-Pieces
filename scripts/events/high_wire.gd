@@ -409,6 +409,7 @@ func _finish() -> void:
 		"BRONZE":
 			r.tickets = 5
 			r.heal = 25.0
+	r.tier = tier
 	r.line = "THE HIGH WIRE  %s\n%d points   %d headshots   %d bonks   %d got across" % [tier if tier != "" else "- no prize", score, headshots, bonks, escaped]
 	if player and player.mount == rifle:
 		player.dismount()
