@@ -479,11 +479,21 @@ func _free(dir: Vector3) -> bool:
 	return absf(maze.floor_height(clown.global_position + dir * 0.6) - clown.global_position.y) < 0.35
 
 
+## Every move a clown makes goes through here. It is swept as a capsule
+## against the level (walls, pillars, crates, drums, tables) and slides along
+## whatever it meets; near a staircase it is kept on the stair, out of the
+## low strip beside it. (Clowns are not physics bodies; before this they
+## could be steered into walls, sink out of sight, or wedge beside a stair.)
 func _step(vel: Vector3, delta: float) -> void:
-	var pos := clown.global_position + vel * delta
+	var move := _collide(clown.global_position, Vector3(vel.x, 0.0, vel.z) * delta)
+	var free := clown.global_position + move
+	var pos := maze.keep_walkable(free)
+	var lifted := pos.distance_squared_to(free) > 1e-6    # put back onto a stair from beside it
+	vel = Vector3(pos.x - clown.global_position.x, 0.0, pos.z - clown.global_position.z) / maxf(delta, 0.001)
 	var floor_y := maze.floor_height(pos)
 	# Never walk up a drop: ledges beside a staircase are a wall to a clown.
-	if floor_y - clown.global_position.y > 0.45:
+	# (Unless it is being put back onto the stair: then it climbs on.)
+	if floor_y - clown.global_position.y > 0.45 and not lifted:
 		pos = clown.global_position
 		floor_y = clown.global_position.y
 		vel = Vector3.ZERO
@@ -575,3 +585,65 @@ func _tracer(from: Vector3, to: Vector3) -> void:
 	var t := get_tree().create_timer(0.06)
 	t.timeout.connect(mi.queue_free)
 	t.timeout.connect(flash.queue_free)
+
+
+const BODY_RADIUS := 0.28
+const BODY_HEIGHT := 1.1           ## the capsule's bottom rides 0.38 m up: steps and kerbs pass under it
+const BODY_LIFT := 0.38
+static var _body_shape: CapsuleShape3D
+var _detour_sign := 1.0
+var _detour_t := 0.0
+
+
+## How far `move` can go from `from` before the body hits the level, sliding
+## along a wall rather than stopping dead; pushes out if it starts inside.
+func _collide(from: Vector3, move: Vector3) -> Vector3:
+	if move.length_squared() < 1e-8:
+		return move
+	if _body_shape == null:
+		_body_shape = CapsuleShape3D.new()
+		_body_shape.radius = BODY_RADIUS
+		_body_shape.height = BODY_HEIGHT
+	var space := clown.get_world_3d().direct_space_state
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = _body_shape
+	q.collision_mask = LAYER_WORLD
+	q.transform = Transform3D(Basis.IDENTITY, from + Vector3.UP * (BODY_LIFT + BODY_HEIGHT * 0.5))
+	# already overlapping something (spawned in a crate, a chair kicked into it):
+	# let it move out, and nudge it along the way out
+	var rest := space.get_rest_info(q)
+	if not rest.is_empty():
+		var n: Vector3 = rest.normal
+		n.y = 0.0
+		if n.length_squared() > 0.001:
+			n = n.normalized()
+			var into := move.dot(n)
+			return (move - n * minf(into, 0.0)) + n * 0.02
+		return move
+	var best := Vector3.ZERO
+	for m: Vector3 in [move, Vector3(move.x, 0, 0), Vector3(0, 0, move.z)]:
+		if m.length_squared() < 1e-8:
+			continue
+		q.motion = m
+		var r := space.cast_motion(q)
+		var got := m * maxf(r[0] - 0.01, 0.0)
+		if got.length_squared() > best.length_squared() + 1e-8:
+			best = got
+		if r[0] >= 1.0 and m == move:
+			_detour_t = maxf(_detour_t - 0.05, 0.0)
+			return move                    # clear: no need to try the slides
+	# Square on to something (a pillar, a crate, a drum, a corner): angle
+	# off to one side, and keep to that side for a moment so it does not
+	# dither left and right.
+	if best.length() < move.length() * 0.35:
+		if _detour_t <= 0.0:
+			_detour_sign = -_detour_sign
+		_detour_t = 0.6
+		for deg: float in [35.0, 70.0, 105.0]:
+			var m := move.rotated(Vector3.UP, deg_to_rad(deg) * _detour_sign)
+			q.motion = m
+			var r := space.cast_motion(q)
+			if r[0] > 0.5:
+				return m * maxf(r[0] - 0.01, 0.0)
+		_detour_sign = -_detour_sign      # that side is shut too: try the other next time
+	return best

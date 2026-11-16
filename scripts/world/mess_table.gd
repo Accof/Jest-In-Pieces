@@ -61,8 +61,10 @@ func _process(delta: float) -> void:
 		return
 	if not _alerted:
 		for s: Dictionary in _seats:
+			if not is_instance_valid(s.clown):
+				continue
 			var c: Clown = s.clown
-			if not is_instance_valid(c) or c.dead:
+			if c.dead:
 				continue
 			var b := c.get_node_or_null("Brain") as ClownBrain
 			if b and b.mind != ClownBrain.Mind.IDLE:
@@ -75,8 +77,10 @@ func _process(delta: float) -> void:
 		else:
 			_notice = maxf(_notice - delta, 0.0)
 	for s: Dictionary in _seats:
+		if not is_instance_valid(s.clown):
+			continue
 		var c: Clown = s.clown
-		if not is_instance_valid(c) or c.dead or s.k <= 0.0:
+		if c.dead or s.k <= 0.0:
 			continue
 		# Sitting still: the brain is off, so nothing else clears what it last
 		# set. Without this the legs kept walking under the table.

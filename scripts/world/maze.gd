@@ -426,6 +426,26 @@ func floor_height(pos: Vector3) -> float:
 	return base
 
 
+## Where a clown may stand: near a staircase, on the stair itself, not in
+## the low strip beside it (a dead end under the rail with a wall of the
+## level above at the end of it).
+func keep_walkable(pos: Vector3) -> Vector3:
+	var c := cell_of(pos)
+	for s: Dictionary in _stair_at.get(idx(c), []):
+		var centre := cell_center(c)
+		var dir := Vector3(s.dir.x, 0, s.dir.y)
+		var side := Vector3(dir.z, 0, -dir.x)
+		var rel := pos - centre
+		var along := rel.dot(dir)
+		if along < CELL * 0.5 - STAIR_RUN - 0.45:
+			continue                         # well short of the stair: the whole cell is floor
+		var across := rel.dot(side)
+		var limit := STAIR_WIDTH * 0.5 - 0.25
+		if absf(across) > limit:
+			pos -= side * (across - signf(across) * limit)
+	return pos
+
+
 ## World-space waypoints from one position to another, through open cells.
 func path(from: Vector3, to: Vector3) -> Array[Vector3]:
 	var out: Array[Vector3] = []

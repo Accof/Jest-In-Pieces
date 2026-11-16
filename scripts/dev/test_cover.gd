@@ -31,7 +31,7 @@ func _run() -> void:
 	# keep only one soldier, at the far end
 	var soldier: Clown = null
 	for c: Clown in game.clowns:
-		if soldier == null:
+		if soldier == null and not c.has_meta(&"seated"):     # not one sat at a table
 			soldier = c
 		else:
 			c.queue_free()
