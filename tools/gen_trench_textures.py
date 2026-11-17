@@ -297,6 +297,51 @@ col = mix(col, (0.06, 0.045, 0.03), sstep(0.08, 0.0, knots) * 0.8)
 col = mix(col, col * 0.55, sstep(0.5, 0.8, fbm(S2, (3, 6), 93)))
 save('timber', col, grain * 0.6, 4.0, np.full((S2, S2), 0.72))
 
+# --- a strange sign daubed on timber: a grinning mask in a diamond, dripping (RGBA) ---
+S4 = 256
+yy4, xx4 = np.mgrid[0:S4, 0:S4] / S4
+paint = np.zeros((S4, S4))
+d = np.abs(xx4 - 0.5) + np.abs(yy4 - 0.47)
+paint = np.maximum(paint, sstep(0.035, 0.0, np.abs(d - 0.36)))                 # the diamond
+grin_y = 0.55 + 0.12 * np.cos((xx4 - 0.5) * 5.0)
+paint = np.maximum(paint, sstep(0.025, 0.0, np.abs(yy4 - grin_y)) * (np.abs(xx4 - 0.5) < 0.2))   # the grin
+for ex in (0.4, 0.6):
+    paint = np.maximum(paint, sstep(0.045, 0.02, np.sqrt((xx4 - ex) ** 2 + ((yy4 - 0.4) * 1.6) ** 2)))  # the eyes
+r = np.random.default_rng(101)
+for k in range(9):                                                              # runs of paint
+    x = r.uniform(0.25, 0.75); y0 = r.uniform(0.5, 0.7); L = r.uniform(0.05, 0.25)
+    paint = np.maximum(paint, (np.abs(xx4 - x) < 0.006) * (yy4 > y0) * (yy4 < y0 + L) * 0.9)
+paint *= sstep(0.25, 0.6, fbm(S4, (8, 16, 32, 64), 102))                        # faded, flaking
+col = np.zeros((S4, S4, 3)) + np.array([0.35, 0.025, 0.02])
+img = np.dstack([np.clip(col, 0, 1) ** (1 / 2.2), np.clip(paint, 0, 1)])
+Image.fromarray((img * 255 + 0.5).astype(np.uint8), 'RGBA').save(os.path.join(OUT, 'symbol.png'))
+
+# --- a faded circus bill, pasted up and peeling (RGBA, 256x384) ------------------------
+W5, H5 = 256, 384
+yy5, xx5 = np.mgrid[0:H5, 0:W5]
+u = xx5 / W5; v = yy5 / H5
+paper = np.zeros((H5, W5, 3)) + np.array([0.55, 0.5, 0.38])
+stripes = (np.floor(u * 8 + v * 0.0) % 2 == 0) * (v < 0.25)
+paper = mix(paper, (0.45, 0.08, 0.06), stripes * 0.8)
+face = ((u - 0.5) ** 2 / 0.06 + (v - 0.55) ** 2 / 0.05) < 1
+paper = mix(paper, (0.8, 0.77, 0.7), face * 0.9)
+for ex in (0.42, 0.58):
+    eye = ((u - ex) ** 2 + (v - 0.5) ** 2) < 0.0012
+    paper = mix(paper, (0.05, 0.04, 0.04), eye * 1.0)
+nose = ((u - 0.5) ** 2 + (v - 0.57) ** 2) < 0.0016
+paper = mix(paper, (0.6, 0.05, 0.05), nose * 1.0)
+grin = (np.abs(v - (0.63 + 0.06 * np.cos((u - 0.5) * 9))) < 0.008) * (np.abs(u - 0.5) < 0.14)
+paper = mix(paper, (0.25, 0.03, 0.03), grin * 1.0)
+banner = (v > 0.82) * (v < 0.92)
+paper = mix(paper, (0.45, 0.08, 0.06), banner * 0.75)
+age = fbm(H5, (4, 8, 16, 32), 111)[:, :W5] if H5 >= W5 else fbm(W5, (4, 8, 16, 32), 111)[:H5]
+paper = mix(paper, (0.25, 0.2, 0.13), sstep(0.5, 0.8, age) * 0.7)                # damp stains
+paper *= 0.75
+torn = sstep(0.62, 0.66, fbm(H5, (6, 12, 24), 112)[:, :W5] + 0.25 * np.maximum(0, v - 0.75) * 4)
+alpha = 1 - torn
+img = np.dstack([np.clip(paper, 0, 1) ** (1 / 2.2), alpha])
+Image.fromarray((img * 255 + 0.5).astype(np.uint8), 'RGBA').save(os.path.join(OUT, 'circus_bill.png'))
+
 # --- tiling noise for the shaders (R: broad, G: medium, B: fine) ----------------------
 S3 = 256
 noise = np.dstack([fbm(S3, (2, 4, 8), 81), fbm(S3, (6, 12, 24), 82), fbm(S3, (24, 48, 96), 83)])

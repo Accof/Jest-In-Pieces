@@ -11,6 +11,11 @@ extends Node
 ##   bodies    on a trench floor: deaths on duckboards, in water, on the
 ##             fire step, against a wall, a Carnival Curse: bodies settle on
 ##             the ground (not floating, not through it), blood pools
+##   ambience  the player walks the route and wades the flooded stretch:
+##             footsteps by surface (mud, duckboards, water), shells landing
+##             far off (flash, boom), the music box plays near its dugout,
+##             nothing of it hurts him; the dressing is all there (wire,
+##             signs, clutter, the carnival things)
 ## Add "render" (with a window) for views in /tmp/tr_*.png; "ascii" prints a layout.
 
 var render := false
@@ -43,7 +48,7 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var secs := ["layouts", "ground", "game", "bodies", "views"]
+	var secs := ["layouts", "ground", "game", "bodies", "ambience", "views"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -301,6 +306,55 @@ func _bodies() -> void:
 	_check(Blood.pools().size() >= 2, "blood pools on the trench floor")
 
 
+func _ambience() -> void:
+	print("-- ambience")
+	await _new_game(3)
+	var m: TrenchMaze = game.maze
+	for c: Clown in game.clowns:
+		c.queue_free()
+	game.clowns.clear()
+	var amb: TrenchAmbience = m.get_node("Art/Ambience")
+	var art: TrenchArt = m.get_node("Art")
+	var p: FpsPlayer = game.player
+	var hp := p.health
+	FpsPlayer.god_mode = false
+	await _walk(m)
+	# and through the water
+	for wa: Dictionary in m.water:
+		var cells: Array = wa.cells
+		p.global_position = m.cell_center(cells[0]) + Vector3.UP * 0.2
+		await _frames(5)
+		_key(KEY_W, true)
+		for i in 90:
+			var to := m.cell_center(cells[mini(1, cells.size() - 1)]) - p.global_position
+			if Vector2(to.x, to.z).length() < 0.3:
+				to = m.cell_center(cells[0]) - p.global_position
+			p.rotation.y = atan2(-to.x, -to.z)
+			await get_tree().physics_frame
+		_key(KEY_W, false)
+		break
+	# stand by the music box a while
+	if art.music_box != Vector3.INF:
+		amb._t_tune = 0.5
+		p.global_position = m.cell_center(m.cell_of(art.music_box)) + Vector3.UP * 0.2
+		await _frames(60)
+	print("      steps %s; shells %d (flashes %d); tunes %d; health %.0f -> %.0f" % [amb.steps, amb.booms, amb.flashes, amb.tunes, hp, p.health])
+	_check(amb.steps.get("mud", 0) + amb.steps.get("wood", 0) > 20, "footsteps along the trench (mud and duckboards)")
+	_check(amb.steps.get("wood", 0) > 5, "duckboards sound like wood")
+	_check(amb.steps.get("water", 0) > 0 or m.water.is_empty(), "wading the flooded stretch splashes")
+	_check(amb.booms > 0 and amb.flashes > 0, "the guns far off: flashes and booms")
+	_check(art.music_box == Vector3.INF or amb.tunes > 0, "the music box plays when you are by it")
+	_check(p.health >= hp, "none of it hurts")
+	FpsPlayer.god_mode = true
+	var counts := {}
+	for mmi in art.find_children("*", "MultiMeshInstance3D", false, false):
+		counts[mmi.name] = (mmi as MultiMeshInstance3D).multimesh.instance_count
+	print("      dressing: %s" % counts)
+	_check(art.get_node_or_null("Wire") != null and art.get_node_or_null("Balloon") != null, "wire in No Man's Land, a red balloon caught on it")
+	_check(art.find_children("*", "Label3D", false, false).size() >= 4, "signs at the junctions (%d)" % art.find_children("*", "Label3D", false, false).size())
+	_check(counts.get("crates", 0) >= 4 and counts.get("helmets", 0) + counts.get("tins", 0) > 3, "clutter about the place")
+
+
 func _report(m: TrenchMaze, name_: String, c: Clown) -> void:
 	var lowest := 9.0
 	var hips := 9.0
@@ -328,6 +382,15 @@ func _views() -> void:
 	await _new_game(3)
 	var m: TrenchMaze = game.maze
 	game.player.visible = false
+	var keep: Clown = null
+	for c: Clown in game.clowns:
+		if keep == null and c.body == "witzsoldat":
+			keep = c
+		else:
+			c.queue_free()
+	game.clowns.clear()
+	if keep:
+		game.clowns.append(keep)
 	for c: Clown in game.clowns:
 		var b := c.get_node_or_null("Brain")
 		if b:
@@ -365,9 +428,41 @@ func _views() -> void:
 		await _frames(2)
 		await _shot("nml")
 		break
+	# into a dugout from its door
+	var art: TrenchArt = m.get_node("Art")
+	for l: Dictionary in m.landmarks:
+		if l.kind == "dugout":
+			var ent := m.cell_center(l.entrance)
+			cam.global_position = ent + Vector3.UP * 1.5 - Vector3(l.dir.x, 0, l.dir.y) * 0.6
+			cam.look_at(m.cell_center(l.cell) + Vector3(l.dir.x, 0, l.dir.y) * 0.8 + Vector3.UP * 0.8)
+			await _frames(2)
+			await _shot("dugout")
+			break
+	# the music box's dugout, if there is one
+	if art.music_box != Vector3.INF:
+		var room := m.cell_center(m.cell_of(art.music_box))
+		var away := (room - art.music_box)
+		away.y = 0.0
+		cam.global_position = art.music_box + away.normalized() * 1.1 + Vector3.UP * 0.6
+		cam.look_at(art.music_box + Vector3.UP * 0.3)
+		await _frames(2)
+		await _shot("musicbox")
+	# the porcelain head in the mud
+	for mmi in art.find_children("porcelain_head", "MultiMeshInstance3D", false, false):
+		var at: Vector3 = (mmi as MultiMeshInstance3D).multimesh.get_instance_transform(0).origin
+		var c := m.cell_of(at)
+		cam.global_position = m.cell_center(c) + Vector3.UP * 1.0 + (m.cell_center(c) - at).normalized() * 0.3
+		cam.look_at(at)
+		await _frames(2)
+		await _shot("head")
+	# out over the wire from high up behind the parapet
+	cam.global_position = Vector3(m.w * m.cell * 0.5, 3.0, 9.0)
+	cam.look_at(Vector3(m.w * m.cell * 0.5, 0.0, -15.0))
+	await _frames(2)
+	await _shot("wire")
 	# a soldier in a trench, from 6 m: can he be seen?
 	for c: Clown in game.clowns:
-		if c.body == "witzsoldat":
+		if is_instance_valid(c) and c.body == "witzsoldat":
 			var at := c.global_position
 			var cc := m.cell_of(at)
 			var k := m.route.find(cc)

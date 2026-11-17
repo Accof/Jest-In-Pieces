@@ -95,6 +95,34 @@ Every third floor (`trench_every` on the game, 3) is a Western Front trench syst
 - No rain, no lightning, no dark fog. Enemies stay readable in the shade of the walls.
 - The bunkers and the base get their own dark lighting back.
 
+**Dressing:**
+- **No Man's Land:** two staggered rows of screw pickets with wire strung and criss-crossed between them, concertina coils along the front, and gaps where the saps go out. The wire sways a little. Beyond that: shell holes holding rainwater, dead trees, and a wrecked limber with a wheel off.
+- **In the trenches:**
+  - Dugouts have a bunk, crates, a telephone and a rifle rack. The gun pit has shell boxes; the OP has a telephone and a cable reel.
+  - Along the walls lie shovels, picks, helmets, tins, kit bags, blankets, rifles and sheets of iron. A stretcher is left at the way in.
+  - Big pieces only stand where there is room, and they have collision.
+  - Hand-painted signs at the junctions name the trenches (PICCADILLY, BOND ST...) and say which way the fire trench is. Each dugout is numbered.
+- **The carnival, barely:**
+  - a cracked porcelain clown head half sunk in the mud;
+  - a faded circus bill in one dugout, with a music box and a broken watch;
+  - a tin clown on its side in a firing position;
+  - a red balloon caught on the wire;
+  - a grinning sign daubed on one timber lining.
+- **Wind:** torn canvas over some dugout doors, telephone cable looped along the walls, scraps of paper lifting at a few junctions, and slow smoke plumes over the battlefield.
+
+**Sound** (`scripts/world/trench_ambience.gd`; all synthesised placeholders in `SfxSynth`, each replaceable by a .wav):
+- wind, and the low rumble of the guns;
+- shells landing far off: a flash on the horizon, the boom arriving later by the speed of sound, sometimes smoke rising where it fell;
+- distant machine-gun bursts and rifle shots;
+- timber creaking in the linings, and water dripping at dugout doors and over the flooding;
+- the music box playing a few bars of a waltz when you are near it, and very rarely the same tune, faint, from nowhere.
+
+The war stays far off: nothing out there can hurt you.
+
+**Footsteps** (the player, on trench floors): mud, duckboards, water or firmer ground, by what is underfoot. Wading throws a splash and leaves a ripple spreading on the water; mud flicks up now and then.
+
+**Eye adaptation:** the exposure lifts slowly in a dugout or a dark corner and comes back down in the open.
+
 **Enemies:**
 - 1.5x the usual number: mostly WitzSoldaten, Rattlejacks and Klappersoldaten, a few clowns, and always an officer.
 - The AI is unchanged. Hearing, the spawn spread and doorway approaches scale with the 1.5 m grid.
@@ -421,7 +449,7 @@ godot --headless --fixed-fps 60 res://scenes/test_limbs.tscn   # broken limbs on
 godot --headless --fixed-fps 60 res://scenes/test_locker.tscn  # joker lockers: laughs near, silent far; plain doors stay shut; the joker's door bursts at ~90 damage; the clown falls out riddled, face down in front, cards spilled; 40 floors placed flush to a wall (sections: open levels; add "render" for /tmp/locker_*.png)
 godot --headless --fixed-fps 60 res://scenes/test_killcam.tscn  # final-kill camera: ordinary kills leave it alone, the last kill runs it once, time curve, never inside the level, body in view, player untouched and restored; shots chosen over 12 floors; two at once; interrupted (player dies, body freed, floor changes, pause); a Klappersoldat; a fall off a platform; an event room; the injury report (eye, jaw, heart, lung, guts, liver, explosion, Klappersoldat wording); the report over a floor finale, tickets paid a cursed last kill (sections: injuries report floor variety double interrupt klapper zornhauptmann throat curse fall event; add "render")
 godot --headless --fixed-fps 60 res://scenes/test_curse.tscn   # Carnival Curse: charging (counted once, not friendly or curse kills, full waits), the HUD text; aim checks (not charged, nothing under the crosshair, immune, a body on the floor); a real hex in a level (a wall, a target that died in flight, running out of time: all keep the charge; one in the air; a hit executes, others carry on, no cinematic); the execution on five bodies (phases in order, arms jerk into place and stay, neck snaps, still in the pause, hand-over pose error, no fling, cracks, blood or oil, nothing left behind); walls on each side; one arm gone, a blast mid-curse, freed mid-curse; ten in a row (sections: charge aim play bodies walls edges repeat; "render [front] [only=kind]" for frames; "closeup render" for the broken neck held still from three sides)
-godot --headless --fixed-fps 60 res://scenes/test_trench.tscn  # Drowned Trenches: 30 layouts (all connected, nothing touching that should not, 260-290 m of trench, landmarks); collision is the walked surface; in the game: floors 3 and 6 are trenches, 1, 2 and 4 bunkers, the light swaps, mostly soldiers, the exit door on the floor, the player walks the whole route (duckboards, slopes) without sticking; bodies on a duckboard, in water, on a fire step, against an earth wall and a Carnival Curse all settle on the ground, blood pools (sections: layouts ground game bodies; "views render" for /tmp/tr_*.png; "ascii" prints a layout)
+godot --headless --fixed-fps 60 res://scenes/test_trench.tscn  # Drowned Trenches: 30 layouts (all connected, nothing touching that should not, 260-290 m of trench, landmarks); collision is the walked surface; in the game: floors 3 and 6 are trenches, 1, 2 and 4 bunkers, the light swaps, mostly soldiers, the exit door on the floor, the player walks the whole route (duckboards, slopes) without sticking; the ambience (footsteps on mud, duckboards and water, shells, the music box, nothing that hurts, the dressing all there); bodies on a duckboard, in water, on a fire step, against an earth wall and a Carnival Curse all settle on the ground, blood pools (sections: layouts ground game bodies ambience; "views render" for /tmp/tr_*.png; "ascii" prints a layout)
 godot --headless --fixed-fps 60 res://scenes/test_nav.tscn -- trench  # the crowd navigation test on trench floors 3, 6, 9
 godot --path . res://scenes/render_level.tscn                  # saves views of a level to /tmp/lvl_*.png (needs a window)
 ```

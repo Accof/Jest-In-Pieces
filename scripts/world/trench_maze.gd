@@ -295,8 +295,9 @@ func _comm(name_: String, from: String, to: String, x: int) -> bool:
 			if moved == 0 and fwd == 0:
 				break
 		if ok and path.size() >= 3:
+			var tname := name_ + str(trenches.size())
 			for p in path:
-				_open(p, "comm", name_ + str(trenches.size()))
+				_open(p, "comm", tname)
 			# a widened junction where it leaves the line, now and then
 			if rng.randf() < 0.5:
 				_widen(start)
@@ -381,8 +382,9 @@ func _to_rear(from: String, x: int) -> Array[Vector2i]:
 				c = n
 			dir_x = -dir_x
 		if ok and path.size() >= 3:
+			var tname := "rear" + str(trenches.size())
 			for p in path:
-				_open(p, "comm", "rear" + str(trenches.size()))
+				_open(p, "comm", tname)
 			return path
 		start = _cell_in(from, x + rng.randi_range(-3, 3))
 	return out
@@ -422,8 +424,9 @@ func _sap(x: int) -> bool:
 			c = s
 	if path.size() < 3:
 		return false
+	var tname := "sap" + str(trenches.size())
 	for p in path:
-		_open(p, "sap", "sap" + str(trenches.size()))
+		_open(p, "sap", tname)
 	kind[c] = "op"
 	bays.erase(start)               # the sap leaves through the front wall here: no fire step
 	landmarks.append({kind = "op", cell = c})
@@ -516,12 +519,13 @@ func _stub(from: Vector2i, dir: Vector2i, k: String) -> bool:
 					return false
 				room.append(r)
 				allowed[r] = true
+	var tname := k + str(trenches.size())
 	for p in path:
-		_open(p, "stub" if k != "flood" else "flood", k + str(trenches.size()))
+		_open(p, "stub" if k != "flood" else "flood", tname)
 		if k == "flood":
 			flooded[p] = true
 	for r in room:
-		_open(r, k, k + str(trenches.size()))
+		_open(r, k, tname + "_room")
 		side_cells[r] = true
 	if k == "dugout" or k == "gunpit":
 		landmarks.append({kind = k, cell = room[0], entrance = c, dir = dir})
@@ -653,6 +657,8 @@ func _revet_for(k: String) -> String:
 
 
 # --- the carved ground ------------------------------------------------------------
+## The shell holes on this floor: Vector4(x, z, radius, depth).
+var crater_list: Array[Vector4] = []
 ## How far each kind of wall leans back from the floor edge to the top (m).
 const WALL_W := {"timber": 0.12, "iron": 0.12, "sandbag": 0.22, "wattle": 0.14, "earth": 0.5, "broken": 0.42}
 
@@ -669,6 +675,20 @@ func _carve() -> void:
 	vis_h.resize(n)
 	sdf.resize(n)
 	wet.resize(n)
+	_near_cache.clear()
+	var craters := _craters()
+	_build_near_cache()
+	# the shell holes, stamped in once (each touches only the samples round it)
+	var holes := PackedFloat32Array()
+	holes.resize(n)
+	for cr: Vector4 in craters:
+		var reach := cr.z * 1.35
+		for iz in range(maxi(int((cr.y - reach - origin.y) / RES), 0), mini(int((cr.y + reach - origin.y) / RES) + 2, hz)):
+			for ix in range(maxi(int((cr.x - reach - origin.x) / RES), 0), mini(int((cr.x + reach - origin.x) / RES) + 2, hx)):
+				var dd := Vector2(origin.x + ix * RES - cr.x, origin.y + iz * RES - cr.y).length() / cr.z
+				if dd < 1.35:
+					holes[ix + iz * hx] += -cr.w * maxf(0.0, 1.0 - dd * dd) + cr.w * 0.35 * exp(-pow((dd - 1.0) * 4.0, 2.0))
+	crater_list = craters
 	var ground := FastNoiseLite.new()
 	ground.seed = rng.randi()
 	ground.frequency = 0.045
@@ -683,18 +703,13 @@ func _carve() -> void:
 	var slump := FastNoiseLite.new()
 	slump.seed = rng.randi()
 	slump.frequency = 0.5
-	var craters := _craters()
 	for iz in hz:
 		for ix in hx:
 			var x := origin.x + ix * RES
 			var z := origin.y + iz * RES
 			var i := ix + iz * hx
 			# the ground up top
-			var g := ground.get_noise_2d(x, z) * 0.35 + fine.get_noise_2d(x, z) * 0.04
-			for cr: Vector4 in craters:
-				var dd := Vector2(x - cr.x, z - cr.y).length() / cr.z
-				if dd < 1.35:
-					g += -cr.w * maxf(0.0, 1.0 - dd * dd) + cr.w * 0.35 * exp(-pow((dd - 1.0) * 4.0, 2.0))
+			var g := ground.get_noise_2d(x, z) * 0.35 + fine.get_noise_2d(x, z) * 0.04 + holes[i]
 			# the trench
 			var near := _nearest(x, z)
 			var sd: float = near.d
@@ -775,6 +790,32 @@ func _craters() -> Array[Vector4]:
 	return out
 
 
+## Per grid cell: the open cells within two, with their floor rects
+## (the carve asks this for every sample, so it is built once).
+var _near_cache := {}
+
+
+func _near_list(c0: Vector2i) -> Array:
+	var out := []
+	for dz in range(-2, 3):
+		for dx in range(-2, 3):
+			var c := c0 + Vector2i(dx, dz)
+			if open_cells.has(c):
+				out.append([c, _rect(c)])
+	return out
+
+
+func _build_near_cache() -> void:
+	_near_cache.clear()
+	var lo := Vector2i(int(floor(origin.x / cell)) - 1, int(floor(origin.y / cell)) - 1)
+	var hi := Vector2i(int(ceil((origin.x + hx * RES) / cell)) + 1, int(ceil((origin.y + hz * RES) / cell)) + 1)
+	for cz in range(lo.y, hi.y):
+		for cx in range(lo.x, hi.x):
+			var l := _near_list(Vector2i(cx, cz))
+			if not l.is_empty():
+				_near_cache[Vector2i(cx, cz)] = l
+
+
 ## The floor-edge signed distance at (x, z) (m; < 0 on the floor), the open
 ## cell it belongs to and the kind of wall there.
 func _nearest(x: float, z: float) -> Dictionary:
@@ -784,12 +825,11 @@ func _nearest(x: float, z: float) -> Dictionary:
 	var best_c := Vector2i(-1, -1)
 	var best_dir := Vector2i.ZERO
 	var acc := 99.0
-	for dz in range(-2, 3):
-		for dx in range(-2, 3):
-			var c := Vector2i(cx + dx, cz + dz)
-			if not open_cells.has(c):
-				continue
-			var r := _rect(c)
+	var near: Array = _near_cache.get(Vector2i(cx, cz), []) if not _near_cache.is_empty() else _near_list(Vector2i(cx, cz))
+	for entry: Array in near:
+		if true:
+			var c: Vector2i = entry[0]
+			var r: Rect2 = entry[1]
 			var q := Vector2(x, z)
 			var dist := _rect_sd(q, r)
 			# smooth union: rounds the earth corners the trench turns round
@@ -1085,6 +1125,29 @@ func cells_far_from(c: Vector2i, min_steps: int) -> Array[Vector2i]:
 		if k > min_steps and k < 9999:
 			out.append(n)
 	return out
+
+
+## What a foot comes down on at `pos`: "water" (standing water over the
+## ankle), "wood" (duckboards, fire-step boards), "mud" (the trench floor),
+## "earth" (firmer ground up top).
+func surface_at(pos: Vector3) -> String:
+	for wa: Dictionary in water:
+		var r: Rect2 = wa.rect
+		if r.has_point(Vector2(pos.x, pos.z)) and float(wa.level) > ground_height(pos.x, pos.z) + 0.03:
+			return "water"
+	if _sample(col_h, pos.x, pos.z) - _sample(vis_h, pos.x, pos.z) > 0.04:
+		return "wood"
+	var fx := clampi(int((pos.x - origin.x) / RES), 0, hx - 1)
+	var fz := clampi(int((pos.z - origin.y) / RES), 0, hz - 1)
+	return "mud" if sdf[fx + fz * hx] < 0.3 else "earth"
+
+
+## Water level at a point, or -INF if there is none.
+func water_level(pos: Vector3) -> float:
+	for wa: Dictionary in water:
+		if (wa.rect as Rect2).has_point(Vector2(pos.x, pos.z)):
+			return wa.level
+	return -INF
 
 
 ## The exit door: in the bunker portal at the end of the fire trench.

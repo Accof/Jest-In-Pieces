@@ -104,6 +104,35 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _mix(_crack(0.12, rng, 1.1), _chirp(0.35, 1800.0, 1650.0, 0.3))
 		"choke":
 			data = _gurgle(0.5, rng, 1.6)
+		# --- the Drowned Trenches: the war beyond, the weather, the ground underfoot
+		"wind":
+			return _loop(_wind(8.0, rng))
+		"rumble":
+			return _loop(_rumble(10.0, rng))
+		"artillery":
+			data = _distant_boom(4.0, rng, 1.0)
+		"artillery_near":
+			data = _distant_boom(3.0, rng, 0.55)
+		"mg_far":
+			data = _burst(rng, rng.randi_range(6, 11), 0.085, 0.6)
+		"rifle_far":
+			data = _burst(rng, 1, 0.0, 0.9)
+		"drip":
+			data = _drip(0.25, rng)
+		"timber_creak":
+			data = _creak(1.1, rng)
+		"fs_mud":
+			data = _mix(_thump(0.16, 90.0, 50.0, 0.05, 0.4, rng, 0.02, 0.15), _squelch(0.24, rng))
+		"fs_water":
+			data = _mix(_thump(0.1, 80.0, 50.0, 0.03, 0.25, rng, 0.01, 0.1), _splash(0.3, rng))
+		"fs_wood":
+			data = _mix(_thump(0.1, 210.0, 120.0, 0.025, 0.7, rng, 0.012, 0.35), _crack(0.05, rng, 0.35))
+		"fs_earth":
+			data = _thump(0.12, 110.0, 60.0, 0.035, 0.5, rng, 0.03, 0.35)
+		"splash":
+			data = _splash(0.6, rng)
+		"carnival_tune":
+			data = _tune(rng)
 		_:
 			return null
 	return _wav(data)
@@ -370,4 +399,161 @@ static func _whoosh(len: float, rng: RandomNumberGenerator) -> PackedFloat32Arra
 		hi += (lo - hi) * 0.05
 		var env := pow(sin(u * PI), 2.0)
 		out[i] = (lo - hi) * env * 0.9
+	return out
+
+
+# --- the Drowned Trenches ------------------------------------------------------------
+## A clip that loops (wind, the low rumble of the guns).
+static func _loop(data: PackedFloat32Array) -> AudioStreamWAV:
+	# fade the ends into each other so the loop does not click
+	var n := data.size()
+	var x := int(RATE * 0.5)
+	for i in x:
+		var t := float(i) / x
+		data[i] = data[i] * t + data[n - x + i] * (1.0 - t)
+	data.resize(n - x)
+	var w := _wav(data)
+	w.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	w.loop_begin = 0
+	w.loop_end = data.size()
+	return w
+
+
+## Cold wind over open ground: filtered noise in slow gusts, a faint whistle.
+static func _wind(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var lp := 0.0
+	var lp2 := 0.0
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var gust := 0.55 + 0.3 * sin(t * TAU / len * 2.0) + 0.15 * sin(t * TAU / len * 5.0 + 1.3)
+		var x := rng.randf_range(-1.0, 1.0)
+		lp += (x - lp) * (0.02 + 0.03 * gust)
+		lp2 += (lp - lp2) * 0.12
+		ph += TAU * (620.0 + 90.0 * gust) / RATE
+		out[i] = lp2 * 3.2 * gust + sin(ph) * 0.006 * gust * gust
+	return out
+
+
+## The guns, far off: a continuous low rumble.
+static func _rumble(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var lp := 0.0
+	var lp2 := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		lp += (rng.randf_range(-1.0, 1.0) - lp) * 0.004
+		lp2 += (lp - lp2) * 0.02
+		out[i] = lp2 * 14.0 * (0.7 + 0.3 * sin(t * 0.9))
+	return out
+
+
+## A shell landing far away: a soft thud, then a long rolling rumble.
+static func _distant_boom(len: float, rng: RandomNumberGenerator, far: float) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var lp := 0.0
+	var lp2 := 0.0
+	var ph := 0.0
+	var cut := lerpf(0.06, 0.012, far)
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		lp += (x - lp) * cut
+		lp2 += (lp - lp2) * cut
+		ph += TAU * lerpf(48.0, 30.0, minf(t * 2.0, 1.0)) / RATE
+		var env := minf(t / 0.03, 1.0) * (exp(-t * 2.2) * 0.8 + exp(-t * 0.7) * 0.25)
+		out[i] = (lp2 * 9.0 + sin(ph) * 0.5 * exp(-t * 3.0)) * env * 0.8
+	return out
+
+
+## Gunfire a long way off: dull cracks with a tail, `count` of them `gap` apart.
+static func _burst(rng: RandomNumberGenerator, count: int, gap: float, amp: float) -> PackedFloat32Array:
+	var len := count * gap + 0.9
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for k in count:
+		var start := int((k * gap + rng.randf_range(0.0, 0.012)) * RATE)
+		var lp := 0.0
+		for i in range(start, mini(start + int(0.8 * RATE), n)):
+			var t := float(i - start) / RATE
+			lp += (rng.randf_range(-1.0, 1.0) - lp) * 0.08
+			out[i] += lp * (exp(-t * 40.0) * 2.0 + exp(-t * 6.0) * 0.35) * amp
+	return out
+
+
+## A drop of water into a puddle.
+static func _drip(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		ph += TAU * (900.0 + 1400.0 * exp(-t * 40.0)) / RATE
+		out[i] = sin(ph) * exp(-t * 30.0) * 0.35 + rng.randf_range(-1.0, 1.0) * exp(-t * 300.0) * 0.1
+	return out
+
+
+## A boot pulling out of mud: a wet suck.
+static func _squelch(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var lp := 0.0
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var u := t / len
+		lp += (rng.randf_range(-1.0, 1.0) - lp) * 0.15
+		ph += TAU * (180.0 + 260.0 * u) / RATE
+		var env := sin(u * PI) * (0.6 + 0.4 * sin(ph))
+		out[i] = lp * env * 0.5
+	return out
+
+
+## Water splashed: a bright burst of noise falling off.
+static func _splash(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var lp := 0.0
+	var hp := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		lp += (x - lp) * 0.5
+		hp = x - lp
+		var bubbles := 0.0
+		if rng.randf() < 0.004 * exp(-t * 6.0):
+			bubbles = 1.0
+		out[i] = (hp * exp(-t * 9.0) * 0.5 + lp * exp(-t * 14.0) * 0.4 + bubbles * 0.4) * minf(t / 0.004, 1.0)
+	return out
+
+
+## A few bars of a carnival waltz on a worn music box, slowing as it runs down.
+static func _tune(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var notes := [659.3, 784.0, 880.0, 784.0, 659.3, 587.3, 523.3, 587.3, 659.3, 0.0, 659.3, 698.5, 784.0, 698.5, 659.3, 523.3]
+	var beat := 0.34
+	var out := PackedFloat32Array()
+	out.resize(int((notes.size() * beat * 1.4 + 1.5) * RATE))
+	var t0 := 0.0
+	for k in notes.size():
+		var f: float = notes[k]
+		var stretch := 1.0 + 0.4 * float(k) / notes.size()          # the spring running down
+		if f > 0.0:
+			var sag := 1.0 - 0.05 * float(k) / notes.size()             # and the pitch sagging with it
+			var note := _musicbox(1.1, [f * sag * 0.985, f * 2.0 * sag * 0.99], 0.6)
+			var start := int(t0 * RATE)
+			for i in note.size():
+				if start + i < out.size():
+					out[start + i] += note[i] * 0.55
+		t0 += beat * stretch
 	return out

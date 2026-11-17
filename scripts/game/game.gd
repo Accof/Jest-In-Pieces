@@ -779,9 +779,11 @@ func _apply_floor_look(outdoor: bool) -> void:
 		if _trench_env == null:
 			_trench_env = TrenchArt.make_environment()
 		_world_env.environment = _trench_env
+		_world_env.camera_attributes = TrenchArt.make_camera_attributes()
 		TrenchArt.setup_sun(_sun)
 	else:
 		_world_env.environment = _bunker_env
+		_world_env.camera_attributes = null
 		_sun.light_color = Color(0.58, 0.62, 0.72)
 		_sun.light_energy = 0.45
 		_sun.light_angular_distance = 0.0
