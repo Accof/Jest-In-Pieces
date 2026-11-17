@@ -133,6 +133,10 @@ func _terrain() -> void:
 		mat.set_shader_parameter(pair[0] + "_n", tex(pair[1] + "_n"))
 		mat.set_shader_parameter(pair[0] + "_r", tex(pair[1] + "_r"))
 	mat.set_shader_parameter("noise_tex", tex("noise"))
+	# the trench floor: the Poly Haven scan (art/trench/polyhaven)
+	mat.set_shader_parameter("floor_a", load("res://art/trench/polyhaven/brown_mud_03_diff_2k.png"))
+	mat.set_shader_parameter("floor_n", load("res://art/trench/polyhaven/brown_mud_03_nor_gl_2k.png"))
+	mat.set_shader_parameter("floor_ard", load("res://art/trench/polyhaven/brown_mud_03_ard_2k.png"))
 	var chunk := 80                   # samples per side
 	var m := maze
 	var res := TrenchMaze.RES

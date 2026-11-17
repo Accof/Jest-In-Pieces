@@ -48,7 +48,7 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var secs := ["layouts", "ground", "game", "bodies", "ambience", "views"]
+	var secs := ["layouts", "ground", "game", "bodies", "ambience", "views", "floor"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -373,6 +373,56 @@ func _report(m: TrenchMaze, name_: String, c: Clown) -> void:
 	print("      %s (%s): hips %.2f m above the walked surface, lowest bone %.2f, moving %.2f m/s" % [name_, c.body, hips, lowest, speed])
 	_check(hips > -0.12 and hips < 0.6 and lowest > -0.2, "%s: lying on the ground, not floating or through it" % name_)
 	_check(speed < 0.3, "%s: at rest" % name_)
+
+
+## Render only: the trench floor close up (eye height down the trench, the
+## ground at your feet, a flooded stretch), with the scanned mud and, for
+## comparison, the old procedural sludge (/tmp/tr_floor_*_new|old.png).
+func _floor() -> void:
+	if not render:
+		return
+	print("-- floor")
+	await _new_game(3)
+	var m: TrenchMaze = game.maze
+	game.player.visible = false
+	for c: Clown in game.clowns:
+		c.queue_free()
+	game.clowns.clear()
+	var cam := Camera3D.new()
+	add_child(cam)
+	cam.make_current()
+	cam.fov = 70.0
+	var mats: Array[ShaderMaterial] = []
+	for mi in m.get_node("Art").get_children():
+		if mi is MeshInstance3D and (mi as MeshInstance3D).material_override is ShaderMaterial:
+			var sm := (mi as MeshInstance3D).material_override as ShaderMaterial
+			if sm.shader.resource_path.ends_with("mud_terrain.gdshader") and not mats.has(sm):
+				mats.append(sm)
+	# a stretch with no duckboards (the flooded side trench or a dugout stub), and the main route
+	var bare := m.route[m.route.size() / 2]
+	for c: Vector2i in m.open_cells:
+		if m.kind[c] in ["gunpit"]:
+			bare = c
+			break
+	var flood := m.start_cell
+	for wa: Dictionary in m.water:
+		flood = (wa.cells as Array)[0]
+		break
+	var k := m.route.size() / 3
+	var shots := {
+		"eye": [m.cell_center(m.route[k]) + Vector3.UP * 1.65, m.cell_center(m.route[k + 3]) + Vector3.UP * 0.2],
+		"feet": [m.cell_center(bare) + Vector3(0.2, 1.6, 0.6), m.cell_center(bare) + Vector3(0.0, 0.0, -0.4)],
+		"low": [m.cell_center(bare) + Vector3(-0.5, 0.45, 0.5), m.cell_center(bare) + Vector3(0.6, 0.0, -0.5)],
+		"flood": [m.cell_center(flood) + Vector3(0.3, 1.6, 0.9), m.cell_center(flood) + Vector3(0, 0, -0.8)],
+	}
+	for scan in [true, false]:
+		for sm in mats:
+			sm.set_shader_parameter("floor_scan", scan)
+		for name_: String in shots:
+			cam.global_position = shots[name_][0]
+			cam.look_at(shots[name_][1])
+			await _frames(3)
+			await _shot("floor_%s_%s" % [name_, "new" if scan else "old"])
 
 
 func _views() -> void:
