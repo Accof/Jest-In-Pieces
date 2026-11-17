@@ -137,9 +137,36 @@ func _model() -> void:
 				await get_tree().process_frame
 			await _shot("arm_%d" % k)
 		cam.queue_free()
+	# temper tantrums, one after another: the shoulders must come back each time
+	var furious_was := z.furious_miss_chance
+	z.furious_miss_chance = 1.0
+	z.always_pose = true
+	z.set_process(true)
+	for k in 6:
+		z._fury_t = -1.0
+		z.missed()
+		for f in 55:
+			await get_tree().process_frame
+	z.furious_miss_chance = furious_was
+	var drift := 0.0
+	for bi: int in z._rest:
+		if z.skeleton.get_bone_name(bi).ends_with("Shoulder"):
+			drift = maxf(drift, z.skeleton.get_bone_pose_rotation(bi).angle_to(z._rest[bi]))
+	_check(drift < 0.02, "six tempers later the shoulders are back where they were (%.3f rad)" % drift)
 	var neck: PhysicalBone3D = z.ragdoll.bones[&"Neck"]
 	z.knock_off_helmet(Vector3(0, 0, -1), neck.global_position)
 	_check(not z.has_helmet, "the Pickelhaube can be shot off")
+	# the brain, when the skull is opened, inside it
+	z.gore._show_innards(&"head")
+	await get_tree().process_frame
+	var holder: Node3D = z.gore._innards[&"head"]
+	var top := -INF
+	for mi in holder.get_children():
+		var aabb: AABB = (mi as MeshInstance3D).global_transform * (mi as MeshInstance3D).get_aabb()
+		top = maxf(top, aabb.end.y)
+	var crown := z.global_position.y + 1.692
+	print("      opened skull: insides reach %.3f m, the skull's crown %.3f m" % [top - z.global_position.y, crown - z.global_position.y])
+	_check(top <= crown + 0.005, "the brain fits inside his skull")
 	if render:
 		var cam2 := Camera3D.new()
 		add_child(cam2)

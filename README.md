@@ -257,7 +257,7 @@ The blast hurts you too (up to 85 at point blank, much less behind cover) and sh
 | Rattlejack | `art/rattlejack/` | Lewis gun: bursts at 9 rounds a second, pauses, pan changes; weak inaccurate rounds. Staged deaths (delayed headshot, stagger, Death Rattle) handed to the ragdoll mid-fall. Helmet comes off |
 | Zornhauptmann | `art/zornhauptmann/` | Officer: pistol raised in sight, one accurate round every 2-3 s; sabre wind-up, slash or thrust, recovery up close; slow; 1.25x health. Last Defiance on 60% of body kills: one last trigger pull (real shot, click, BANG! flag, confetti, bubbles). Pickelhaube comes off |
 
-Every body uses the same 21 bone names and 15 dismemberment segments, so the ragdoll, deaths and gore work on all of them. A new body is added to `Clown.BODIES` in `clown.gd`: model, gibs, the rest-pose box from its `.json`, how much thicker its collision shapes are than the clown's, and optionally a helmet.
+Every body uses the same 21 bone names and 15 dismemberment segments, so the ragdoll, deaths and gore work on all of them. A new body is added to `Clown.BODIES` in `clown.gd`: model, gibs, the rest-pose box from its `.json`, how much thicker its collision shapes are than the clown's, and optionally a helmet. The insides shown when the head, chest or belly is blown open are laid out on the clown and moved onto each body's own bones; `innards_scale` shrinks them for a smaller head (the Zornhauptmann's).
 
 
 

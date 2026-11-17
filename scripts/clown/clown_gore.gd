@@ -246,6 +246,10 @@ func _hang_guts(pb: PhysicsBody3D, world_pos: Vector3, out: Vector3, links: int 
 		at = next_at
 
 
+## Where the insides were laid out: the plain clown's bones (rest, skeleton space).
+const CLOWN_BONES := {"Head": Vector3(0, 1.615, 0.008), "Chest": Vector3(0, 1.26, 0), "Spine": Vector3(0, 1.08, 0)}
+
+
 func _show_innards(region: StringName) -> void:
 	if _innards.has(region):
 		return
@@ -259,8 +263,15 @@ func _show_innards(region: StringName) -> void:
 	skel.add_child(att)
 	var holder := Node3D.new()
 	att.add_child(holder)
-	# Parts are laid out in skeleton space, then carried by the bone.
-	holder.transform = skel.get_bone_global_rest(skel.find_bone(bone)).affine_inverse()
+	# Parts are laid out in the plain clown's skeleton space, then moved (and
+	# scaled, for a body whose head is smaller) onto this body's bone, which
+	# carries them. Without that, a body built differently has its brain
+	# floating above a lower head (the Zornhauptmann's sits 10 cm lower).
+	var rest := skel.get_bone_global_rest(skel.find_bone(bone))
+	var ref: Vector3 = CLOWN_BONES[bone]
+	var sc: float = (clown.spec.get("innards_scale", {}) as Dictionary).get(region, 1.0)
+	var to_body := Transform3D(Basis.IDENTITY.scaled(Vector3.ONE * sc), rest.origin - ref * sc)
+	holder.transform = rest.affine_inverse() * to_body
 	match region:
 		&"chest":
 			_part(holder, _blob_mesh(), _mat("meat"), Vector3(0, 1.39, -0.005), Vector3(0.145, 0.135, 0.09))

@@ -54,6 +54,7 @@ const BODIES := {
 		helmet = "res://art/zornhauptmann/zornhauptmann_helmet.glb",
 		surface = Vector2(0.82, 0.3),             # wool tunic, leather belts and boots
 		helmet_roughness = 0.32,                  # boiled, lacquered leather
+		innards_scale = {&"head": 0.75},          # a smaller skull under the Pickelhaube (crown at 1.69 m)
 		helmet_center = Vector3(-0.00027, 1.73536, 0.04043), helmet_size = Vector3(0.242, 0.349, 0.287),
 		shapes = {&"UpperLeg": 1.3, &"LowerLeg": 1.12, &"UpperArm": 1.25, &"LowerArm": 1.05,
 			&"Hips": 1.2, &"Spine": 1.2, &"Chest": 1.2, &"Neck": 1.12, &"Foot": 1.15},

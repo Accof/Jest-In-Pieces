@@ -445,6 +445,12 @@ func _process(delta: float) -> void:
 	if dead or dying != "":
 		return
 	var d := minf(delta, 1.0 / 30.0)
+	# the shoulders are not among the bones the base pose resets each frame:
+	# put them back, or the temper's shrug adds up frame after frame until an
+	# arm sticks out sideways
+	for bi: int in _rest:
+		if skeleton.get_bone_name(bi).ends_with("Shoulder"):
+			skeleton.set_bone_pose_rotation(bi, _rest[bi])
 	# the pistol: low, then raised at the player where he can see it coming
 	var arm := gun_side if has_gun and gun_side != "" and not arm_out(gun_side) else ""
 	if arm != "":
