@@ -12,6 +12,8 @@ var _mats := {}
 ## (creaks), the music box.
 var drip_spots: Array[Vector3] = []
 var creak_spots: Array[Vector3] = []
+## Where loose iron and wire can rattle in the wind (pickets).
+var rattle_spots: Array[Vector3] = []
 var music_box := Vector3.INF
 var _far_noise: FastNoiseLite
 var _far_holes: FastNoiseLite
@@ -25,7 +27,7 @@ const PBR_FOR := {
 	"board": {set = "rough_wood", tile = 1.0, grain = true, darken = 0.78, wet = 0.45, grime = 0.35, rough_min = 0.5, tint = Color(0.95, 0.88, 0.8)},
 	"planks_wet": {set = "rough_wood", tile = 1.0, grain = true, darken = 0.75, wet = 0.5, grime = 0.4, rough_min = 0.5, tint = Color(0.95, 0.88, 0.8)},
 	"timber": {set = "rough_wood", tile = 1.0, grain = true, darken = 0.62, wet = 0.5, grime = 0.45, rough_min = 0.5, tint = Color(0.9, 0.82, 0.74)},
-	"burlap": {set = "hessian_230", tile = 0.45, grain = false, darken = 0.62, saturation = 0.85, wet = 0.55, grime = 0.75, rough_min = 0.62, tint = Color(0.86, 0.78, 0.66), normal_strength = 1.2},
+	"burlap": {set = "hessian_230", tile = 0.45, grain = false, darken = 0.5, saturation = 0.7, wet = 0.55, grime = 0.75, rough_min = 0.62, tint = Color(0.86, 0.78, 0.66), normal_strength = 1.2},
 	"iron": {set = "rusty_metal_04", tile = 1.6, grain = false, darken = 0.8, wet = 0.25, grime = 0.3, rough_min = 0.45, metal_from_albedo = 0.55},
 }
 
@@ -48,12 +50,16 @@ func build(m: TrenchMaze) -> void:
 	_far()
 	_wire()
 	_no_mans_land()
+	var st := rng.state
+	_horizon()
+	rng.state = st              # the scenery out there leaves the trench's own dressing as it was
 	_props()
 	_signs()
 	_carnival()
 	_wind_things()
 	_smoke()
 	_flush()
+	_share_sky()
 	var amb := TrenchAmbience.new()
 	amb.name = "Ambience"
 	add_child(amb)
@@ -64,12 +70,21 @@ static func tex(name_: String) -> Texture2D:
 	return load("res://art/trench/%s.png" % name_)
 
 
-## The overcast day (used by the game on trench floors): a bright-enough grey
-## sky lighting everything, a faint soft sun, light haze in the distance.
+## Where the light comes from: low, behind the storm cloud, over No Man's
+## Land (the sky shader's light_dir; the sun shines along -LIGHT_DIR).
+const LIGHT_DIR := Vector3(-0.45, 0.32, -0.83)
+
+
+## The storm day (used by the game on trench floors). A tonal hierarchy, not
+## a dim screen: the sky the brightest thing, the haze-softened battlefield,
+## the parapets in moderate diffuse light, the trench walls darkening toward
+## the bottom (sky visibility, baked per floor), the floor dark but catching
+## the sky in its water.
 static func make_environment() -> Environment:
 	var sky_mat := ShaderMaterial.new()
 	sky_mat.shader = load("res://shaders/overcast_sky.gdshader")
 	sky_mat.set_shader_parameter("noise_tex", tex("noise"))
+	sky_mat.set_shader_parameter("light_dir", LIGHT_DIR)
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	sky.radiance_size = Sky.RADIANCE_SIZE_128
@@ -77,37 +92,76 @@ static func make_environment() -> Environment:
 	var env := Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
+	# the sky's light, but less of it than before: the trench is lit from above
+	# and the baked sky visibility takes it away lower down
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_sky_contribution = 1.0
-	env.ambient_light_energy = 1.5
+	env.ambient_light_energy = 0.75
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 1.2
-	env.tonemap_white = 4.0
+	env.tonemap_exposure = 1.0
+	env.tonemap_white = 6.0
 	env.ssr_enabled = true
-	env.ssr_max_steps = 40
-	env.ssr_fade_in = 0.15
-	env.ssr_fade_out = 2.0
+	env.ssr_max_steps = 48
+	env.ssr_fade_in = 0.1
+	env.ssr_fade_out = 2.5
+	env.ssr_depth_tolerance = 0.3
 	env.ssao_enabled = true
-	env.ssao_intensity = 1.0
-	env.ssao_radius = 0.9
-	env.ssao_power = 1.3
+	env.ssao_intensity = 1.6
+	env.ssao_radius = 1.4
+	env.ssao_power = 1.4
+	env.ssao_light_affect = 0.15
 	env.ssil_enabled = true
-	env.ssil_intensity = 0.5
+	env.ssil_intensity = 0.6
+	env.ssil_radius = 4.0
+	# atmospheric depth: nothing in the first 18 m (the trench stays crisp and
+	# the enemies in it clear), softening through the middle distance, the far
+	# battlefield hazy and blue-grey
 	env.fog_enabled = true
-	env.fog_mode = Environment.FOG_MODE_EXPONENTIAL
-	env.fog_light_color = Color(0.6, 0.61, 0.63)
-	env.fog_density = 0.0038
-	env.fog_aerial_perspective = 0.55
-	env.fog_sky_affect = 0.25
+	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_light_color = Color(0.47, 0.52, 0.58)
+	env.fog_density = 0.82
+	env.fog_depth_begin = 18.0
+	env.fog_depth_end = 320.0
+	env.fog_depth_curve = 1.7
+	env.fog_aerial_perspective = 0.6
+	env.fog_sky_affect = 0.2
 	env.volumetric_fog_enabled = false
 	env.glow_enabled = true
-	env.glow_intensity = 0.25
-	env.glow_hdr_threshold = 1.2
+	env.glow_intensity = 0.3
+	env.glow_bloom = 0.02
+	env.glow_hdr_threshold = 1.0
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 0.88
-	env.adjustment_contrast = 1.03
+	env.adjustment_saturation = 0.92
+	env.adjustment_contrast = 1.08
+	env.adjustment_color_correction = make_grade()
 	return env
+
+
+## The grade: cold blue-grey shadows, neutral mid-tones (the materials keep
+## their own colour), a touch of warmth only in the brightest light, and a
+## little saturation taken out of the darks. Not a blue filter: the cast
+## fades out as the image brightens.
+static func make_grade() -> ImageTexture3D:
+	var n := 24
+	var images: Array[Image] = []
+	for b in n:
+		var img := Image.create(n, n, false, Image.FORMAT_RGB8)
+		for g in n:
+			for r in n:
+				var c := Vector3(r, g, b) / float(n - 1)
+				var lum := c.dot(Vector3(0.299, 0.587, 0.114))
+				var shadow := 1.0 - smoothstep(0.02, 0.5, lum)
+				var high := smoothstep(0.6, 1.0, lum)
+				var out := c
+				out = out.lerp(Vector3.ONE * lum, 0.25 * shadow)                 # darks a little less saturated
+				out *= Vector3.ONE.lerp(Vector3(0.88, 0.95, 1.08), shadow * 0.85)  # and cold
+				out *= Vector3.ONE.lerp(Vector3(1.03, 1.0, 0.96), high * 0.6)     # light, a little warm
+				img.set_pixel(r, g, Color(clampf(out.x, 0.0, 1.0), clampf(out.y, 0.0, 1.0), clampf(out.z, 0.0, 1.0)))
+		images.append(img)
+	var t := ImageTexture3D.new()
+	t.create(Image.FORMAT_RGB8, n, n, n, false, images)
+	return t
 
 
 ## The eye adjusting: brighter in a dugout or a deep dark corner, back down
@@ -115,24 +169,30 @@ static func make_environment() -> Environment:
 static func make_camera_attributes() -> CameraAttributesPractical:
 	var ca := CameraAttributesPractical.new()
 	ca.auto_exposure_enabled = true
-	ca.auto_exposure_scale = 0.22
-	ca.auto_exposure_speed = 0.6
-	ca.auto_exposure_min_sensitivity = 90.0
-	ca.auto_exposure_max_sensitivity = 180.0
+	# only a little: the trench is meant to be darker than the sky, and a free
+	# auto exposure would lift it back to grey
+	ca.auto_exposure_scale = 0.2
+	ca.auto_exposure_speed = 0.5
+	ca.auto_exposure_min_sensitivity = 95.0
+	ca.auto_exposure_max_sensitivity = 125.0
 	return ca
 
 
-## A faint high sun behind the cloud: soft, weak shadows.
+## Cold daylight breaking through the cloud, low over No Man's Land: it lights
+## the parapets and the tops of the far walls; the trench interiors fall into
+## shadow.
 static func setup_sun(sun: DirectionalLight3D) -> void:
-	sun.light_color = Color(0.86, 0.89, 0.95)
-	sun.light_energy = 0.42
-	sun.light_angular_distance = 9.0
+	sun.light_color = Color(0.82, 0.86, 0.94)
+	sun.light_energy = 0.85
+	sun.light_specular = 0.08            # overcast: no hard sun glints on the water
+	sun.light_angular_distance = 2.5
 	sun.light_volumetric_fog_energy = 0.0
 	sun.shadow_enabled = true
-	sun.shadow_opacity = 0.55
-	sun.shadow_blur = 2.5
-	sun.directional_shadow_max_distance = 60.0
-	sun.rotation = Vector3(deg_to_rad(-58.0), deg_to_rad(-35.0), 0.0)
+	sun.shadow_opacity = 1.0
+	sun.shadow_blur = 1.5
+	sun.directional_shadow_max_distance = 90.0
+	sun.look_at_from_position(Vector3.ZERO, -LIGHT_DIR, Vector3.UP)
+	sun.position = Vector3.ZERO
 
 
 ## A scanned set from art/trench/pbr/<name>: albedo, normal, packed AO/rough/height.
@@ -165,6 +225,21 @@ func ground_material() -> ShaderMaterial:
 	mat.set_shader_parameter("floor_ard", load("res://art/trench/polyhaven/brown_mud_03_ard_2k.png"))
 	_ground_mat = mat
 	return mat
+
+
+## Give every prop material the floor's sky visibility, so linings, bags and
+## boards down in the trench darken with it as the ground does.
+func _share_sky() -> void:
+	var t := maze.sky_texture()
+	var org := maze.origin
+	var size := Vector2((maze.sky_w - 1) * TrenchMaze.SKY_STEP * TrenchMaze.RES, (maze.sky_d - 1) * TrenchMaze.SKY_STEP * TrenchMaze.RES)
+	for m: Material in _mats.values():
+		if m is ShaderMaterial and (m as ShaderMaterial).shader.resource_path.ends_with("pbr_object.gdshader"):
+			var sm := m as ShaderMaterial
+			sm.set_shader_parameter("sky_tex", t)
+			sm.set_shader_parameter("sky_origin", org)
+			sm.set_shader_parameter("sky_size", size)
+			sm.set_shader_parameter("sky_on", true)
 
 
 ## How broken-down the ground is around each point (vertex A, 0..1): the
@@ -215,6 +290,8 @@ func _terrain() -> void:
 			var verts := PackedVector3Array()
 			var norms := PackedVector3Array()
 			var cols := PackedColorArray()
+			var uv2 := PackedVector2Array()
+			uv2.resize(nx * nz)
 			verts.resize(nx * nz)
 			norms.resize(nx * nz)
 			cols.resize(nx * nz)
@@ -232,6 +309,7 @@ func _terrain() -> void:
 					var dmg := _damage_at(verts_x(m, ix), m.origin.y + iz * res) if sd < 3.0 else 0.0
 					cols[k] = Color(m.wet[i], 1.0 if sd <= 0.0 else 0.0, clampf(sd * 0.5, 0.0, 1.0), dmg)
 					verts[k] = Vector3(m.origin.x + ix * res, h, m.origin.y + iz * res)
+					uv2[k] = Vector2(m.sky_vis[i], 0.0)
 					k += 1
 			var idx := PackedInt32Array()
 			idx.resize((nx - 1) * (nz - 1) * 6)
@@ -251,6 +329,7 @@ func _terrain() -> void:
 			arrays[Mesh.ARRAY_VERTEX] = verts
 			arrays[Mesh.ARRAY_NORMAL] = norms
 			arrays[Mesh.ARRAY_COLOR] = cols
+			arrays[Mesh.ARRAY_TEX_UV2] = uv2
 			arrays[Mesh.ARRAY_INDEX] = idx
 			var am := ArrayMesh.new()
 			am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -903,6 +982,7 @@ func _far() -> void:
 			st.set_normal(Vector3(hl - hr, 2.0 * step, hd - hu).normalized())
 			var nml := 1.0 - smoothstep(-30.0, 10.0, z)
 			st.set_color(Color(0.6, 0.0, lerpf(1.0, 0.4, nml), 0.0))
+			st.set_uv2(Vector2(1.0, 0.0))           # open sky out there
 			st.add_vertex(Vector3(x, hs[i], z))
 	for iz in nz - 1:
 		for ix in n - 1:
@@ -987,6 +1067,8 @@ func _wire() -> void:
 				var hgt := rng.randf_range(1.0, 1.3)
 				_box("wire_pickets", picket, p + lean * Vector3.UP * hgt * 0.5, lean, Vector3(0.035, hgt, 0.035))
 				posts.append(p + lean * Vector3.UP * hgt)
+				if posts.size() % 4 == 0:
+					rattle_spots.append(p + Vector3.UP * 0.8)
 			x += rng.randf_range(2.2, 2.8)
 		# strands between neighbouring pickets at three heights, sagging
 		for i in posts.size() - 1:
@@ -1113,9 +1195,134 @@ func _no_mans_land() -> void:
 		var mi := MeshInstance3D.new()
 		mi.mesh = pm
 		mi.material_override = mat
+		mi.set_instance_shader_parameter("round", 1.0)     # a disc, not a slab over the rim
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		mi.position = Vector3(cr.x, bottom + cr.w * 0.35, cr.y)
 		add_child(mi)
+
+
+# --- the horizon -----------------------------------------------------------------------
+## What stands against the sky: a broken village and a church tower far off
+## (the haze turns them to blue-grey shapes), more shattered trees at every
+## distance, a few wrecked sandbag posts out in No Man's Land, and now and
+## then figures moving far away along the skyline. Nothing out here collides;
+## nothing out here is in the fight.
+func _horizon() -> void:
+	var mid := Vector3(maze.w * maze.cell * 0.5, 0, maze.d * maze.cell * 0.5)
+	var ruin := _plain("ruin", Color(0.16, 0.15, 0.145), 0.95)
+	var church := false
+	var placed: Array[float] = []
+	for i in 11:
+		# around the far edge, thickest ahead, never straight behind the player's line
+		var a := -PI * 0.5 + rng.randf_range(-1.25, 1.25) * (1.0 if i < 8 else 2.2)
+		var ok := true
+		for b in placed:
+			if absf(angle_difference(a, b)) < 0.16:
+				ok = false
+		if not ok:
+			continue
+		placed.append(a)
+		var r := rng.randf_range(170.0, 250.0)
+		var at := mid + Vector3(cos(a), 0, sin(a)) * r
+		at.y = height_at(at.x, at.z) - 0.5
+		var face := Basis(Vector3.UP, a + PI * 0.5 + rng.randf_range(-0.3, 0.3))
+		if not church and i == 2:
+			church = true
+			_ruined_church(at, face, ruin)
+		else:
+			_ruined_block(at, face, ruin)
+	# shattered trees: near, middle and far, sparse
+	var bark := _plain("bark", Color(0.13, 0.115, 0.1), 0.9)
+	for i in 16:
+		var a := rng.randf_range(-PI, 0.0) if i < 12 else rng.randf_range(0.0, PI)
+		var r := rng.randf_range(40.0, 150.0)
+		var p := mid + Vector3(cos(a), 0, sin(a)) * r
+		_dead_tree(p, bark, rng.randf_range(3.0, 9.0) * (1.0 + r / 300.0))
+	# wrecked sandbag posts in No Man's Land: a broken horseshoe, half fallen
+	var bags := _bag_mesh()
+	var burlap := _mat("burlap", 1.0)
+	for i in 3:
+		var c := Vector3(rng.randf_range(12.0, maze.w * maze.cell - 12.0), 0, rng.randf_range(-48.0, -16.0))
+		var turn := rng.randf() * TAU
+		for k in 3:
+			if rng.randf() < 0.25:
+				continue                                    # a side blown away
+			var ang := turn + (k - 1) * 1.1
+			var along := Vector3(cos(ang), 0, sin(ang))
+			var inn := along.cross(Vector3.UP)
+			var foot := c - inn * 1.3
+			foot.y = height_at(foot.x, foot.z) - 0.08
+			_bag_wall(bags, burlap, foot, along, inn, rng.randf_range(1.2, 2.2), rng.randf_range(0.3, 0.75))
+			# bags thrown off it
+			for j in rng.randi_range(1, 3):
+				var q := foot + along * rng.randf_range(-1.5, 1.5) - inn * rng.randf_range(0.6, 2.2)
+				q.y = height_at(q.x, q.z) + 0.06
+				var bb := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.FORWARD, rng.randf_range(-0.3, 0.3))
+				_add("nml_bags", bags, burlap, Transform3D(bb, q))
+	# figures far off on the skyline, now and then
+	var dark := _plain("far_figure", Color(0.06, 0.06, 0.065), 1.0)
+	for i in 3:
+		var f := FarFigures.new()
+		f.name = "FarFigures%d" % i
+		add_child(f)
+		var a := -PI * 0.5 + rng.randf_range(-1.0, 1.0)
+		if i == 2:
+			a = PI * 0.5 + rng.randf_range(-0.8, 0.8)               # one party behind the lines
+		var r := rng.randf_range(85.0, 150.0)
+		var c := mid + Vector3(cos(a), 0, sin(a)) * r
+		var dir := Vector3(-sin(a), 0, cos(a)) * (1.0 if rng.randf() < 0.5 else -1.0)
+		f.setup(self, c - dir * 30.0, c + dir * 30.0, rng.randi_range(1, 3), dark, rng.randi())
+
+
+## A broken building: walls of different heights with ragged tops, a chimney.
+func _ruined_block(at: Vector3, face: Basis, mat: Material) -> void:
+	var w := rng.randf_range(8.0, 16.0)
+	var dpt := rng.randf_range(6.0, 10.0)
+	var h := rng.randf_range(4.0, 9.0)
+	for side in 4:
+		if rng.randf() < 0.3:
+			continue                                         # gone
+		var along := face * (Vector3.RIGHT if side % 2 == 0 else Vector3.BACK)
+		var length := w if side % 2 == 0 else dpt
+		var off := face * (Vector3(0, 0, dpt * 0.5) if side == 0 else Vector3(0, 0, -dpt * 0.5) if side == 2 else Vector3(w * 0.5, 0, 0) if side == 1 else Vector3(-w * 0.5, 0, 0))
+		# the wall in slices, each a different height: a ragged top
+		var n := int(length / 1.6)
+		for k in n:
+			var t := (k + 0.5) / n - 0.5
+			var hh := h * rng.randf_range(0.25, 1.0) * (1.0 - absf(t) * 0.5)
+			var cpos := at + off + along * t * length + Vector3.UP * hh * 0.5
+			_box("ruins", mat, cpos, Basis(along.cross(Vector3.UP), Vector3.UP, along).orthonormalized(), Vector3(0.6, hh, length / n + 0.05))
+	if rng.randf() < 0.6:
+		var ch := rng.randf_range(h, h * 1.6)
+		_box("ruins", mat, at + face * Vector3(rng.randf_range(-w, w) * 0.4, ch * 0.5, 0), face, Vector3(1.0, ch, 1.0))
+	# rubble at the foot
+	for k in 6:
+		var q := at + face * Vector3(rng.randf_range(-w, w) * 0.6, 0, rng.randf_range(-dpt, dpt) * 0.6)
+		var sz := rng.randf_range(1.5, 4.0)
+		_box("ruins", mat, q + Vector3.UP * sz * 0.15, Basis(Vector3.UP, rng.randf() * TAU), Vector3(sz, sz * 0.4, sz * 0.8))
+
+
+## The church: the stump of the tower, its top shot away, the nave walls
+## broken down to the windows.
+func _ruined_church(at: Vector3, face: Basis, mat: Material) -> void:
+	var th := rng.randf_range(16.0, 22.0)
+	_box("ruins", mat, at + Vector3.UP * th * 0.5, face, Vector3(5.0, th, 5.0))
+	# the broken crown: corners left standing
+	for k in 4:
+		if rng.randf() < 0.35:
+			continue
+		var c := Vector3(1 if k % 2 == 0 else -1, 0, 1 if k < 2 else -1) * 2.1
+		var extra := rng.randf_range(1.5, 4.5)
+		_box("ruins", mat, at + face * (c + Vector3.UP * (th + extra * 0.5)), face, Vector3(0.9, extra, 0.9))
+	# nave behind it
+	var length := rng.randf_range(18.0, 26.0)
+	for side in [-1, 1]:
+		var n := 9
+		for k in n:
+			var t := (k + 0.5) / n
+			var hh := rng.randf_range(2.5, 8.0) * (1.0 - t * 0.4)
+			var pos := at + face * Vector3(side * 4.5, hh * 0.5, 2.5 + t * length)
+			_box("ruins", mat, pos, face, Vector3(0.8, hh, length / n + 0.05))
 
 
 func _dead_tree(p: Vector3, bark: Material, h: float) -> void:
@@ -1688,16 +1895,168 @@ func _smoke() -> void:
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.vertex_color_use_as_albedo = true
 	mat.disable_receive_shadows = true
-	for i in 6:
-		var a := rng.randf_range(-PI * 0.85, -PI * 0.15)            # mostly ahead, over No Man's Land
-		var r := rng.randf_range(70.0, 220.0)
-		var at := Vector3(maze.w * maze.cell * 0.5 + cos(a) * r, 0, sin(a) * r)
-		at.y = height_at(at.x, at.z)
-		add_child(make_plume(mat, at, rng.randf_range(0.7, 1.4)))
 	_smoke_mat = mat
+	# the distant battle: tall smoke columns leaning with the wind, a few of
+	# them over fires. All far out (the fog softens the farthest), mostly
+	# ahead over No Man's Land, one or two behind the lines.
+	var col_mat := mat.duplicate() as StandardMaterial3D
+	col_mat.albedo_texture = load("res://art/level/fx_billow.png")
+	col_mat.albedo_color = Color(1, 1, 1, 1)
+	var fire_mat := StandardMaterial3D.new()
+	fire_mat.albedo_texture = load("res://art/level/fx_fire.png")
+	fire_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fire_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	fire_mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	fire_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fire_mat.vertex_color_use_as_albedo = true
+	fire_mat.disable_receive_shadows = true
+	fire_mat.no_depth_test = false
+	fire_mat.disable_fog = true         # the haze would wash an additive flame to pink
+	fire_mat.albedo_color = Color(0.8, 0.8, 0.8)
+	var mid := maze.w * maze.cell * 0.5
+	var spots: Array[Vector3] = []
+	var fires := 0
+	for i in 7:
+		var behind := i >= 6
+		var at := Vector3.ZERO
+		for _try in 12:
+			var a := rng.randf_range(-PI * 0.9, -PI * 0.1)
+			if behind:
+				a = rng.randf_range(PI * 0.2, PI * 0.8)
+			var r := rng.randf_range(90.0, 240.0)
+			at = Vector3(mid + cos(a) * r, 0, sin(a) * r + (maze.d * maze.cell if behind else 0.0))
+			var ok := true
+			for o in spots:
+				if Vector2(o.x - at.x, o.z - at.z).length() < 45.0:
+					ok = false
+			if ok:
+				break
+		spots.append(at)
+		at.y = height_at(at.x, at.z) - 1.0
+		var fire := not behind and fires < 4 and rng.randf() < 0.6
+		var size := rng.randf_range(0.8, 1.5)
+		# fire smoke is black; the rest dark grey to dirty grey
+		var shade := rng.randf_range(0.06, 0.09) if fire else rng.randf_range(0.1, 0.19)
+		add_child(make_column(col_mat, at, size, shade, rng.randf()))
+		if fire:
+			fires += 1
+			add_child(make_fire(fire_mat, at + Vector3(0, 0.6, 0), size))
 
 
 var _smoke_mat: StandardMaterial3D
+
+
+## A tall billowing smoke column: slow, dense at the root, spreading and
+## thinning as it rises, carried off by the wind. `shade`: how dark.
+static func make_column(mat: Material, at: Vector3, size: float, shade: float, phase: float) -> CPUParticles3D:
+	var p := CPUParticles3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2.ONE * 20.0 * size
+	q.material = mat
+	p.mesh = q
+	p.amount = 90
+	p.lifetime = 40.0
+	p.preprocess = 40.0                  # already standing when the floor loads
+	p.randomness = 0.4
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = 2.5 * size
+	p.direction = Vector3(0.1, 1, 0)
+	p.spread = 8.0
+	p.initial_velocity_min = 1.6 * size
+	p.initial_velocity_max = 2.4 * size
+	p.gravity = Vector3(0.22, 0.0, 0.06) # the wind takes the top
+	p.damping_min = 0.03
+	p.damping_max = 0.05
+	p.scale_amount_min = 0.6
+	p.scale_amount_max = 1.5
+	var curve := Curve.new()
+	curve.max_value = 5.0
+	curve.add_point(Vector2(0, 0.4))
+	curve.add_point(Vector2(0.4, 1.4))
+	curve.add_point(Vector2(1, 2.3))
+	p.scale_amount_curve = curve
+	var grad := Gradient.new()
+	var s := shade
+	grad.set_color(0, Color(s, s * 0.97, s * 0.94, 0.0))
+	grad.add_point(0.05, Color(s, s * 0.97, s * 0.94, 0.95))
+	grad.add_point(0.55, Color(s * 1.5, s * 1.48, s * 1.46, 0.7))
+	grad.set_color(grad.get_point_count() - 1, Color(s * 2.0, s * 2.0, s * 2.0, 0.0))
+	p.color_ramp = grad
+	p.angle_min = -180.0
+	p.angle_max = 180.0
+	p.angular_velocity_min = -1.5
+	p.angular_velocity_max = 1.5
+	p.position = at
+	p.seed = int(phase * 100000.0)
+	p.use_fixed_seed = false
+	p.visibility_aabb = AABB(Vector3(-80, -10, -80), Vector3(160, 160, 160))
+	p.emitting = true
+	return p
+
+
+## A distant fire: low licking flames and a few sparks, restrained, flickering
+## by itself. No light: it is too far off to light the trench.
+static func make_fire(mat: Material, at: Vector3, size: float) -> Node3D:
+	var root := Node3D.new()
+	root.position = at
+	var p := CPUParticles3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(6.0, 7.5) * size
+	q.material = mat
+	p.mesh = q
+	p.amount = 24
+	p.lifetime = 1.4
+	p.randomness = 0.5
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	p.emission_box_extents = Vector3(2.6, 0.2, 2.6) * size
+	p.direction = Vector3.UP
+	p.spread = 10.0
+	p.initial_velocity_min = 0.6
+	p.initial_velocity_max = 1.6
+	p.gravity = Vector3(0.2, 0.6, 0)
+	p.scale_amount_min = 0.5
+	p.scale_amount_max = 1.2
+	var curve := Curve.new()
+	curve.add_point(Vector2(0, 0.6))
+	curve.add_point(Vector2(0.3, 1.0))
+	curve.add_point(Vector2(1, 0.2))
+	p.scale_amount_curve = curve
+	var grad := Gradient.new()
+	grad.set_color(0, Color(1.0, 0.55, 0.18, 0.0))
+	grad.add_point(0.12, Color(1.0, 0.5, 0.15, 0.75))
+	grad.add_point(0.6, Color(0.75, 0.25, 0.06, 0.4))
+	grad.set_color(grad.get_point_count() - 1, Color(0.3, 0.08, 0.02, 0.0))
+	p.color_ramp = grad
+	p.angle_min = -15.0
+	p.angle_max = 15.0
+	p.preprocess = 2.0
+	p.visibility_aabb = AABB(Vector3(-10, -2, -10), Vector3(20, 14, 20))
+	root.add_child(p)
+	# sparks, lifted by the heat
+	var sp := CPUParticles3D.new()
+	var sq := QuadMesh.new()
+	sq.size = Vector2.ONE * 0.35
+	sq.material = mat
+	sp.mesh = sq
+	sp.amount = 12
+	sp.lifetime = 3.0
+	sp.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	sp.emission_box_extents = Vector3(2.0, 0.5, 2.0) * size
+	sp.direction = Vector3.UP
+	sp.spread = 25.0
+	sp.initial_velocity_min = 2.0
+	sp.initial_velocity_max = 5.0
+	sp.gravity = Vector3(0.6, 0.4, 0.1)
+	var sg := Gradient.new()
+	sg.set_color(0, Color(1.0, 0.6, 0.25, 1.0))
+	sg.set_color(sg.get_point_count() - 1, Color(0.8, 0.2, 0.05, 0.0))
+	sp.color_ramp = sg
+	sp.preprocess = 3.0
+	sp.visibility_aabb = AABB(Vector3(-15, -2, -15), Vector3(30, 30, 30))
+	root.add_child(sp)
+	return root
+
+
 
 
 ## A smoke plume at `at`, `size` scaling it. `once`: a single puff (a shell).

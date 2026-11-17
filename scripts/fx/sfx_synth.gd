@@ -121,6 +121,12 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _drip(0.25, rng)
 		"timber_creak":
 			data = _creak(1.1, rng)
+		"metal_rattle":
+			data = _rattle(1.6, rng)
+		"water_slosh":
+			data = _slosh(1.8, rng)
+		"whistle_far":
+			data = _whistle_far(rng)
 		"fs_mud":
 			data = _mix(_thump(0.16, 90.0, 50.0, 0.05, 0.4, rng, 0.02, 0.15), _squelch(0.24, rng))
 		"fs_water":
@@ -557,3 +563,75 @@ static func _tune(rng: RandomNumberGenerator) -> PackedFloat32Array:
 					out[start + i] += note[i] * 0.55
 		t0 += beat * stretch
 	return out
+
+
+## Loose iron and wire in the wind: a few tinny knocks, irregular, ringing a
+## moment each.
+static func _rattle(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var hits := rng.randi_range(4, 8)
+	for k in hits:
+		var start := int(rng.randf_range(0.0, len - 0.35) * RATE)
+		var f := rng.randf_range(1900.0, 2600.0)
+		var amp := rng.randf_range(0.12, 0.3)
+		for i in range(start, mini(start + int(0.35 * RATE), n)):
+			var t := float(i - start) / RATE
+			var ring := sin(TAU * f * t) + 0.6 * sin(TAU * f * 1.47 * t) + 0.35 * sin(TAU * f * 2.31 * t)
+			out[i] += (ring * exp(-t * 28.0) * 0.4 + rng.randf_range(-1.0, 1.0) * exp(-t * 400.0)) * amp
+	return out
+
+
+## Water moving in the trench: slow laps against the mud, a bubble or two.
+static func _slosh(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var lp := 0.0
+	var lp2 := 0.0
+	var laps := rng.randf_range(1.5, 2.5)
+	for i in n:
+		var t := float(i) / RATE
+		var u := t / len
+		lp += (rng.randf_range(-1.0, 1.0) - lp) * 0.06
+		lp2 += (lp - lp2) * 0.2
+		var env := pow(maxf(sin(u * PI * laps), 0.0), 2.0) * sin(u * PI)
+		out[i] = lp2 * env * 1.4
+	for k in rng.randi_range(1, 3):
+		var b := _chirp(0.05, rng.randf_range(350.0, 600.0), rng.randf_range(800.0, 1200.0), 0.15)
+		var start := int(rng.randf_range(0.1, len - 0.2) * RATE)
+		for i in b.size():
+			if start + i < n:
+				out[start + i] += b[i]
+	return out
+
+
+## A trench whistle a long way off: two blasts, the pea trilling, dulled by
+## distance and trailing off on the air.
+static func _whistle_far(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var len := 2.6
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var f := rng.randf_range(2300.0, 2800.0)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var on := 0.0
+		if t < 0.35:
+			on = 1.0
+		elif t > 0.55 and t < 1.6:
+			on = 1.0
+		var trill := 1.0 + 0.025 * sin(TAU * 28.0 * t)
+		ph += TAU * f * trill / RATE
+		out[i] = sin(ph) * on * (0.6 + 0.4 * sin(TAU * 28.0 * t)) * 0.08
+	# soften the edges and add a long smeared echo: it is far away
+	var lp := 0.0
+	for i in n:
+		lp += (out[i] - lp) * 0.25
+		out[i] = lp
+	for i in range(n - 1, int(0.18 * RATE), -1):
+		out[i] += out[i - int(0.18 * RATE)] * 0.35
+	return out
+

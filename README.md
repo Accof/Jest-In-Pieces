@@ -111,9 +111,13 @@ Every third floor (`trench_every` on the game, 3) is a Western Front trench syst
 - Everything is darker and glossier the wetter it is, with puddles lying in the flat low places.
 - Standing water (`shaders/water_mud.gdshader`) is opaque brown and mostly calm, with a slow shiver of wind across it.
 
-**Light:**
-- An overcast procedural sky (`shaders/overcast_sky.gdshader`) lights everything, with a faint soft sun and light haze that softens the distance.
-- No rain, no lightning, no dark fog. Enemies stay readable in the shade of the walls.
+**Light and atmosphere** (cold, wet, dark and oppressive, but readable):
+- A storm sky (`shaders/overcast_sky.gdshader`): dark blue-grey cloud masses with lighter openings, silver edges and a warm-grey glow low toward the hidden sun, drifting slowly. No rain, no lightning, no sun disc.
+- The light falls off down the trench: the sky is brightest, the parapets moderately lit, the upper walls dark, the lower walls and floor in deep shadow. This comes from a baked sky-visibility term (how much sky each point of ground can see, `TrenchMaze._bake_sky`) used as ambient occlusion on the ground and on every prop, not from turning the exposure down. Enemies are not darkened by it, so they stand out against the walls.
+- The mud and water are very dark; the water reflects the sky softly (no hard sun glints).
+- Depth haze: nothing in the first 18 m (the trench stays crisp), the far battlefield blue-grey. No dense fog in the trenches.
+- A cold grade (a 3D LUT): blue-grey shadows, neutral mid-tones, a touch of warmth only in the brightest light, the darks a little desaturated. Not a blue filter, and no vignette or grain.
+- Far off: tall smoke columns leaning with the wind (black over the fires, dark grey otherwise), a few orange fires flickering on the horizon with sparks (they light nothing), a ruined village and a broken church tower on the skyline, shattered trees at every distance, wrecked sandbag posts in No Man's Land, and now and then a file of soldiers walking along the skyline (`FarFigures`, scenery only).
 - The bunkers and the base get their own dark lighting back.
 
 **Dressing:**
@@ -129,13 +133,14 @@ Every third floor (`trench_every` on the game, 3) is a Western Front trench syst
   - a tin clown on its side in a firing position;
   - a red balloon caught on the wire;
   - a grinning sign daubed on one timber lining.
-- **Wind:** torn canvas over some dugout doors, telephone cable looped along the walls, scraps of paper lifting at a few junctions, and slow smoke plumes over the battlefield.
+- **Wind:** torn canvas over some dugout doors, telephone cable looped along the walls, and scraps of paper lifting at a few junctions.
 
 **Sound** (`scripts/world/trench_ambience.gd`; all synthesised placeholders in `SfxSynth`, each replaceable by a .wav):
 - wind, and the low rumble of the guns;
 - shells landing far off: a flash on the horizon, the boom arriving later by the speed of sound, sometimes smoke rising where it fell;
 - distant machine-gun bursts and rifle shots;
 - timber creaking in the linings, and water dripping at dugout doors and over the flooding;
+- loose wire and pickets rattling in the wind, water lapping when you are near it, and very occasionally a whistle far down the line;
 - the music box playing a few bars of a waltz when you are near it, and very rarely the same tune, faint, from nowhere.
 
 The war stays far off: nothing out there can hurt you.

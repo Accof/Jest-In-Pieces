@@ -4,9 +4,10 @@ render_mode blend_mix, cull_disabled, depth_draw_always;
 // a slow shiver of wind across it, soft where it meets the mud.
 uniform sampler2D noise_tex : filter_linear_mipmap, repeat_enable;
 uniform sampler2D depth_tex : hint_depth_texture, filter_linear;
-uniform vec3 colour : source_color = vec3(0.24, 0.21, 0.18);
-uniform vec3 deep : source_color = vec3(0.16, 0.14, 0.12);
+uniform vec3 colour : source_color = vec3(0.15, 0.135, 0.12);   // dark, muddy: it shows the sky by reflection, not by colour
+uniform vec3 deep : source_color = vec3(0.075, 0.07, 0.065);
 uniform float wind = 0.012;
+instance uniform float round = 0.0;       // 1: a disc (shell-hole water), fading at its edge
 
 void fragment() {
 	vec3 wp = (INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -22,7 +23,23 @@ void fragment() {
 	vpos.xyz /= vpos.w;
 	float depth = clamp((VERTEX.z - vpos.z), 0.0, 1.0);
 	ALBEDO = mix(colour, deep, smoothstep(0.02, 0.25, depth));
-	ROUGHNESS = 0.12;
-	SPECULAR = 0.35;
+	ROUGHNESS = 0.16;      // the sky in it, but no hard white sun spot
+	SPECULAR = 0.32;
 	ALPHA = smoothstep(0.0, 0.05, depth) * 0.97;
+	if (round > 0.5) {
+		float r = length(UV - 0.5) * 2.0;
+		ALPHA *= 1.0 - smoothstep(0.75, 1.0, r);
+	}
 }
+
+// Direct light by hand: the sun is behind cloud, so the water takes a soft
+// sheen from it, never a hard white spot (the stock GGX peak on a smooth
+// surface blew out to a disc). The sky reflection itself is untouched.
+void light() {
+	float ndl = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
+	DIFFUSE_LIGHT += ndl * ATTENUATION * LIGHT_COLOR / PI;
+	vec3 h = normalize(VIEW + LIGHT);
+	float sheen = pow(clamp(dot(NORMAL, h), 0.0, 1.0), 40.0) * 0.05;
+	SPECULAR_LIGHT += sheen * ATTENUATION * LIGHT_COLOR / PI;
+}
+

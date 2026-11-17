@@ -33,6 +33,12 @@ uniform float grime = 0.4;                    // mud smeared over it, in patches
 uniform vec3 grime_col : source_color = vec3(0.16, 0.12, 0.09);
 uniform float metal_from_albedo = 0.0;        // >0: bare (grey, unrusted) patches read as metal
 uniform float ao_strength = 1.0;
+// the trench floor's baked sky visibility (TrenchMaze.sky_texture: R vis, G ground height)
+uniform sampler2D sky_tex : filter_linear, repeat_disable;
+uniform bool sky_on = false;
+uniform vec2 sky_origin = vec2(0.0);
+uniform vec2 sky_size = vec2(1.0);
+uniform float sky_floor = 0.12;
 uniform bool vary = true;                     // each instance its own part of the texture (off for tests)
 uniform int debug_view = 0;                   // 1: show the shading normal (world, 0.5 + n/2)
 
@@ -121,11 +127,19 @@ void fragment() {
 		float sat = (max(alb.r, max(alb.g, alb.b)) - min(alb.r, min(alb.g, alb.b))) / max(max(alb.r, max(alb.g, alb.b)), 0.001);
 		metal = metal_from_albedo * smoothstep(0.35, 0.15, sat) * (1.0 - smear);
 	}
+	// down in the trench the sky is mostly hidden: the ground's visibility
+	// below, opening out to all of it at the top of the cut
+	float vis = 1.0;
+	if (sky_on) {
+		vec2 g = texture(sky_tex, (wpos.xz - sky_origin) / sky_size).rg;
+		float up = clamp((wpos.y - g.g) / max(-g.g + 0.2, 0.3), 0.0, 1.0);
+		vis = mix(max(g.r, sky_floor), 1.0, up);
+	}
 	ALBEDO = alb;
 	ROUGHNESS = clamp(max(rough, rough_min), 0.0, 1.0);
 	METALLIC = metal;
 	SPECULAR = 0.4;
-	AO = mix(1.0, ard.r, ao_strength);
+	AO = mix(1.0, ard.r, ao_strength) * vis;
 	AO_LIGHT_AFFECT = 0.1;
 	NORMAL = normalize((VIEW_MATRIX * vec4(wn, 0.0)).xyz);
 	if (debug_view == 1) {

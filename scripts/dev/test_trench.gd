@@ -48,7 +48,7 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var secs := ["layouts", "ground", "game", "bodies", "ambience", "views", "floor", "normals", "relief", "walls", "parallax", "section"]
+	var secs := ["layouts", "ground", "game", "bodies", "ambience", "views", "floor", "normals", "relief", "walls", "parallax", "section", "cine"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -176,7 +176,7 @@ func _game() -> void:
 		kinds.append("%d:%s" % [game.floor_number, "trench" if game.maze is TrenchMaze else "bunker"])
 		if f == 3:
 			var env: Environment = game._world_env.environment
-			_check(env.ambient_light_source == Environment.AMBIENT_SOURCE_SKY and env.ambient_light_energy > 1.0, "overcast daylight on the trench floor")
+			_check(env.ambient_light_source == Environment.AMBIENT_SOURCE_SKY and env.ambient_light_energy > 0.5 and env.fog_mode == Environment.FOG_MODE_DEPTH and env.adjustment_color_correction != null, "overcast sky light, depth haze and the cold grade on the trench floor")
 			var counts := {}
 			for c: Clown in game.clowns:
 				counts[c.body] = counts.get(c.body, 0) + 1
@@ -831,6 +831,107 @@ func _img_diff(a: Image, b: Image) -> float:
 			if absf(ca.r - cb.r) + absf(ca.b - cb.b) > 0.5:
 				diff += 1
 	return float(diff) / maxf(tot, 1)
+
+
+## Render only: the cinematic look, from first-person height, the same
+## layout every time (seed 4242) so stages compare: down a long trench, over
+## the parapet, an enemy 8 m off, a dark corner, looking up out of the trench
+## (/tmp/tr_cine_<shot>_<tag>.png; "tag=xyz" names the set).
+func _cine() -> void:
+	if not render:
+		return
+	print("-- cine")
+	var tag := "now"
+	for a: String in OS.get_cmdline_user_args():
+		if a.begins_with("tag="):
+			tag = a.substr(4)
+	if game == null:
+		Engine.set_meta(&"test_save", true)
+		game = load("res://scenes/game.tscn").instantiate()
+		add_child(game)
+		await _frames(2)
+		FpsPlayer.god_mode = true
+	game.start_run()
+	game.floor_number = 2
+	game.rng.seed = 4242
+	game.next_floor()
+	await _frames(3)
+	var m: TrenchMaze = game.maze
+	game.player.visible = false
+	for cl in game.find_children("*", "CanvasLayer", true, false):
+		(cl as CanvasLayer).visible = false               # no HUD in these
+	for c: Clown in game.clowns:
+		c.queue_free()
+	game.clowns.clear()
+	# the longest straight stretch
+	var best: Array = []
+	for name_: String in m.trenches:
+		var cells: Array = m.trenches[name_]
+		var run: Array = []
+		for c: Vector2i in cells:
+			if run.size() >= 2 and (c - (run.back() as Vector2i)) != ((run.back() as Vector2i) - (run[run.size() - 2] as Vector2i)):
+				run = [run.back()]
+			if not run.is_empty() and ((c - (run.back() as Vector2i)).length_squared() != 1):
+				run = []
+			run.append(c)
+			if run.size() > best.size():
+				best = run.duplicate()
+	var a0 := m.cell_center(best[0])
+	var a1 := m.cell_center(best.back())
+	var dir := (a1 - a0)
+	dir.y = 0.0
+	dir = dir.normalized()
+	# an enemy 8 m down it, standing still
+	var foe: Clown = game._spawn_clown(true, false)
+	var fp := a0 + dir * minf(8.0, a0.distance_to(a1))
+	fp.y = m.floor_height(fp)
+	foe.global_position = fp
+	foe.rotation.y = atan2(-dir.x, -dir.z)
+	await _frames(2)
+	foe.global_position = fp
+	print("      enemy at %s, %0.1f m from the eye (now at %s, in tree %s, visible %s, body %s, model %s)" % [fp, fp.distance_to(a0), foe.global_position, foe.is_inside_tree(), foe.is_visible_in_tree(), foe.body, foe.get("_model")])
+	var b := foe.get_node_or_null("Brain")
+	if b:
+		b.set_process(false)
+		b.set_physics_process(false)
+	var cam := Camera3D.new()
+	cam.fov = 75.0
+	cam.far = 1500.0
+	add_child(cam)
+	cam.make_current()
+	var shots := {}
+	var eye := a0 + Vector3.UP * 1.65 - dir * 0.4
+	shots["long"] = [eye, eye + dir * 10.0 + Vector3.DOWN * 0.9]
+	shots["enemy"] = [eye, fp + Vector3.UP * 1.2]
+	shots["up"] = [eye, eye + dir * 4.0 + Vector3.UP * 3.0]
+	if OS.get_cmdline_user_args().has("near"):
+		shots["near"] = [fp - dir * 2.5 + Vector3.UP * 1.6, fp + Vector3.UP * 1.0]
+	for c: Vector2i in m.bays:
+		var r := m._rect(c)
+		var p := Vector3(r.get_center().x, 0, r.position.y + 0.3)
+		p.y = m.floor_height(p) + 1.65
+		shots["parapet"] = [p, p + Vector3(0.4, 0.02, -1.0)]
+		# up on the fire step, head over the parapet: the battlefield
+		var v := p + Vector3(0, 0.9, 0.1)
+		shots["vista"] = [v, v + Vector3(0.15, 0.03, -1.0)]
+		break
+	for l: Dictionary in m.landmarks:
+		if l.kind == "dugout":
+			var ent := m.cell_center(l.entrance)
+			var inward := Vector3(l.dir.x, 0, l.dir.y)
+			shots["corner"] = [ent - inward * 0.9 + Vector3.UP * 1.6, ent + inward * 1.5 + Vector3.UP * 0.7]
+			break
+	var first := true
+	for name_: String in shots:
+		cam.global_position = shots[name_][0]
+		cam.look_at(shots[name_][1])
+		await _frames(60 if first else 30)          # the eye adaptation settles
+		first = false
+		await _shot("cine_%s_%s" % [name_, tag])
+		if name_ == "enemy":
+			print("      at the shot: enemy valid %s at %s, cam %s" % [is_instance_valid(foe), foe.global_position if is_instance_valid(foe) else Vector3.ZERO, cam.global_position])
+	foe.queue_free()
+	cam.queue_free()
 
 
 ## Render only: representative stretches for the materials, at eye height:

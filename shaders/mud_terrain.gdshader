@@ -45,17 +45,17 @@ uniform float floor_depth = 0.045;          // parallax: the deepest hollow belo
 uniform float floor_parallax_range = 14.0;  // parallax fades out by this distance (m)
 uniform float floor_normal_strength = 1.15;
 uniform vec3 floor_tint : source_color = vec3(0.82, 0.76, 0.7);   // darker, browner than the scan
-uniform float floor_darkness = 0.52;
+uniform float floor_darkness = 0.4;
 uniform float floor_saturation = 1.2;
 uniform float floor_water = 0.36;           // height below which hollows hold water, where wet enough
-uniform vec3 floor_water_col : source_color = vec3(0.21, 0.18, 0.15);
+uniform vec3 floor_water_col : source_color = vec3(0.13, 0.12, 0.11);
 
 uniform float mud_tile = 2.2;        // metres per tile, firm ground
 uniform float wall_tile = 2.5;       // metres per tile, the brown mud on walls and up top
 uniform float rock_tile = 2.0;       // metres per tile, rocks
-uniform vec3 wall_tint : source_color = vec3(0.86, 0.8, 0.74);
-uniform float wall_darkness = 0.7;   // the walls dark, wet earth
-uniform float earth_darkness = 0.8;  // the thrown-up earth up top a little lighter
+uniform vec3 wall_tint : source_color = vec3(0.8, 0.77, 0.74);   // toward charcoal
+uniform float wall_darkness = 0.58;   // the walls dark, wet earth
+uniform float earth_darkness = 0.66;  // the thrown-up earth up top a little lighter
 uniform float rock_darkness = 0.7;
 uniform float rocks = 1.0;           // how much rock shows (rims, damage, patches)
 uniform float wall_normal_strength = 0.6;   // how hard the wall relief bends the light
@@ -68,11 +68,15 @@ uniform int debug_view = 0;               // 1: show the shading normal (world, 
 varying vec3 wpos;
 varying vec3 wnrm;
 varying vec4 vcol;
+varying float skyv;
+uniform float sky_occlusion = 1.0;   // how much the baked sky visibility (UV2.x) takes from the ambient light
+uniform float sky_floor = 0.12;      // never darker than this: deep, not crushed
 
 void vertex() {
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	wnrm = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 	vcol = COLOR;
+	skyv = UV2.x;
 }
 
 // A tangent-space normal from a normal map: x and y from red and green, z
@@ -264,7 +268,7 @@ void fragment() {
 	alb = mix(alb, f_alb, fw);
 	rough = mix(rough, f_rough, fw);
 	wn_world = normalize(mix(wn_world, f_n, fw));
-	AO = mix(ao, f_ao, fw);
+	AO = mix(ao, f_ao, fw) * mix(1.0, max(skyv, sky_floor), sky_occlusion);
 	AO_LIGHT_AFFECT = 0.15;
 	ALBEDO = alb;
 	ROUGHNESS = clamp(rough, 0.05, 1.0);

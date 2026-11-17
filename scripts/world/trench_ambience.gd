@@ -5,7 +5,9 @@ extends Node3D
 ##   shells landing in the distance: a flash on the horizon, the boom after
 ##     it by the speed of sound, now and then a puff of smoke where it fell
 ##   machine guns and rifles a long way off, now and then
-##   timber creaking in the linings, water dripping at dugout doors
+##   timber creaking in the linings, water dripping at dugout doors, loose
+##     iron and wire rattling, water moving when you are near it
+##   very occasionally a whistle far down the line
 ##   the music box in the dugout playing a few bars when you are near it,
 ##     and once in a long while, from nowhere, a faint carnival tune
 ##   the player's footsteps by what they land on (mud, water, duckboards,
@@ -15,6 +17,9 @@ extends Node3D
 var maze: TrenchMaze
 var art: TrenchArt
 var rng := RandomNumberGenerator.new()
+## The quieter details (rattles, water, the whistle) draw from their own
+## numbers so they never shift when and where the shells fall.
+var _rng_b := RandomNumberGenerator.new()
 var player: Node3D
 ## Counters, for the tests.
 var steps := {}
@@ -31,6 +36,9 @@ var _t_creak := 9.0
 var _t_drip := 1.0
 var _t_tune := 40.0
 var _t_ghost := 160.0
+var _t_rattle := 12.0
+var _t_slosh := 6.0
+var _t_whistle := 90.0
 var _stride := 0.0
 var _last := Vector3.INF
 var _ripples: Array[MeshInstance3D] = []
@@ -42,6 +50,7 @@ func setup(m: TrenchMaze, a: TrenchArt) -> void:
 	maze = m
 	art = a
 	rng.seed = m.rng.seed + 31
+	_rng_b.seed = m.rng.seed + 53
 	_wind = _loop("wind", -17.0)
 	_rumble = _loop("rumble", -21.0)
 	_flash_mat = StandardMaterial3D.new()
@@ -88,6 +97,9 @@ func _process(delta: float) -> void:
 	_t_drip -= delta
 	_t_tune -= delta
 	_t_ghost -= delta
+	_t_rattle -= delta
+	_t_slosh -= delta
+	_t_whistle -= delta
 	if _t_boom <= 0.0:
 		_t_boom = rng.randf_range(5.0, 16.0)
 		_shell(at)
@@ -117,6 +129,22 @@ func _process(delta: float) -> void:
 		_t_ghost = rng.randf_range(150.0, 300.0)
 		_far_sound("carnival_tune", at, 30.0, -30.0)
 		tunes += 1
+	if _t_rattle <= 0.0:
+		_t_rattle = _rng_b.randf_range(16.0, 40.0)
+		var near := _nearest(art.rattle_spots, at, 30.0)
+		if near != Vector3.INF:
+			SfxSynth.play(self, "metal_rattle", near, -20.0, _rng_b.randf_range(0.85, 1.15))
+	if _t_slosh <= 0.0:
+		_t_slosh = _rng_b.randf_range(9.0, 24.0)
+		for k in 6:
+			var a := _rng_b.randf() * TAU
+			var q := at + Vector3(cos(a), 0, sin(a)) * _rng_b.randf_range(1.5, 5.0)
+			if maze.surface_at(q) == "water":
+				SfxSynth.play(self, "water_slosh", Vector3(q.x, maze.water_level(q), q.z), -16.0, _rng_b.randf_range(0.85, 1.1))
+				break
+	if _t_whistle <= 0.0:
+		_t_whistle = _rng_b.randf_range(90.0, 200.0)
+		_far_sound("whistle_far", at, 300.0, -26.0)
 	_footsteps(at, delta)
 
 
@@ -128,7 +156,7 @@ func _shell(at: Vector3) -> void:
 	var where := Vector3(at.x + cos(a) * r, 0, at.z + sin(a) * r)
 	where.y = art.height_at(where.x, where.z) if absf(where.z) < 400.0 else 0.0
 	booms += 1
-	if rng.randf() < 0.6:
+	if flashes == 0 or rng.randf() < 0.6:          # the first one always shows
 		_flash(where, r)
 	var delay := r / 343.0
 	get_tree().create_timer(delay, false).timeout.connect(func() -> void:

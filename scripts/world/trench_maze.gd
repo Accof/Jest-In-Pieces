@@ -745,9 +745,83 @@ func _carve() -> void:
 			sdf[i] = sd
 			wet[i] = clampf(wetness, 0.0, 1.0)
 	col_h = vis_h.duplicate()
+	_bake_sky()
 	_ease_fire_steps()
 	_lay_duckboards()
 	_lay_water()
+
+
+## How much of the sky each point of the ground can see (0..1), on a grid
+## SKY_STEP samples apart: the trench walls block it, so the floor and the
+## foot of the walls get a fraction of the sky's light and the parapets get
+## all of it. Eight directions, the highest horizon within 4 m in each; a
+## direction's share is 1 - sin(horizon angle). Used as ambient occlusion by
+## the ground and the props (and nothing else changes: the sun still casts
+## its own shadows).
+const SKY_STEP := 2
+var sky_vis := PackedFloat32Array()   ## per sample (filled from the coarse grid)
+var sky_w := 0                        ## the coarse grid's size
+var sky_d := 0
+var sky_coarse := PackedFloat32Array()
+
+
+func _bake_sky() -> void:
+	sky_w = (hx - 1) / SKY_STEP + 1
+	sky_d = (hz - 1) / SKY_STEP + 1
+	sky_coarse.resize(sky_w * sky_d)
+	var dists := [0.3, 0.6, 1.0, 1.5, 2.1, 2.8, 3.8]
+	var dirs: Array[Vector2] = []
+	for k in 8:
+		dirs.append(Vector2(cos(k * TAU / 8.0), sin(k * TAU / 8.0)))
+	for cz in sky_d:
+		for cx in sky_w:
+			var ix := mini(cx * SKY_STEP, hx - 1)
+			var iz := mini(cz * SKY_STEP, hz - 1)
+			var i := ix + iz * hx
+			if sdf[i] > 4.5:
+				sky_coarse[cx + cz * sky_w] = 1.0
+				continue
+			var x := origin.x + ix * RES
+			var z := origin.y + iz * RES
+			var h0 := vis_h[i] + 0.05
+			var sum := 0.0
+			for dv in dirs:
+				var best := 0.0
+				for dist: float in dists:
+					var hh := _sample(vis_h, x + dv.x * dist, z + dv.y * dist) - h0
+					if hh > 0.0:
+						best = maxf(best, hh / sqrt(hh * hh + dist * dist))   # sin of the angle up to it
+				sum += 1.0 - best
+			sky_coarse[cx + cz * sky_w] = sum / dirs.size()
+	sky_vis.resize(hx * hz)
+	for iz in hz:
+		for ix in hx:
+			sky_vis[ix + iz * hx] = sky_at_index(ix, iz)
+
+
+## Sky visibility at a heightfield sample (bilinear on the coarse grid).
+func sky_at_index(ix: int, iz: int) -> float:
+	var fx := float(ix) / SKY_STEP
+	var fz := float(iz) / SKY_STEP
+	var x0 := mini(int(fx), sky_w - 2)
+	var z0 := mini(int(fz), sky_d - 2)
+	var tx := fx - x0
+	var tz := fz - z0
+	var a := lerpf(sky_coarse[x0 + z0 * sky_w], sky_coarse[x0 + 1 + z0 * sky_w], tx)
+	var b := lerpf(sky_coarse[x0 + (z0 + 1) * sky_w], sky_coarse[x0 + 1 + (z0 + 1) * sky_w], tx)
+	return lerpf(a, b, tz)
+
+
+## The coarse sky visibility and the ground height as a texture (R vis, G
+## height), for the props' shader to look up at their own position.
+func sky_texture() -> ImageTexture:
+	var img := Image.create(sky_w, sky_d, false, Image.FORMAT_RGF)
+	for cz in sky_d:
+		for cx in sky_w:
+			var ix := mini(cx * SKY_STEP, hx - 1)
+			var iz := mini(cz * SKY_STEP, hz - 1)
+			img.set_pixel(cx, cz, Color(sky_coarse[cx + cz * sky_w], vis_h[ix + iz * hx], 0.0))
+	return ImageTexture.create_from_image(img)
 
 
 ## The player has no step-up: in front of each fire step the walked surface
