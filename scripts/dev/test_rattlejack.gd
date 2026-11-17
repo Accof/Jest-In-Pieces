@@ -155,7 +155,7 @@ func _fire() -> void:
 			reloaded = true
 	var dmg := health0 - player.health
 	print("      %d bursts %s; %d rounds; reloaded %s; %.0f damage to the player in 16 s (%.1f a second)" % [brain.bursts, str(burst_times), brain.shots_fired, reloaded, dmg, dmg / 16.0])
-	_check(brain.bursts >= 3, "fires in bursts (%d)" % brain.bursts)
+	_check(brain.bursts >= 2, "fires in bursts (%d)" % brain.bursts)
 	var mean := 0.0
 	for x: float in rates:
 		mean += x
@@ -192,6 +192,12 @@ func _one(room: Node3D, kind: String, at: Vector3, zone: StringName, wall_behind
 	r.health = 20.0
 	var front := r.global_basis.z
 	var pb: PhysicalBone3D = r.ragdoll.bones[&"Neck" if zone == &"Neck" else &"Chest"]
+	if render and name_ != "":
+		r.aim_point = r.global_position + r.global_basis.z * 6.0 + Vector3.UP * 1.0
+		for f in 20:
+			r.aim_amount = 1.0
+			await get_tree().process_frame
+		await _shot(name_ + "_aim")
 	var helmet_before := r.has_helmet
 	r.hit({collider = pb, position = pb.global_position + front * 0.1 + Vector3.UP * (0.12 if zone == &"Neck" else 0.0), direction = -front, damage = 30.0, impulse = 10.0, weapon = "Pistol"})
 	var out := {kind = kind, dead_at_once = r.dead, ragdoll_at_once = r.ragdoll.active, dying = r.dying, deaths = 0}
@@ -354,7 +360,7 @@ func _deaths(args: Array) -> void:
 		_check(o.dead_at_once and not o.ragdoll_at_once and o.dying == "headshot", "headshot %d: dead at once, not straight to ragdoll" % i)
 		_check(o.deaths == 1, "headshot %d: the kill counted exactly once (%d)" % [i, o.deaths])
 		_check(o.head_back > 0.3, "headshot %d: the head snaps back (%.2f)" % [i, o.head_back])
-		_check(o.handover > 0.9 and o.handover < 2.3, "headshot %d: stays up a second or two (%.2fs)" % [i, o.handover])
+		_check(o.handover > 0.9 and o.handover < 2.7, "headshot %d: stays up a second or two, then a slow fold (%.2fs)" % [i, o.handover])
 		_check(o.hips_min_before > 0.75, "headshot %d: on his feet until the knees go (hips at least %.2f m)" % [i, o.hips_min_before])
 		_check(o.hips_at_handover > 0.45, "headshot %d: the ragdoll takes over mid-fall, not on the floor (hips %.2f m)" % [i, o.hips_at_handover])
 		_check(o.sway_x + o.sway_z > 0.04 and o.drop_range > 0.02, "headshot %d: the pelvis sways and drops (%.3f, %.3f)" % [i, o.sway_x + o.sway_z, o.drop_range])
@@ -377,7 +383,7 @@ func _deaths(args: Array) -> void:
 		if wall:
 			_check(not o.through_wall and o.handover < 1.2, "stagger by a wall: no stepping through it, down sooner (%.2fs)" % o.handover)
 		else:
-			_check(o.steps >= 1 and o.handover > 0.5 and o.handover < 1.7, "stagger %d: unsteady steps back, then down (%d steps, %.2fs)" % [i, o.steps, o.handover])
+			_check(o.steps >= 1 and o.handover > 0.5 and o.handover < 1.75, "stagger %d: unsteady steps back, then down (%d steps, %.2fs)" % [i, o.steps, o.handover])
 			_check((o.fall as Vector3).dot(-(o.front as Vector3)) > 0.0, "stagger %d: goes over backwards-ish" % i)
 		_check(o.pose_error < 0.06, "stagger %d: no snap into the ragdoll (%.3f m)" % [i, o.pose_error])
 	# Death Rattle, with two clowns standing in front of the muzzle

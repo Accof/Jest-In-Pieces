@@ -51,7 +51,7 @@ extends Clown
 @export var allow_corrective_foot_steps := true
 @export var enable_random_collapse_direction := true
 @export var enable_stagger_death := true
-@export var stagger_seconds := Vector2(0.8, 1.5)
+@export var stagger_seconds := Vector2(0.7, 1.1)        ## latest the knees go; then about half a second falling
 @export var enable_pose_matched_ragdoll := true
 
 @export_group("Death tuning")
@@ -122,6 +122,10 @@ var _gun_hand: Node3D
 var _pan: Node3D
 var _pan_home := Vector3.ZERO
 var _reload_len := 3.5
+var _release_at := INF           # when the gun slips out of his hands
+var _released := false
+var _release_t := 0.0
+var _arm_from := {}              # arm bone -> rotation as the hands let go
 
 
 func _init() -> void:
@@ -149,6 +153,10 @@ func setup_brain(b: ClownBrain) -> void:
 func give_rifle() -> void:
 	super.give_rifle()
 	bolt_seconds = 0.0
+	hip_fire = true
+	hold_grip = Vector3(0.0, -0.075, 0.31)      # the pistol grip
+	hold_fore = Vector2(0.6, 0.6)               # the left hand under the shroud
+	hold_fore_y = -0.03
 	for ch in _rifle.get_children():
 		ch.free()
 	_bolt = null
@@ -323,7 +331,7 @@ func _begin(kind: String, info: Dictionary, zone: StringName) -> void:
 			_damp = 2.0
 			_cv = _hit_local * 0.12
 			_steps_left = 2 if allow_corrective_foot_steps else 0
-			_collapse_len = randf_range(0.26, 0.34)
+			_collapse_len = randf_range(0.5, 0.62)
 			if has_helmet and randf() < headshot_helmet_chance:
 				knock_off_helmet(d.normalized() if d.length() > 0.01 else -global_basis.z, info.get("position", global_position + Vector3.UP * 1.75))
 		"stagger":
@@ -333,7 +341,7 @@ func _begin(kind: String, info: Dictionary, zone: StringName) -> void:
 			_damp = 1.4
 			_cv = (_hit_local * 0.7 + Vector3(0, 0, -0.55)).limit_length(1.0)
 			_steps_left = randi_range(2, 3)
-			_collapse_len = randf_range(0.22, 0.3)
+			_collapse_len = randf_range(0.4, 0.5)
 		"rattle":
 			_T = randf_range(death_rattle_stand.x, death_rattle_stand.y)
 			_k0 = 2.5
@@ -341,8 +349,9 @@ func _begin(kind: String, info: Dictionary, zone: StringName) -> void:
 			_damp = 1.5
 			_cv = _hit_local * 0.35
 			_steps_left = 0
-			_collapse_len = 0.14
-			_rattle_left = randf_range(death_rattle_min_duration, death_rattle_max_duration) + _T * 0.6
+			_collapse_len = 0.22
+			# on his feet firing, then on into the fall for 0.2-1.2 s more
+			_rattle_left = _T + _collapse_len + randf_range(death_rattle_min_duration, death_rattle_max_duration)
 			_rattle_acc = 1.0 / 9.0 * 0.5
 	if not enable_procedural_balance_corrections:
 		_k0 *= 0.6
@@ -350,6 +359,15 @@ func _begin(kind: String, info: Dictionary, zone: StringName) -> void:
 	_k1 /= maxf(balance_decay, 0.05)
 	_shove_t = randf_range(0.12, 0.3)
 	_twist = randf_range(-1.0, 1.0)
+	_released = false
+	_arm_from = {}
+	match kind:
+		"headshot":
+			_release_at = randf_range(0.18, 0.32)     # the grip goes with the head snap
+		"stagger":
+			_release_at = randf_range(0.12, 0.25)
+		_:
+			_release_at = INF                         # the Rattle keeps hold until the firing stops
 	set_process(true)
 
 
@@ -445,7 +463,8 @@ func _balance(d: float) -> void:
 	var e := _c - _support
 	_acc = e * _w2 - e * k - _cv * _damp + _bias * (0.25 + 0.6 * u)
 	if _collapsing:
-		_acc += _fall_local * (3.5 + 3.0 * _collapse_t / _collapse_len)
+		var cx := _collapse_t / _collapse_len
+		_acc += _fall_local * (1.6 + 3.2 * cx * cx)          # tipping, slowly at first
 	# little random shoves, irregular in time and size
 	_shove_t -= d
 	if _shove_t <= 0.0 and enable_full_body_death_sway and not _collapsing:
@@ -475,8 +494,9 @@ func _balance(d: float) -> void:
 		"rattle":
 			sag = 0.02 + 0.09 * u
 	if _collapsing:
-		sag += 0.42 * smoothstep(0.0, 1.0, _collapse_t / _collapse_len)
-	_drop = move_toward(_drop, sag * knee_flex, d * (1.6 if _collapsing else 0.35))
+		var cx := clampf(_collapse_t / _collapse_len, 0.0, 1.0)
+		sag += 0.34 * cx * cx                                  # the knees fold, faster and faster
+	_drop = move_toward(_drop, sag * knee_flex, d * (1.1 if _collapsing else 0.35))
 	# over: too far out to come back, or out of time
 	var limit := 0.14
 	if dying == "stagger":
@@ -496,7 +516,10 @@ func _start_collapse(e: Vector3) -> void:
 	elif enable_random_collapse_direction:
 		# mostly the way he is already going, pulled toward open floor, a little luck
 		var a := randf() * TAU
-		dir = e.normalized() * 1.0 + _free_bias() * 0.45 + Vector3(cos(a), 0, sin(a)) * 0.3
+		var luck := 0.12 if dying == "stagger" else 0.3      # a stagger goes the way it was driven
+		dir = e.normalized() * 1.0 + _free_bias() * (0.2 if dying == "stagger" else 0.45) + Vector3(cos(a), 0, sin(a)) * luck
+		if dying == "stagger":
+			dir += Vector3(0, 0, -0.9) + _hit_local * 0.3          # still going the way the round drove him
 		if dying == "headshot" and randf() < 0.35:
 			dir += Vector3(0, 0, 1.2)                               # knees first, pitching forward (+Z is his front)
 	elif dir.length() < 0.01:
@@ -655,17 +678,54 @@ func _pose_dying(d: float) -> void:
 	_turn("Head", Vector3.RIGHT, _head.x * 0.4)
 	_turn("Neck", Vector3.BACK, -_head.y * 0.5)
 	_turn("Head", Vector3.BACK, -_head.y * 0.3 + 0.12 * slump * signf(_twist))
-	# the gun, in the hands, sagging
+	# the gun, in the hands, sagging; then it slips out of them and the arms
+	# hang dead, swinging with the body
 	aim_amount = aim
 	rifle_droop = droop
-	if has_rifle and _rifle and is_instance_valid(_rifle) and main_arm() != "":
+	if not _released and _t >= _release_at:
+		_release_grip()
+	velocity = global_basis * _cv                        # what the dangling arms swing with
+	if not _released and has_rifle and _rifle and is_instance_valid(_rifle) and main_arm() != "":
 		_hold_rifle()
-	for side: String in broken_arms:
-		dangle_arm(side, 0.0)
+		for side: String in broken_arms:
+			dangle_arm(side, 0.0)
+	else:
+		for side: String in ["Left", "Right"]:
+			dangle_arm(side, 0.0, not (side in broken_arms))
+		if _released:
+			_release_t += d
+			var w := smoothstep(0.0, 0.35, _release_t)
+			if w < 1.0:
+				for bi: int in _arm_from:
+					skeleton.set_bone_pose_rotation(bi, (_arm_from[bi] as Quaternion).slerp(skeleton.get_bone_pose_rotation(bi), w))
 	# legs: feet planted, knees and ankles taking up the rest
 	if enable_foot_ik_during_death:
 		_legs(e)
 	sway_log.append([_t, _model.position.x, _model.position.z, _drop, e.x])
+
+
+## The fingers open: the gun slides out of his hands and falls, the arms go
+## from holding it to hanging (eased over a third of a second).
+func _release_grip() -> void:
+	_released = true
+	_release_t = 0.0
+	_arm_from = {}
+	for side: String in ["Left", "Right"]:
+		for part: String in ["UpperArm", "LowerArm", "Hand"]:
+			var bi := skeleton.find_bone(side + part)
+			_arm_from[bi] = skeleton.get_bone_pose_rotation(bi)
+	_swing.clear()
+	if _rifle and is_instance_valid(_rifle):
+		var parent := get_parent()
+		var before := parent.get_child_count()
+		_drop_rifle()
+		if parent.get_child_count() > before:
+			var body_ := parent.get_child(parent.get_child_count() - 1) as RigidBody3D
+			if body_:
+				# it slips and drops, it is not thrown
+				body_.linear_velocity = global_basis * _cv + Vector3(0, -0.3, 0)
+				body_.angular_velocity = global_basis * Vector3(randf_range(-1.5, 1.5), randf_range(-0.8, 0.8), randf_range(-0.6, 0.6))
+	has_rifle = false
 
 
 func _tilt(bone: String, dir: Vector3, angle: float) -> void:
@@ -828,20 +888,23 @@ func _match_velocities() -> void:
 
 ## Knees gone, nothing left holding him: physics does the rest.
 static func _profile_collapse() -> Dictionary:
+	# a little life left in the legs and back, draining over half a second,
+	# so the ragdoll carries on the buckle the animation started instead of
+	# dropping like a sack; the arms already dead
 	return {
-		support = [Vector2(0, 0.22), Vector2(0.16, 0)],
-		legs = [Vector2(0, 0.2), Vector2(0.35, 0)],
-		spine = [Vector2(0, 0.35), Vector2(0.45, 0.1), Vector2(1.2, 0)],
-		neck = [Vector2(0, 0.04), Vector2(0.3, 0)],
-		arms = [Vector2(0, 0.25), Vector2(0.45, 0)],
-		fold = 5.0, drift = 0.0, drift_time = 0.1,
+		support = [Vector2(0, 0.12), Vector2(0.25, 0)],
+		legs = [Vector2(0, 0.35), Vector2(0.25, 0.18), Vector2(0.6, 0)],
+		spine = [Vector2(0, 0.45), Vector2(0.5, 0.12), Vector2(1.2, 0)],
+		neck = [Vector2(0, 0.08), Vector2(0.35, 0)],
+		arms = [Vector2(0, 0.04), Vector2(0.3, 0)],
+		fold = 4.0, drift = 0.0, drift_time = 0.1,
 	}
 
 
 ## The same, but the arms keep their grip on the gun while it fires.
 static func _profile_rattle() -> Dictionary:
 	var p := _profile_collapse()
-	p["arms"] = [Vector2(0, 0.6), Vector2(0.6, 0.45), Vector2(1.4, 0)]
+	p["arms"] = [Vector2(0, 0.35), Vector2(0.6, 0.25), Vector2(1.4, 0)]
 	return p
 
 

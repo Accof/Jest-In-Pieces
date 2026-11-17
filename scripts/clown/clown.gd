@@ -1153,7 +1153,7 @@ var _swing_acc := Vector3.ZERO               # body acceleration, in the body's 
 var _swing_turn := 0.0
 
 
-func dangle_arm(side: String, swing: float = 0.0) -> void:
+func dangle_arm(side: String, swing: float = 0.0, limp := false) -> void:
 	var s := 1.0 if side == "Left" else -1.0
 	for part in ["UpperArm", "LowerArm", "Hand"]:
 		var bi := skeleton.find_bone(side + part)
@@ -1195,6 +1195,12 @@ func dangle_arm(side: String, swing: float = 0.0) -> void:
 	st[4] = clampf(st[4] + st[5] * dt, -1.0, 1.0)
 	_turn(side + "UpperArm", Vector3.RIGHT, st[0])
 	_turn(side + "UpperArm", Vector3.BACK, (deg_to_rad(6.0) + st[2]) * s)
+	if limp:
+		# a dead man's arm, not a broken one: the elbow a little bent the
+		# right way, the forearm swinging from it, the hand hanging
+		_turn(side + "LowerArm", Vector3.RIGHT, -0.3 + clampf(st[4] * 0.6, -0.25, 0.2))
+		_turn(side + "Hand", Vector3.RIGHT, deg_to_rad(18.0) + st[4] * 0.3)
+		return
 	_turn(side + "LowerArm", Vector3.BACK, deg_to_rad(-26.0) * s)
 	_turn(side + "LowerArm", Vector3.UP, deg_to_rad(38.0) * s)
 	_turn(side + "LowerArm", Vector3.RIGHT, st[4])
@@ -1449,12 +1455,14 @@ func _hold_rifle() -> void:
 	# off the sights while it works the bolt: rifle down a little, head up
 	var low := smoothstep(0.0, 0.14, cyc) * (1.0 - smoothstep(0.84, 1.0, cyc)) if cyc >= 0.0 else 0.0
 	# the shot slams back into the shoulder: chest and head knocked back
-	_turn("Chest", Vector3.RIGHT, deg_to_rad(-7.0) * kick * a)
-	_turn("Spine", Vector3.RIGHT, deg_to_rad(-3.0) * kick * a)
-	_turn("Neck", Vector3.RIGHT, deg_to_rad(-9.0) * kick * a - deg_to_rad(9.0) * low * a)
-	# head down onto the stock when aiming
-	_turn("Neck", Vector3.RIGHT, deg_to_rad(14.0) * a)
-	_turn("Neck", Vector3.FORWARD, deg_to_rad(-9.0) * a)
+	var kc := 0.45 if hip_fire else 1.0      # from the hip it shakes the body less
+	_turn("Chest", Vector3.RIGHT, deg_to_rad(-7.0) * kick * a * kc)
+	_turn("Spine", Vector3.RIGHT, deg_to_rad(-3.0) * kick * a * kc)
+	_turn("Neck", Vector3.RIGHT, deg_to_rad(-9.0) * kick * a * kc - deg_to_rad(9.0) * low * a)
+	# head down onto the stock when aiming (not from the hip: he looks over it)
+	if not hip_fire:
+		_turn("Neck", Vector3.RIGHT, deg_to_rad(14.0) * a)
+		_turn("Neck", Vector3.FORWARD, deg_to_rad(-9.0) * a)
 	var head := sk.get_bone_global_pose(sk.find_bone("Head")).origin
 	var eye := head + Vector3(-0.035, 0.07, 0.1)
 	var dir := Vector3.BACK
@@ -1467,6 +1475,18 @@ func _hold_rifle() -> void:
 		dir = dir.normalized()
 	var aim_xf := Transform3D(_basis_along(dir), eye + Vector3.DOWN * 0.075 - dir * 0.22)
 	var hips := sk.get_bone_global_pose(sk.find_bone("Hips")).origin
+	if hip_fire:
+		# butt against the right hip, under the arm; pointed from there
+		var butt := hips + Vector3(-0.16, 0.14, -0.08)
+		var hdir := Vector3(0.0, 0.02, 1.0).normalized()
+		if aim_point != Vector3.INF:
+			hdir = (to_skel * aim_point - (butt + Vector3(0, 0, 0.5))).normalized()
+			var hflat := Vector3(hdir.x, 0, hdir.z)
+			if hflat.length() < 0.2 or hflat.normalized().dot(Vector3.BACK) < 0.5:
+				hdir = Vector3(0.0, 0.02, 1.0).normalized()
+			hdir.y = clampf(hdir.y, -0.4, 0.4)
+			hdir = hdir.normalized()
+		aim_xf = Transform3D(_basis_along(hdir), butt)
 	# Low ready: butt by the right hip, muzzle forward and down across the
 	# body, both arms out in front. It swings a little with each stride and
 	# comes up higher when running.
@@ -1477,7 +1497,7 @@ func _hold_rifle() -> void:
 	var xf := carry_xf.interpolate_with(aim_xf, a * a * (3.0 - 2.0 * a))
 	# recoil: driven back into the shoulder, muzzle flipping up, pivoting at the butt
 	if kick > 0.001:
-		xf = Transform3D(xf.basis * Basis(Vector3.RIGHT, deg_to_rad(-11.0) * kick), xf.origin - xf.basis.z * 0.075 * kick + Vector3.UP * 0.01 * kick)
+		xf = Transform3D(xf.basis * Basis(Vector3.RIGHT, deg_to_rad(-11.0 * (0.5 if hip_fire else 1.0)) * kick), xf.origin - xf.basis.z * 0.075 * kick + Vector3.UP * 0.01 * kick)
 	# a dying grip: the muzzle sags and the gun drops (negative: jerked up)
 	if absf(rifle_droop) > 0.001:
 		xf = Transform3D(xf.basis * Basis(Vector3.RIGHT, rifle_droop), xf.origin + Vector3(0, -0.14, 0.04) * maxf(rifle_droop, 0.0))
@@ -1492,8 +1512,8 @@ func _hold_rifle() -> void:
 	_rifle.transform = chest.affine_inverse() * xf
 	# hands: right on the wrist of the stock, left under the fore-end, close
 	# enough that the elbows stay bent
-	var grip := xf * Vector3(0.0, -0.045, 0.2)
-	var fore := xf * Vector3(0.0, -0.035, lerpf(0.33, 0.4, a))
+	var grip := xf * hold_grip
+	var fore := xf * Vector3(0.0, hold_fore_y, lerpf(hold_fore.x, hold_fore.y, a))
 	# the right hand leaves the wrist for the bolt: handle up, back, forward, down
 	if cyc >= 0.0 and _bolt:
 		var on_bolt := smoothstep(0.04, 0.18, cyc) * (1.0 - smoothstep(0.76, 0.9, cyc))
@@ -1513,8 +1533,13 @@ func _hold_rifle() -> void:
 	# elbows: down and a little out when carrying; when the rifle is shouldered
 	# the right one goes out to the side but stays well below the shoulder
 	var ab := a * a * (3.0 - 2.0 * a)
-	reach("Right", grip, rs + Vector3(-0.4, -0.55, -0.15).lerp(Vector3(-0.42, -0.5, -0.12), ab))
-	reach("Left", fore, ls + Vector3(0.3, -0.6, 0.05).lerp(Vector3(0.15, -0.65, 0.0), ab))
+	if hip_fire:
+		# elbows loose: the right back and out, the left down under the gun
+		reach("Right", grip, rs + Vector3(-0.38, -0.5, -0.4))
+		reach("Left", fore, ls + Vector3(0.35, -0.6, -0.1))
+	else:
+		reach("Right", grip, rs + Vector3(-0.4, -0.55, -0.15).lerp(Vector3(-0.42, -0.5, -0.12), ab))
+		reach("Left", fore, ls + Vector3(0.3, -0.6, 0.05).lerp(Vector3(0.15, -0.65, 0.0), ab))
 	point_bone("RightHand", xf.basis.z)
 	point_bone("LeftHand", xf.basis.z)
 
@@ -1694,6 +1719,15 @@ func cycling() -> bool:
 var reload_t := 0.0
 ## Muzzle dipped this far (radians) and the gun sagging: a dying man's grip.
 var rifle_droop := 0.0
+## Fires from the hip instead of the shoulder (a heavy machine gun): the butt
+## tucked against the right hip under the arm, elbows loose, head up.
+var hip_fire := false
+## Where the hands go on the gun, in the gun's frame (butt at the origin,
+## barrel along +Z): the right on the wrist or pistol grip, the left under
+## the fore-end at hold_fore.x carried and hold_fore.y aimed.
+var hold_grip := Vector3(0.0, -0.045, 0.2)
+var hold_fore := Vector2(0.33, 0.4)
+var hold_fore_y := -0.035
 
 
 ## The recoil's kick (0..1): instant, then easing back over a quarter second.

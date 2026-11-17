@@ -32,7 +32,11 @@ const int MAX_TUNNELS = 4;
 uniform int tunnel_count = 0;
 uniform vec4 tunnels[MAX_TUNNELS];      // xyz = rest-space point on the line, w = radius (m)
 uniform vec4 tunnel_dirs[MAX_TUNNELS];  // xyz = rest-space direction, w = how far along it the hole reaches either way
-uniform vec3 blood_color : source_color = vec3(0.25, 0.012, 0.016);
+uniform vec3 blood_color : source_color = vec3(0.30, 0.012, 0.018);
+// Blood soaked into cloth: how dark and saturated the soak goes, and how much
+// spray and runs there are round a wound.
+uniform float soak_darkness : hint_range(0.0, 1.0) = 0.8;
+uniform float spatter_amount : hint_range(0.0, 2.0) = 1.0;
 uniform vec3 hole_color : source_color = vec3(0.035, 0.0, 0.002);
 uniform vec3 meat_color : source_color = vec3(0.42, 0.035, 0.04);
 uniform vec3 inside_color : source_color = vec3(0.16, 0.008, 0.012);
@@ -104,7 +108,11 @@ void fragment() {
 		float tide = (1.0 - smoothstep(0.35, 0.6, rest_pos.y + (noise3(rest_pos * 12.0) - 0.5) * 0.12)) * decay;
 		col = mix(col, vec3(0.16, 0.08, 0.04), tide * 0.6);
 	}
-	float blood = 0.0;
+	float blood = 0.0;      // soaked into the cloth
+	float tide = 0.0;       // the darker rim of a soak
+	float fresh = 0.0;      // wet blood right round the hole
+	float spat = 0.0;       // spray
+	float drip = 0.0;       // runs
 	float hole = 0.0;
 	float torn = 0.0;       // ragged meat around a blown-out hole
 	for (int i = 0; i < tunnel_count; i++) {
@@ -139,22 +147,70 @@ void fragment() {
 			}
 			torn = max(torn, 1.0 - smoothstep(blast, blast * 1.45, ragged));
 		}
-		d.y *= d.y < 0.0 ? 0.5 : 1.3;   // blood runs down the body
-		float dist = length(d) + (n - 0.5) * r * 0.9 + (n2 - 0.5) * r * 0.25;
-		hole = max(hole, 1.0 - smoothstep(r * 0.22, r * 0.36, dist));
-		float soak_r = r * (1.3 + 2.6 * wound_fx[i].y);
-		blood = max(blood, 1.0 - smoothstep(soak_r * 0.5, soak_r, dist));
+		float soak_amt = wound_fx[i].y;
+		float seed = wound_fx[i].z;
+		// the hole itself
+		float dh = length(d) + (n - 0.5) * r * 0.9 + (n2 - 0.5) * r * 0.25;
+		hole = max(hole, 1.0 - smoothstep(r * 0.22, r * 0.36, dh));
+		// fresh, still-wet blood welling round it
+		fresh = max(fresh, 1.0 - smoothstep(r * 0.3, r * 0.65, dh));
+		// soaked into the cloth: a big irregular stain, heavier below (it runs
+		// down and wicks), with a fairly hard edge and a darker tide line
+		vec3 g = d;
+		g.y *= g.y < 0.0 ? 0.5 : 1.3;
+		float soak_r = r * (1.5 + 3.0 * soak_amt);
+		float warp = noise3(rest_pos * 17.0 + seed) * 0.65 + noise3(rest_pos * 52.0 + seed * 1.7) * 0.35;
+		float ds = length(g) + (warp - 0.5) * soak_r * 0.8;
+		float s_in = 1.0 - smoothstep(soak_r * 0.8, soak_r, ds);
+		blood = max(blood, s_in);
+		tide = max(tide, smoothstep(soak_r * 0.62, soak_r * 0.92, ds) * s_in);
+		// spray round it: fine droplets and a few bigger flecks, thinning out to
+		// two and a half times the stain
+		float spray_r = soak_r * 1.9;
+		float near = 1.0 - smoothstep(soak_r * 0.6, spray_r, length(d));
+		near = near * near * spatter_amount;
+		if (near > 0.0) {
+			// two scales of droplet, on coordinates turned off the grid so
+			// they come out round, not blocky
+			vec3 q = mat3(vec3(0.8, 0.36, -0.48), vec3(-0.6, 0.48, -0.64), vec3(0.0, 0.8, 0.6)) * rest_pos;
+			float fine = noise3(q * 170.0 + seed * 3.1);
+			float fleck = noise3(q * 70.0 + seed * 5.3);
+			spat = max(spat, smoothstep(0.83 - 0.12 * near, 0.85 - 0.12 * near, fine));
+			spat = max(spat, smoothstep(0.82 - 0.1 * near, 0.84 - 0.1 * near, fleck));
+		}
+		// runs: thin lanes trickling down from the stain
+		float below = wounds[i].xyz.y - rest_pos.y;
+		float run_len = soak_r * (1.5 + 3.5 * soak_amt) * spatter_amount;
+		if (below > 0.0 && below < run_len) {
+			float hd = length(d.xz);
+			float lane = noise3(vec3(rest_pos.x * 60.0, rest_pos.y * 2.5, rest_pos.z * 60.0) + seed * 2.3);
+			float lane_w = (1.0 - smoothstep(soak_r * 0.5, soak_r * 1.1, hd)) * (1.0 - below / run_len);
+			drip = max(drip, smoothstep(0.66, 0.72, lane) * lane_w);
+		}
 	}
-	col = mix(col, blood_color * (0.7 + 0.6 * noise3(rest_pos * 90.0)), blood * 0.9);
+	// The look: cloth soaked dark, deep red going almost black where it is
+	// heaviest, a darker tide line at the edge, the weave still showing
+	// through; fresh blood brighter and wet only right round the hole;
+	// spray and runs in deep red over the top.
+	float luma = clamp(dot(col, vec3(0.3, 0.59, 0.11)) * 1.6, 0.25, 1.2);
+	float mottle = 0.82 + 0.36 * noise3(rest_pos * 24.0);
+	vec3 soaked = blood_color * mix(1.0, 0.38, soak_darkness * smoothstep(0.2, 1.0, blood)) * luma * mottle;
+	soaked = mix(soaked, blood_color * 0.22, tide * 0.7);
+	vec3 fresh_col = blood_color * 1.15 * (0.85 + 0.3 * noise3(rest_pos * 160.0));
+	col = mix(col, soaked, blood);
+	col = mix(col, blood_color * 0.75 * mottle, max(spat, drip) * (1.0 - blood * 0.5));
+	col = mix(col, fresh_col, fresh * 0.85);
 	col = mix(col, hole_color, hole);
 	col = mix(col, meat_color * (0.55 + 0.9 * noise3(rest_pos * 210.0)), torn);
-	float wet = max(max(blood * 0.6, hole), torn);
+	// sheen: damp soaked cloth only a little; fresh blood, holes and meat wet
+	float damp = max(blood * 0.3, max(spat, drip) * 0.35);
+	float wet = max(max(fresh * 0.85, hole), torn);
 	if (!FRONT_FACING) {
 		col = inside_color * (0.6 + 0.8 * noise3(rest_pos * 60.0));
 		wet = 1.0;
 	}
 	ALBEDO = col;
-	ROUGHNESS = mix(roughness, 0.2, wet);
+	ROUGHNESS = mix(mix(roughness, 0.6, damp), 0.3, wet);
 	METALLIC = metallic;
-	SPECULAR = mix(specular_amount, 0.75, wet);
+	SPECULAR = mix(mix(specular_amount, 0.38, damp), 0.6, wet);
 }
