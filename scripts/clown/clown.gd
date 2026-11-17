@@ -46,6 +46,19 @@ const BODIES := {
 			&"Hips": 1.2, &"Spine": 1.2, &"Chest": 1.2, &"Neck": 1.12, &"Foot": 1.15},
 		soldier = true,
 	},
+	# Der Zornhauptmann (tools/build_zornhauptmann.py, zornhauptmann.json): the
+	# officer, his Pickelhaube cut off the Tripo model on its brim line
+	"zornhauptmann": {
+		model = "res://art/zornhauptmann/zornhauptmann.glb", gibs = "res://art/zornhauptmann/zornhauptmann_gibs.glb",
+		rest_min = Vector3(-0.95944, -0.00494, -0.21322), rest_size = Vector3(1.92491, 1.81963, 0.43054),
+		helmet = "res://art/zornhauptmann/zornhauptmann_helmet.glb",
+		surface = Vector2(0.82, 0.3),             # wool tunic, leather belts and boots
+		helmet_roughness = 0.32,                  # boiled, lacquered leather
+		helmet_center = Vector3(-0.00027, 1.73536, 0.04043), helmet_size = Vector3(0.242, 0.349, 0.287),
+		shapes = {&"UpperLeg": 1.3, &"LowerLeg": 1.12, &"UpperArm": 1.25, &"LowerArm": 1.05,
+			&"Hips": 1.2, &"Spine": 1.2, &"Chest": 1.2, &"Neck": 1.12, &"Foot": 1.15},
+		soldier = true,
+	},
 }
 
 ## Which body this enemy wears (a key of BODIES). Set before adding to the tree.

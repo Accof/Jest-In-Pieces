@@ -999,10 +999,15 @@ func _end_rattle() -> void:
 
 func hit(info: Dictionary) -> void:
 	if dying != "" and not _collapsing:
-		# shot again on his feet: it rocks him, and a big one takes him down now
-		var d: Vector3 = info.get("direction", Vector3.ZERO)
-		var dl := global_basis.inverse() * Vector3(d.x, 0, d.z)
-		_cv += dl.limit_length(1.0) * clampf(float(info.get("damage", 10.0)) / 60.0, 0.1, 0.6)
-		if float(info.get("damage", 0.0)) >= 40.0 or info.get("heavy", false):
-			_start_collapse(dl if dl.length() > 0.01 else _c - _support)
+		_hit_while_dying(info)
 	super.hit(info)
+
+
+## Shot again on his feet: it rocks him, and a big one takes him down now.
+## (A subclass with its own staged death can do something else.)
+func _hit_while_dying(info: Dictionary) -> void:
+	var d: Vector3 = info.get("direction", Vector3.ZERO)
+	var dl := global_basis.inverse() * Vector3(d.x, 0, d.z)
+	_cv += dl.limit_length(1.0) * clampf(float(info.get("damage", 10.0)) / 60.0, 0.1, 0.6)
+	if float(info.get("damage", 0.0)) >= 40.0 or info.get("heavy", false):
+		_start_collapse(dl if dl.length() > 0.01 else _c - _support)

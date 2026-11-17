@@ -10,6 +10,9 @@ extends Node3D
 ##   interrupt the player dies mid-shot; the body is freed mid-shot; the
 ##             floor is torn down mid-shot: time and camera always come back
 ##   klapper   a Klappersoldat as the last: it waits for it to fall
+##   zornhauptmann  an officer's Last Defiance as the last kill, every
+##             outcome: the camera stays until he goes over; his real round
+##             never hurts the player while the camera has the controls
 ##   fall      a clown killed at the edge of a high platform: it follows the fall
 ##   event     an event room cleared: the last kill there starts it too
 ##   injuries  the coroner's report: rounds placed on the eye, jaw, heart, a
@@ -49,7 +52,7 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var secs := ["injuries", "report", "floor", "variety", "double", "interrupt", "klapper", "rattlejack", "fall", "event"]
+	var secs := ["injuries", "report", "floor", "variety", "double", "interrupt", "klapper", "rattlejack", "zornhauptmann", "fall", "event"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -347,6 +350,52 @@ func _rattlejack() -> void:
 		_check(deaths[0] == 1 and game.remaining == 0, "%s: the kill counted once, the floor cleared" % kind)
 		if kind == "rattle":
 			_check(slow_rounds >= 1, "rattle: the gun fires on through the slow motion (%d)" % slow_rounds)
+
+
+func _zornhauptmann() -> void:
+	print("-- zornhauptmann")
+	for outcome: String in Zornhauptmann.OUTCOMES:
+		await _new_game(5170)
+		for c: Clown in _living():
+			c.queue_free()
+		game.clowns.clear()
+		await _frames(1)
+		var z: Zornhauptmann = game.spawn_zornhauptmann()
+		z.global_position = game.maze.cell_center(game.maze.route[mini(4, game.maze.route.size() - 1)])
+		z.force_death = "defiance"
+		z.force_outcome = outcome
+		z.real_shot_spread = 0.0
+		game.remaining = 1
+		await _frames(3)
+		_face(z)
+		z.look_at(Vector3(game.player.global_position.x, z.global_position.y, game.player.global_position.z), Vector3.UP, true)
+		await _frames(2)
+		var p: FpsPlayer = game.player
+		p.god_mode = false
+		p.health = 100.0
+		var h0 := p.health
+		var deaths := [0]
+		z.died.connect(func(_c: Clown) -> void: deaths[0] += 1)
+		z.health = 1.0
+		_kill(z, 30.0)
+		z._target_world = p.camera.global_position            # straight at him: the fairness rule must hold
+		await _frames(1)
+		var kc: KillCam = game.kill_cam
+		_check(kc.active and z.dying == "defiance", "Last Defiance (%s) as the last kill: the killcam runs (%s)" % [outcome, kc.shot])
+		var handed_while_on := false
+		var fired_while_on := false
+		var n := 0
+		while kc.active and n < 1500:
+			await get_tree().process_frame
+			n += 1
+			if is_instance_valid(z):
+				handed_while_on = handed_while_on or z.handed_over
+				fired_while_on = fired_while_on or z.defiance_fired_at >= 0.0
+		var res := z.real_shot_result if is_instance_valid(z) else "?"
+		print("      %s: fired under the camera %s, handed over under it %s; real round: %s; player %.0f -> %.0f; deaths %d, remaining %d" % [outcome, fired_while_on, handed_while_on, res, h0, p.health, deaths[0], game.remaining])
+		_check(fired_while_on and handed_while_on, "%s: the camera stayed for the trigger and the fall" % outcome)
+		_check(deaths[0] == 1 and game.remaining == 0, "%s: counted once, the floor cleared" % outcome)
+		_check(p.health == h0 and res != "player", "%s: no damage to the player while the camera has him" % outcome)
 
 
 func _fall() -> void:

@@ -98,6 +98,11 @@ var _hide_t := 0.0
 ## A machine gunner (the Rattlejack): once on aim it fires in bursts instead
 ## of single shots, then pauses; a pan of rounds, then a reload.
 var lmg := false
+## The officer (Zornhauptmann): slow, a pistol raised in plain sight, a sabre
+## up close (the clown poses the swing and says whether it landed).
+var is_officer := false
+var aim_times := Vector2(0.8, 1.3)                ## officer: a fresh aim time per shot
+var misses := 0                                   ## tests
 @export var fire_rate := 9.0                      ## rounds a second in a burst
 @export var burst_seconds := Vector2(0.8, 1.8)
 @export var burst_pause := Vector2(1.5, 3.0)
@@ -282,11 +287,20 @@ func _physics_process(delta: float) -> void:
 	# A swing already under way plays out where it stands.
 	if _attack_t >= 0.0:
 		_attack_t += delta
-		_face(flat, delta, 6.0)
-		clown.attack_amount = sin(clampf(_attack_t / attack_time, 0.0, 1.0) * PI)
+		if is_officer:
+			# he tracks you through the wind-up, then is committed: step aside
+			if _attack_t < attack_hit_at - 0.2:
+				_face(flat, delta, 5.0)
+		else:
+			_face(flat, delta, 6.0)
+			clown.attack_amount = sin(clampf(_attack_t / attack_time, 0.0, 1.0) * PI)
 		if not _attack_hit and _attack_t > attack_hit_at:
 			_attack_hit = true
-			if dist < melee_range + 0.35 and absf(to_player.y) < 1.6:
+			if is_officer and clown.has_method("melee_hits"):
+				var dmg: float = clown.melee_hits(player)
+				if dmg > 0.0:
+					player.take_damage(dmg, flat.normalized())
+			elif dist < melee_range + 0.35 and absf(to_player.y) < 1.6:
 				player.take_damage(melee_damage, flat.normalized())
 		if _attack_t > attack_time:
 			_attack_t = -1.0
@@ -324,12 +338,17 @@ func _physics_process(delta: float) -> void:
 		if backing:
 			_aim_t = -1.0
 			clown.aim_amount = move_toward(clown.aim_amount, 0.25, delta * 3.0)    # rifle down to low ready
+		elif is_officer:
+			# the pistol comes up only to shoot, slowly enough to see it coming
+			clown.aim_amount = move_toward(clown.aim_amount, 1.0 if _aim_t >= 0.0 else 0.0, delta * (1.9 if _aim_t >= 0.0 else 1.4))
 		else:
 			clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 4.0)
 		if lmg and _lmg_t > 0.0:
 			_burst_step(delta, dist)
 		if not backing and _aim_t < 0.0 and _cooldown <= 0.0 and not clown.cycling() and _lmg_t <= 0.0:
 			_aim_t = 0.0
+			if is_officer:
+				aim_time = randf_range(aim_times.x, aim_times.y)
 		if _aim_t >= 0.0:
 			_aim_t += delta
 			if lmg and _aim_t > aim_time and clown.aim_amount > 0.9:
@@ -339,9 +358,13 @@ func _physics_process(delta: float) -> void:
 				bursts += 1
 				_burst_step(0.0, dist)
 			elif _aim_t > aim_time and clown.aim_amount > 0.9:
-				_fire(dist)
+				var landed := _fire(dist)
 				_aim_t = -1.0
 				_cooldown = randf_range(shot_gap.x, shot_gap.y)
+				if not landed:
+					misses += 1
+					if clown.has_method("missed"):
+						_cooldown += clown.missed()
 				# after a shot in the open, a rifleman looks for something to get behind
 				if use_cover and _cover_cooldown <= 0.0 and dist > 4.5 and randf() < 0.7:
 					_find_cover()
@@ -826,6 +849,26 @@ func rifleman() -> void:
 	sight_range = 22.0
 
 
+## The officer: walks (never runs), keeps a middle distance, raises the
+## pistol in plain sight and fires one accurate round every two or three
+## seconds; a sabre for anyone who gets close (a long, readable swing).
+func officer() -> void:
+	is_officer = true
+	use_cover = false
+	can_run = false
+	move_speed = 1.8
+	run_speed = 1.8
+	gun_damage = 14.0
+	gun_range = 20.0
+	aim_time = 1.0
+	shot_gap = Vector2(1.1, 1.7)               # plus the aim: a shot every 2-3 s
+	accuracy = Vector3(0.8, 0.012, 0.45)
+	keep_distance = 5.5
+	sight_range = 20.0
+	melee_range = 1.8
+	melee_damage = 28.0
+
+
 ## Settings for a machine gunner: holds its ground at middle range and
 ## hoses the corridor in bursts. Poor accuracy per round, so a burst is
 ## dangerous but not certain death.
@@ -864,7 +907,7 @@ func _burst_step(delta: float, dist: float) -> void:
 		_cooldown = randf_range(burst_pause.x, burst_pause.y)
 
 
-func _fire(dist: float) -> void:
+func _fire(dist: float) -> bool:
 	if debug_cover:
 		print("fire at %.1fm" % dist)
 	var from := clown.muzzle_position()
@@ -879,6 +922,7 @@ func _fire(dist: float) -> void:
 	if hit:
 		player.take_damage(gun_damage, (aim_at - from).normalized())
 	_tracer(from, from + (end - from).normalized() * (dist + 2.0))
+	return hit
 
 
 func _tracer(from: Vector3, to: Vector3) -> void:

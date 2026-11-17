@@ -48,6 +48,11 @@ var state := State.MENU
 @export var rattle_base := 0.08
 @export var rattle_per_floor := 0.02
 @export var rattle_max := 0.16
+## Zornhauptmanns (officers: pistol and sabre) from floor 2: zorn_base, rising
+## by zorn_per_floor each floor, up to zorn_max.
+@export var zorn_base := 0.06
+@export var zorn_per_floor := 0.02
+@export var zorn_max := 0.14
 var floor_number := 0
 var kills := 0
 var run_tickets := 0
@@ -232,6 +237,7 @@ func next_floor() -> void:
 	# Klappersoldats: clockwork infantry, from floor 2.
 	var klapper_share := clampf(klapper_base + klapper_per_floor * (floor_number - 2), 0.0, klapper_max) if floor_number >= 2 else 0.0
 	var rattle_share := clampf(rattle_base + rattle_per_floor * (floor_number - 2), 0.0, rattle_max) if floor_number >= 2 else 0.0
+	var zorn_share := clampf(zorn_base + zorn_per_floor * (floor_number - 2), 0.0, zorn_max) if floor_number >= 2 else 0.0
 	var cells := maze.cells_far_from(maze.start_cell, 3)
 	if cells.is_empty():
 		cells = maze.cells_far_from(maze.start_cell, 1)
@@ -247,6 +253,8 @@ func next_floor() -> void:
 			c = spawn_klapper()
 		elif roll < klapper_share + rattle_share:
 			c = spawn_rattlejack()
+		elif roll < klapper_share + rattle_share + zorn_share:
+			c = spawn_zornhauptmann()
 		else:
 			var soldier := rng.randf() < soldier_share
 			c = _spawn_clown(soldier, not soldier and rng.randf() < gun_share)
@@ -325,6 +333,26 @@ func spawn_rattlejack() -> Rattlejack:
 	brain.move_speed = rng.randf_range(2.6, 3.2) + 0.06 * floor_number      # carrying 12 kg of gun
 	brain.run_speed = minf(rng.randf_range(4.4, 5.2) + 0.1 * floor_number, 6.2)
 	c.setup_brain(brain)
+	brain.name = "Brain"
+	c.add_child(brain)
+	c.died.connect(_on_clown_died)
+	clowns.append(c)
+	return c
+
+
+## Der Zornhauptmann: an officer with a pistol and a sabre. Not yet placed.
+func spawn_zornhauptmann() -> Zornhauptmann:
+	var c := Zornhauptmann.new()
+	c.max_health = 100.0 * (1.0 + 0.1 * (floor_number - 1))     # times officer_health_multiplier
+	_world.add_child(c)
+	c.give_officer_kit()
+	var brain := ClownBrain.new()
+	brain.maze = maze
+	brain.player = player
+	brain.others = clowns
+	c.setup_brain(brain)
+	brain.move_speed += 0.04 * floor_number
+	brain.run_speed = brain.move_speed
 	brain.name = "Brain"
 	c.add_child(brain)
 	c.died.connect(_on_clown_died)
