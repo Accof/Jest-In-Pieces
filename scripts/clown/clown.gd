@@ -39,6 +39,8 @@ const BODIES := {
 		model = "res://art/rattlejack/rattlejack.glb", gibs = "res://art/rattlejack/rattlejack_gibs.glb",
 		rest_min = Vector3(-0.94802, -0.00508, -0.24266), rest_size = Vector3(1.90023, 1.89008, 0.48997),
 		helmet = "res://art/rattlejack/rattlejack_helmet.glb",
+		surface = Vector2(0.93, 0.22),            # wool serge and webbing: roughness, specular
+		helmet_roughness = 0.72,
 		helmet_center = Vector3(-0.00046, 1.80501, 0.04647), helmet_size = Vector3(0.312, 0.210, 0.325),
 		shapes = {&"UpperLeg": 1.3, &"LowerLeg": 1.12, &"UpperArm": 1.25, &"LowerArm": 1.05,
 			&"Hips": 1.2, &"Spine": 1.2, &"Chest": 1.2, &"Neck": 1.12, &"Foot": 1.15},
@@ -1597,6 +1599,13 @@ func _put_on_helmet() -> void:
 	_helmet = MeshInstance3D.new()
 	_helmet.mesh = (found[0] as MeshInstance3D).mesh
 	_helmet.layers = 2
+	if spec.has("helmet_roughness"):
+		# painted steel, not polished: a matte copy of its material
+		var hm := _helmet.mesh.surface_get_material(0) as BaseMaterial3D
+		if hm:
+			hm = hm.duplicate()
+			hm.roughness = spec.helmet_roughness
+			_helmet.set_surface_override_material(0, hm)
 	src.free()
 	var att := BoneAttachment3D.new()
 	att.bone_name = "Head"

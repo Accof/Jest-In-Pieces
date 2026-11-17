@@ -56,6 +56,12 @@ func setup(c: Clown) -> void:
 			sm.set_shader_parameter("albedo_color", src.albedo_color)
 			sm.set_shader_parameter("roughness", src.roughness)
 			sm.set_shader_parameter("metallic", src.metallic)
+			# a body that is mostly cloth (a uniform): matte, whatever the
+			# model's export said (Blender exports 0.5, which reads as satin)
+			if clown.spec.has("surface") and not (src.resource_name in ["Gore", "BoneCore"]):
+				var surf: Vector2 = clown.spec.surface
+				sm.set_shader_parameter("roughness", surf.x)
+				sm.set_shader_parameter("specular_amount", surf.y)
 			if src.albedo_texture:
 				sm.set_shader_parameter("albedo_tex", src.albedo_texture)
 				sm.set_shader_parameter("use_tex", true)

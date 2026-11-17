@@ -8,6 +8,8 @@ uniform vec4 albedo_color : source_color = vec4(1.0);
 uniform sampler2D albedo_tex : source_color, filter_linear_mipmap, repeat_enable;
 uniform bool use_tex = false;
 uniform float roughness : hint_range(0.0, 1.0) = 0.8;
+// How much plain highlight the dry surface takes (0.5 is Godot's default; cloth wants less).
+uniform float specular_amount : hint_range(0.0, 1.0) = 0.5;
 uniform float metallic : hint_range(0.0, 1.0) = 0.0;
 
 // Rest-pose position of each vertex is baked into vertex colour.
@@ -154,5 +156,5 @@ void fragment() {
 	ALBEDO = col;
 	ROUGHNESS = mix(roughness, 0.2, wet);
 	METALLIC = metallic;
-	SPECULAR = mix(0.5, 0.75, wet);
+	SPECULAR = mix(specular_amount, 0.75, wet);
 }
