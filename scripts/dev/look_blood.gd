@@ -4,7 +4,7 @@ extends Node3D
 ## godot res://scenes/look_blood.tscn -- <out-prefix>
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
-	var out: String = args[0] if args.size() > 0 else "/tmp/k/blood"
+	var out: String = args[0] if args.size() > 0 and not args[0].begins_with("shot") else "/tmp/k/blood"
 	var env := WorldEnvironment.new()
 	env.environment = Environment.new()
 	env.environment.background_mode = Environment.BG_COLOR
@@ -54,6 +54,16 @@ func _ready() -> void:
 			c.hit({collider = pb, position = pb.global_position + Vector3(0, 0, 0.12) + spot[1], direction = Vector3(0, 0, -1), damage = 14.0, impulse = 0.5, shot_id = id, weapon = "Pistol", dist = 6.0})
 			for f in 6:
 				await get_tree().physics_frame
+	# then a shotgun blast into each one's belly, as the player's shotgun does
+	# it: nine heavy pellets and a ragged hole
+	if args.has("shotgun"):
+		for c in cs:
+			var spine: PhysicalBone3D = c.ragdoll.bones[&"Spine"]
+			for k in 9:
+				id += 1
+				var off := Vector3(randf_range(-0.11, 0.11), randf_range(-0.11, 0.11), 0.12)
+				c.hit({collider = spine, position = spine.global_position + off, direction = Vector3(0, 0, -1), damage = 16.0, impulse = 0.5, shot_id = id, weapon = "Shotgun", heavy = true, can_dismember = true, dist = 3.0, pellets = 9})
+			c.gore.blast(&"Spine", spine.global_position + Vector3(0, 0, 0.1), Vector3(0, 0, -1), 0.09)
 	for f in 150:
 		await get_tree().physics_frame
 	var cam := Camera3D.new()

@@ -153,12 +153,15 @@ void fragment() {
 		float dh = length(d) + (n - 0.5) * r * 0.9 + (n2 - 0.5) * r * 0.25;
 		hole = max(hole, 1.0 - smoothstep(r * 0.22, r * 0.36, dh));
 		// fresh, still-wet blood welling round it
-		fresh = max(fresh, 1.0 - smoothstep(r * 0.3, r * 0.65, dh));
+		fresh = max(fresh, 1.0 - smoothstep(min(r, 0.05) * 0.3, min(r, 0.05) * 0.65 + blast * 1.05, dh));
 		// soaked into the cloth: a big irregular stain, heavier below (it runs
 		// down and wicks), with a fairly hard edge and a darker tide line
 		vec3 g = d;
 		g.y *= g.y < 0.0 ? 0.5 : 1.3;
-		float soak_r = r * (1.5 + 3.0 * soak_amt);
+		// how far it soaks is set by a bullet hole's size, never by a blast's
+		// (a blast hole soaks out from its own ragged edge instead)
+		float rb = min(r, 0.05);
+		float soak_r = rb * (1.3 + 2.2 * soak_amt) + blast * 0.9;
 		float warp = noise3(rest_pos * 17.0 + seed) * 0.65 + noise3(rest_pos * 52.0 + seed * 1.7) * 0.35;
 		float ds = length(g) + (warp - 0.5) * soak_r * 0.8;
 		float s_in = 1.0 - smoothstep(soak_r * 0.8, soak_r, ds);
@@ -166,7 +169,7 @@ void fragment() {
 		tide = max(tide, smoothstep(soak_r * 0.62, soak_r * 0.92, ds) * s_in);
 		// spray round it: fine droplets and a few bigger flecks, thinning out to
 		// two and a half times the stain
-		float spray_r = soak_r * 1.9;
+		float spray_r = soak_r + min(soak_r * 0.6, 0.09);
 		float near = 1.0 - smoothstep(soak_r * 0.6, spray_r, length(d));
 		near = near * near * spatter_amount;
 		if (near > 0.0) {
@@ -180,7 +183,7 @@ void fragment() {
 		}
 		// runs: thin lanes trickling down from the stain
 		float below = wounds[i].xyz.y - rest_pos.y;
-		float run_len = soak_r * (1.5 + 3.5 * soak_amt) * spatter_amount;
+		float run_len = min(soak_r * (1.2 + 2.5 * soak_amt), 0.35) * spatter_amount;
 		if (below > 0.0 && below < run_len) {
 			float hd = length(d.xz);
 			float lane = noise3(vec3(rest_pos.x * 60.0, rest_pos.y * 2.5, rest_pos.z * 60.0) + seed * 2.3);
