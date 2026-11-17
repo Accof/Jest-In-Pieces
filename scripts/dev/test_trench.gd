@@ -48,7 +48,7 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var secs := ["layouts", "ground", "game", "bodies", "ambience", "views", "floor", "normals", "relief", "walls", "parallax"]
+	var secs := ["layouts", "ground", "game", "bodies", "ambience", "views", "floor", "normals", "relief", "walls", "parallax", "section"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -422,7 +422,7 @@ func _normals() -> void:
 		for ramp: String in ramps:
 			var mat := ShaderMaterial.new()
 			mat.shader = shader
-			for k in ["churned_n", "sludge_n", "wall_n", "firm_n", "floor_n"]:
+			for k in ["wall_n", "rocks_n", "firm_n", "floor_n"]:
 				mat.set_shader_parameter(k, ramps[ramp])
 			mat.set_shader_parameter("noise_tex", black)        # no puddles over the test surface
 			mat.set_shader_parameter("floor_scan", sf[0] == "floor")
@@ -448,6 +448,53 @@ func _normals() -> void:
 			if not ok:
 				bad += 1
 			lines.append("%s, slope along %s: normal (%.2f, %.2f, %.2f), toward uphill %.2f, outward %.2f %s" % [sf[0], ramp, nrm.x, nrm.y, nrm.z, lean, faces, "" if ok else "  <- WRONG"])
+			mi.queue_free()
+			await _frames(1)
+	# the props' shader (pbr_object): a board (grain along it) and an iron
+	# sheet (rust running down), faces each way. Expected (u, v) per face, as
+	# the shader maps them with variation off: the uphill side is +u for a
+	# slope along u, +v (down the image) for a slope down the rows.
+	var obj_shader: Shader = load("res://shaders/pbr_object.gdshader")
+	var props := [
+		["board +z", true, Vector3.BACK, Vector3.UP, Vector3.RIGHT],
+		["board -z", true, Vector3.FORWARD, Vector3.UP, Vector3.RIGHT],
+		["board +y", true, Vector3.UP, Vector3.BACK, Vector3.RIGHT],
+		["board +x", true, Vector3.RIGHT, Vector3.BACK, Vector3.UP],
+		["iron +z", false, Vector3.BACK, Vector3.RIGHT, Vector3.DOWN],
+		["iron -x", false, Vector3.LEFT, Vector3.BACK, Vector3.DOWN],
+		["iron +y", false, Vector3.UP, Vector3.RIGHT, Vector3.BACK],
+	]
+	for pr: Array in props:
+		for ramp: String in ramps:
+			var mat := ShaderMaterial.new()
+			mat.shader = obj_shader
+			mat.set_shader_parameter("normal_tex", ramps[ramp])
+			mat.set_shader_parameter("noise_tex", black)
+			mat.set_shader_parameter("grain", pr[1])
+			mat.set_shader_parameter("vary", false)
+			mat.set_shader_parameter("debug_view", 1)
+			var mi := MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			mi.mesh = bm
+			mi.scale = Vector3(2.0, 0.6, 0.3) if pr[1] else Vector3(1.4, 2.0, 0.4)
+			mi.material_override = mat
+			add_child(mi)
+			var out: Vector3 = pr[2]
+			cam.size = 0.1
+			cam.global_position = out * 3.0
+			cam.look_at(Vector3.ZERO, Vector3.FORWARD if absf(out.y) > 0.9 else Vector3.UP)
+			await _frames(30 if pr == props[0] and ramp == "u" else 3)
+			await get_tree().process_frame
+			var img := get_viewport().get_texture().get_image()
+			var c := img.get_pixel(img.get_width() / 2, img.get_height() / 2).srgb_to_linear()
+			var nrm := Vector3(c.r, c.g, c.b) * 2.0 - Vector3.ONE
+			var uphill: Vector3 = pr[3] if ramp == "u" else pr[4]
+			var lean := nrm.dot(uphill)
+			var faces := nrm.dot(out)
+			var ok := lean < -0.1 and faces > 0.5
+			if not ok:
+				bad += 1
+			lines.append("%s, slope along %s: normal (%.2f, %.2f, %.2f), toward uphill %.2f, outward %.2f %s" % [pr[0], ramp, nrm.x, nrm.y, nrm.z, lean, faces, "" if ok else "  <- WRONG"])
 			mi.queue_free()
 			await _frames(1)
 	for l: String in lines:
@@ -784,6 +831,64 @@ func _img_diff(a: Image, b: Image) -> float:
 			if absf(ca.r - cb.r) + absf(ca.b - cb.b) > 0.5:
 				diff += 1
 	return float(diff) / maxf(tot, 1)
+
+
+## Render only: representative stretches for the materials, at eye height:
+## a fire bay (sandbags, boards, fire step), an iron-lined support stretch,
+## a bare earth communication trench, the slumped stretch, a duckboard close
+## up, a sandbag wall close up (/tmp/tr_sec_*.png).
+func _section() -> void:
+	if not render:
+		return
+	print("-- section")
+	await _new_game(3)
+	var m: TrenchMaze = game.maze
+	game.player.visible = false
+	for c: Clown in game.clowns:
+		c.queue_free()
+	game.clowns.clear()
+	var cam := Camera3D.new()
+	add_child(cam)
+	cam.make_current()
+	cam.fov = 72.0
+	var shots := {}
+	# looking along a trench from cell c toward the next in its trench list
+	var along := func(c: Vector2i, name_: String) -> void:
+		for t: String in m.trenches:
+			var cells: Array = m.trenches[t]
+			var i := cells.find(c)
+			if i >= 0 and i + 2 < cells.size():
+				shots[name_] = [m.cell_center(c) + Vector3.UP * 1.62, m.cell_center(cells[i + 2]) + Vector3.UP * 1.1]
+				return
+	for c: Vector2i in m.bays:
+		if m.wall(c, Vector2i(0, 1)) != "" or true:
+			along.call(c, "bay")
+			break
+	for c: Vector2i in m.open_cells:
+		if not shots.has("iron") and (m.wall(c, Vector2i(0, 1)) == "iron" or m.wall(c, Vector2i(0, -1)) == "iron"):
+			along.call(c, "iron")
+		if not shots.has("earth") and m.kind[c] == "comm" and m.wall(c, Vector2i(1, 0)) == "earth":
+			along.call(c, "earth")
+		if not shots.has("slump") and m.collapsed.has(c):
+			var p := m.cell_center(c)
+			for dir in Maze.DIRS:
+				if m.open_cells.has(c - dir):
+					var back := m.cell_center(c - dir)
+					shots["slump"] = [back + Vector3.UP * 1.62 - Vector3(dir.x, 0, dir.y) * 0.5, p + Vector3.UP * 0.6]
+					break
+		for dir in Maze.DIRS:
+			if not shots.has("bags") and m.wall(c, dir) == "sandbag" and m.kind[c] in ["fire", "traverse", "sap"]:
+				var p := m.cell_center(c)
+				shots["bags"] = [p - Vector3(dir.x, 0, dir.y) * 0.45 + Vector3.UP * 1.2, p + Vector3(dir.x, 0, dir.y) * 0.8 + Vector3.UP * 0.8]
+	var d: Dictionary = m.duckboards[m.duckboards.size() / 2]
+	var mid: Vector3 = ((d.a as Vector3) + (d.b as Vector3)) * 0.5
+	shots["boards"] = [mid + Vector3(0.35, 1.0, 0.35), mid]
+	for name_: String in shots:
+		cam.global_position = shots[name_][0]
+		cam.look_at(shots[name_][1])
+		await _frames(40 if name_ == shots.keys()[0] else 4)
+		await _shot("sec_" + name_)
+	print("      shots: %s" % [shots.keys()])
 
 
 ## Render only: the trench floor close up (eye height down the trench, the

@@ -18,6 +18,17 @@ var _far_holes: FastNoiseLite
 
 const BAG := Vector3(0.52, 0.14, 0.3)
 
+## Which scanned set each old texture name now uses, and how it is set up
+## (pbr_object.gdshader parameters). Wattle has no scan: it keeps its
+## procedural texture.
+const PBR_FOR := {
+	"board": {set = "rough_wood", tile = 1.0, grain = true, darken = 0.78, wet = 0.45, grime = 0.35, rough_min = 0.5, tint = Color(0.95, 0.88, 0.8)},
+	"planks_wet": {set = "rough_wood", tile = 1.0, grain = true, darken = 0.75, wet = 0.5, grime = 0.4, rough_min = 0.5, tint = Color(0.95, 0.88, 0.8)},
+	"timber": {set = "rough_wood", tile = 1.0, grain = true, darken = 0.62, wet = 0.5, grime = 0.45, rough_min = 0.5, tint = Color(0.9, 0.82, 0.74)},
+	"burlap": {set = "hessian_230", tile = 0.45, grain = false, darken = 0.62, saturation = 0.85, wet = 0.55, grime = 0.75, rough_min = 0.62, tint = Color(0.86, 0.78, 0.66), normal_strength = 1.2},
+	"iron": {set = "rusty_metal_04", tile = 1.6, grain = false, darken = 0.8, wet = 0.25, grime = 0.3, rough_min = 0.45, metal_from_albedo = 0.55},
+}
+
 
 func build(m: TrenchMaze) -> void:
 	maze = m
@@ -124,19 +135,74 @@ static func setup_sun(sun: DirectionalLight3D) -> void:
 	sun.rotation = Vector3(deg_to_rad(-58.0), deg_to_rad(-35.0), 0.0)
 
 
-## The carved ground as chunked meshes (16 m squares, for culling).
-func _terrain() -> void:
+## A scanned set from art/trench/pbr/<name>: albedo, normal, packed AO/rough/height.
+static func pbr(name_: String, map: String) -> Texture2D:
+	return load("res://art/trench/pbr/%s/%s_%s_2k.png" % [name_, name_, map])
+
+
+var _ground_mat: ShaderMaterial
+
+
+## The ground's material (mud_terrain.gdshader): the brown mud on the walls
+## and up top, rocks on rims and damage, firmer procedural ground further
+## off, the scanned wet mud on the trench floor.
+func ground_material() -> ShaderMaterial:
+	if _ground_mat:
+		return _ground_mat
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/mud_terrain.gdshader")
-	for pair: Array in [["churned", "mud_churned"], ["sludge", "mud_sludge"], ["wall", "soil_wall"], ["firm", "ground_firm"]]:
-		mat.set_shader_parameter(pair[0] + "_a", tex(pair[1]))
-		mat.set_shader_parameter(pair[0] + "_n", tex(pair[1] + "_n"))
-		mat.set_shader_parameter(pair[0] + "_r", tex(pair[1] + "_r"))
+	for pair: Array in [["wall", "brown_mud_wall"], ["rocks", "rocks_ground_08"]]:
+		mat.set_shader_parameter(pair[0] + "_a", pbr(pair[1], "diff"))
+		mat.set_shader_parameter(pair[0] + "_n", pbr(pair[1], "nor_gl"))
+		mat.set_shader_parameter(pair[0] + "_ard", pbr(pair[1], "ard"))
+	mat.set_shader_parameter("firm_a", tex("ground_firm"))
+	mat.set_shader_parameter("firm_n", tex("ground_firm_n"))
+	mat.set_shader_parameter("firm_r", tex("ground_firm_r"))
 	mat.set_shader_parameter("noise_tex", tex("noise"))
 	# the trench floor: the Poly Haven scan (art/trench/polyhaven)
 	mat.set_shader_parameter("floor_a", load("res://art/trench/polyhaven/brown_mud_03_diff_2k.png"))
 	mat.set_shader_parameter("floor_n", load("res://art/trench/polyhaven/brown_mud_03_nor_gl_2k.png"))
 	mat.set_shader_parameter("floor_ard", load("res://art/trench/polyhaven/brown_mud_03_ard_2k.png"))
+	_ground_mat = mat
+	return mat
+
+
+## How broken-down the ground is around each point (vertex A, 0..1): the
+## slumped stretch, walls whose lining has come away, the rims of shell
+## holes. Rocks and rubble show there.
+var _damage := {}
+
+
+func _damage_at(x: float, z: float) -> float:
+	var m := maze
+	if _damage.is_empty():
+		_damage[Vector2i(-999, -999)] = 0.0
+		for c: Vector2i in m.open_cells:
+			var d := 0.0
+			if m.collapsed.has(c):
+				d = 1.0
+			for dir in Maze.DIRS:
+				if m.wall(c, dir) == "broken":
+					d = maxf(d, 0.65)
+			if d > 0.0:
+				_damage[c] = d
+	var fx := x / m.cell - 0.5
+	var fz := z / m.cell - 0.5
+	var best := 0.0
+	var c0 := Vector2i(int(floor(fx)), int(floor(fz)))
+	for dz in range(-1, 3):
+		for dx in range(-1, 3):
+			var c := c0 + Vector2i(dx, dz)
+			var d: float = _damage.get(c, 0.0)
+			if d > 0.0:
+				var dist := Vector2(fx - c.x, fz - c.y).length()
+				best = maxf(best, d * (1.0 - smoothstep(0.6, 1.4, dist)))
+	return best
+
+
+## The carved ground as chunked meshes (16 m squares, for culling).
+func _terrain() -> void:
+	var mat := ground_material()
 	var chunk := 80                   # samples per side
 	var m := maze
 	var res := TrenchMaze.RES
@@ -163,7 +229,8 @@ func _terrain() -> void:
 					var nrm := Vector3(m.vis_h[maxi(ix - 1, 0) + row] - m.vis_h[mini(ix + 1, m.hx - 1) + row], 2.0 * res, m.vis_h[ix + dn_row] - m.vis_h[ix + up_row])
 					norms[k] = nrm.normalized()
 					var sd := m.sdf[i]
-					cols[k] = Color(m.wet[i], 1.0 if sd <= 0.0 else 0.0, clampf(sd * 0.5, 0.0, 1.0), clampf(h + 3.0, 0.0, 4.0) * 0.25)
+					var dmg := _damage_at(verts_x(m, ix), m.origin.y + iz * res) if sd < 3.0 else 0.0
+					cols[k] = Color(m.wet[i], 1.0 if sd <= 0.0 else 0.0, clampf(sd * 0.5, 0.0, 1.0), dmg)
 					verts[k] = Vector3(m.origin.x + ix * res, h, m.origin.y + iz * res)
 					k += 1
 			var idx := PackedInt32Array()
@@ -194,12 +261,31 @@ func _terrain() -> void:
 
 
 # --- shared ------------------------------------------------------------------------
+static func verts_x(m: TrenchMaze, ix: int) -> float:
+	return m.origin.x + ix * TrenchMaze.RES
+
+
+
 ## A triplanar world-mapped material from an art/trench texture set (no
 ## stretching on scaled boxes).
-func _mat(name_: String, scale := 1.0, rough := -1.0) -> StandardMaterial3D:
+func _mat(name_: String, scale := 1.0, rough := -1.0) -> Material:
 	var key := "%s:%s" % [name_, scale]
 	if _mats.has(key):
 		return _mats[key]
+	# the scanned sets for wood, sandbags and iron (shaders/pbr_object.gdshader)
+	if PBR_FOR.has(name_):
+		var spec: Dictionary = PBR_FOR[name_]
+		var sm := ShaderMaterial.new()
+		sm.shader = load("res://shaders/pbr_object.gdshader")
+		sm.set_shader_parameter("albedo_tex", pbr(spec.set, "diff"))
+		sm.set_shader_parameter("normal_tex", pbr(spec.set, "nor_gl"))
+		sm.set_shader_parameter("ard_tex", pbr(spec.set, "ard"))
+		sm.set_shader_parameter("noise_tex", tex("noise"))
+		for k: String in spec:
+			if k != "set":
+				sm.set_shader_parameter(k, spec[k])
+		_mats[key] = sm
+		return sm
 	var m := StandardMaterial3D.new()
 	m.albedo_texture = tex(name_)
 	m.normal_enabled = true
@@ -289,6 +375,8 @@ func _revetments() -> void:
 	var planks := _mat("board", 1.6)
 	var timber := _mat("timber", 0.8)
 	var wattle := _mat("wattle", 1.0)
+	# no scan for woven hurdles: the procedural weave, darkened and dirtied to sit with the scans
+	(wattle as StandardMaterial3D).albedo_color = Color(0.5, 0.45, 0.4)
 	var iron := _mat("iron", 1.0)
 	var bag := _mat("burlap", 0.5)
 	var bag_mesh := _bag_mesh()
@@ -410,8 +498,8 @@ func _bag_mesh() -> Mesh:
 	var m := SphereMesh.new()
 	m.radius = 0.5
 	m.height = 1.0
-	m.radial_segments = 10
-	m.rings = 6
+	m.radial_segments = 16
+	m.rings = 9
 	var st := SurfaceTool.new()
 	st.create_from(m, 0)
 	var arr := st.commit_to_arrays()
@@ -763,13 +851,7 @@ func _op(c: Vector2i) -> void:
 ## churned and shell-holed toward No Man's Land (z < 0), lost in haze.
 func _far() -> void:
 	var m := maze
-	var mat := ShaderMaterial.new()
-	mat.shader = load("res://shaders/mud_terrain.gdshader")
-	for pair: Array in [["churned", "mud_churned"], ["sludge", "mud_sludge"], ["wall", "soil_wall"], ["firm", "ground_firm"]]:
-		mat.set_shader_parameter(pair[0] + "_a", tex(pair[1]))
-		mat.set_shader_parameter(pair[0] + "_n", tex(pair[1] + "_n"))
-		mat.set_shader_parameter(pair[0] + "_r", tex(pair[1] + "_r"))
-	mat.set_shader_parameter("noise_tex", tex("noise"))
+	var mat := ground_material()
 	var noise := FastNoiseLite.new()
 	noise.seed = rng.randi()
 	noise.frequency = 0.012
@@ -820,7 +902,7 @@ func _far() -> void:
 			var z := lo.y + iz * step
 			st.set_normal(Vector3(hl - hr, 2.0 * step, hd - hu).normalized())
 			var nml := 1.0 - smoothstep(-30.0, 10.0, z)
-			st.set_color(Color(0.6, 0.0, lerpf(1.0, 0.4, nml), 0.5))
+			st.set_color(Color(0.6, 0.0, lerpf(1.0, 0.4, nml), 0.0))
 			st.add_vertex(Vector3(x, hs[i], z))
 	for iz in nz - 1:
 		for ix in n - 1:
@@ -878,7 +960,7 @@ func _plain(key: String, col: Color, rough := 0.8, metal := 0.0) -> StandardMate
 ## collision (nobody goes out there); the wire sways a little in the wind.
 func _wire() -> void:
 	var m := maze
-	var picket := _plain("picket", Color(0.16, 0.11, 0.07), 0.6, 0.5)
+	var picket := _mat("iron", 1.6)
 	var lines := PackedVector3Array()
 	var cols := PackedColorArray()
 	var sap_x: Array[float] = []
