@@ -53,6 +53,13 @@ var state := State.MENU
 @export var zorn_base := 0.06
 @export var zorn_per_floor := 0.02
 @export var zorn_max := 0.14
+## Every this many floors is the Drowned Trenches (an outdoor trench network,
+## TrenchMaze) instead of the bunkers. 0 turns them off.
+@export var trench_every := 3
+## Enemies on a trench floor, relative to a bunker floor (it is 2-3x bigger).
+@export var trench_enemy_scale := 1.5
+## Trench floors: the share of riflemen and other soldiers (the rest plain clowns).
+@export var trench_soldier_share := 0.75
 var floor_number := 0
 var kills := 0
 var run_tickets := 0
@@ -71,6 +78,10 @@ var rng := RandomNumberGenerator.new()
 
 var _world: Node3D
 var _exit: Node3D
+var _world_env: WorldEnvironment
+var _bunker_env: Environment
+var _trench_env: Environment
+var _sun: DirectionalLight3D
 var _exit_light: OmniLight3D
 var _ui: CanvasLayer
 var main_menu: MainMenu
@@ -179,6 +190,7 @@ func _make_player() -> void:
 func go_base() -> void:
 	Engine.time_scale = 1.0
 	_clear_floor()
+	_apply_floor_look(false)
 	_make_player()
 	_world = Node3D.new()
 	_world.add_to_group(&"world_root")
@@ -214,13 +226,18 @@ func next_floor() -> void:
 	_world.add_to_group(&"world_root")
 	_world.process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_child(_world)
-	maze = Maze.new()
+	var outdoor := is_trench_floor(floor_number)
+	maze = TrenchMaze.new() if outdoor else Maze.new()
 	_world.add_child(maze)
 	var size := mini(5 + floor_number / 2, 9)
 	maze.generate(size + 2, size, rng.randi())     # a little wider than deep: room for a long route
+	_apply_floor_look(outdoor)
 	var spawn := maze.cell_center(maze.start_cell)
 	player.global_position = spawn + Vector3.UP * 0.1
 	player.velocity = Vector3.ZERO
+	if outdoor and maze.route.size() > 2:
+		var ahead := maze.cell_center(maze.route[2])
+		player.rotation.y = atan2(spawn.x - ahead.x, spawn.z - ahead.z)
 	_build_exit()
 	events.new_floor()
 	for l: JokerLocker in get_tree().get_nodes_in_group(&"joker_lockers"):
@@ -231,6 +248,8 @@ func next_floor() -> void:
 	if floor_number > 1 and int(save.perks.get("dressing", 0)) > 0:
 		player.heal(15.0 * int(save.perks.dressing))
 	var count := mini(4 + floor_number * 2, 18)
+	if outdoor:
+		count = mini(int(count * trench_enemy_scale), 26)
 	var gun_share := clampf(0.12 + 0.06 * floor_number, 0.0, 0.5)
 	# WitzSoldats: riflemen in gas masks. One in eight on floor 1, rising to a third.
 	var soldier_share := clampf(0.07 + 0.05 * floor_number, 0.0, 0.33)
@@ -238,12 +257,19 @@ func next_floor() -> void:
 	var klapper_share := clampf(klapper_base + klapper_per_floor * (floor_number - 2), 0.0, klapper_max) if floor_number >= 2 else 0.0
 	var rattle_share := clampf(rattle_base + rattle_per_floor * (floor_number - 2), 0.0, rattle_max) if floor_number >= 2 else 0.0
 	var zorn_share := clampf(zorn_base + zorn_per_floor * (floor_number - 2), 0.0, zorn_max) if floor_number >= 2 else 0.0
-	var cells := maze.cells_far_from(maze.start_cell, 3)
+	var cells := maze.cells_far_from(maze.start_cell, maze.span(3))
 	if cells.is_empty():
 		cells = maze.cells_far_from(maze.start_cell, 1)
+	if outdoor:
+		# soldiers' country: mostly riflemen, machine gunners and clockwork
+		# infantry, an officer, a few clowns
+		soldier_share = trench_soldier_share
+		klapper_share = maxf(klapper_share, 0.14)
+		rattle_share = maxf(rattle_share, 0.16)
+		zorn_share = maxf(zorn_share, 0.08)
 	clowns.clear()
 	# A table or two in the side rooms with some of them sat round it.
-	var seated := _place_tables(soldier_share)
+	var seated := _place_tables(soldier_share) if not outdoor else 0
 	_clear_drums.call_deferred()
 	for i in maxi(count - seated, 0):
 		var cell: Vector2i = cells[rng.randi() % cells.size()]
@@ -258,15 +284,21 @@ func next_floor() -> void:
 		else:
 			var soldier := rng.randf() < soldier_share
 			c = _spawn_clown(soldier, not soldier and rng.randf() < gun_share)
-		c.global_position = maze.cell_center(cell) + Vector3(rng.randf_range(-0.8, 0.8), 0, rng.randf_range(-0.8, 0.8))
+		c.global_position = maze.cell_center(cell) + Vector3(rng.randf_range(-0.8, 0.8), 0, rng.randf_range(-0.8, 0.8)) * maze.scale()
+		c.global_position.y = maze.floor_height(c.global_position)
 		c.rotation.y = rng.randf() * TAU
+	if outdoor and floor_number >= 3 and not clowns.any(func(x: Clown) -> bool: return x is Zornhauptmann):
+		# a trench has an officer
+		var z := spawn_zornhauptmann()
+		var zc: Vector2i = cells[rng.randi() % cells.size()]
+		z.global_position = maze.cell_center(zc)
 	remaining = clowns.size()
 	_floor_finale = false
 	if kill_cam:
 		kill_cam.stop("new floor")
 	exit_open = false
 	_set_state(State.PLAYING)
-	_flash("FLOOR %d" % floor_number)
+	_flash("FLOOR %d%s" % [floor_number, "  -  THE DROWNED TRENCHES" if outdoor else ""])
 
 
 func _spawn_clown(soldier: bool, gun: bool) -> Clown:
@@ -721,7 +753,10 @@ func _build_environment() -> void:
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
+	_world_env = we
+	_bunker_env = env
 	var sun := DirectionalLight3D.new()
+	_sun = sun
 	sun.light_color = Color(0.58, 0.62, 0.72)
 	sun.light_energy = 0.45
 	sun.light_volumetric_fog_energy = 0.3
@@ -731,10 +766,36 @@ func _build_environment() -> void:
 	add_child(sun)
 
 
+func is_trench_floor(n: int) -> bool:
+	return trench_every > 0 and n > 0 and n % trench_every == 0
+
+
+## Trench floors are outdoors by day: the overcast sky and its light; the
+## bunkers and the base keep their dark.
+func _apply_floor_look(outdoor: bool) -> void:
+	if _world_env == null:
+		return
+	if outdoor:
+		if _trench_env == null:
+			_trench_env = TrenchArt.make_environment()
+		_world_env.environment = _trench_env
+		TrenchArt.setup_sun(_sun)
+	else:
+		_world_env.environment = _bunker_env
+		_sun.light_color = Color(0.58, 0.62, 0.72)
+		_sun.light_energy = 0.45
+		_sun.light_angular_distance = 0.0
+		_sun.light_volumetric_fog_energy = 0.3
+		_sun.shadow_opacity = 1.0
+		_sun.shadow_blur = 1.0
+		_sun.directional_shadow_max_distance = 40.0
+		_sun.rotation = Vector3(deg_to_rad(-28.0), deg_to_rad(-140.0), 0.0)
+
+
 func _build_exit() -> void:
 	_exit = Node3D.new()
 	_world.add_child(_exit)
-	_exit.global_position = maze.cell_center(maze.exit_cell)
+	_exit.global_transform = maze.exit_transform()
 	var door := MeshInstance3D.new()
 	var box := BoxMesh.new()
 	box.size = Vector3(1.1, 2.1, 0.12)
@@ -752,6 +813,9 @@ func _build_exit() -> void:
 	_exit_light.omni_range = 6.0
 	_exit_light.light_color = Color(1.0, 0.15, 0.1)
 	_exit_light.light_energy = 1.5
+	if maze is TrenchMaze:
+		_exit_light.omni_range = 3.5            # by day it only needs to mark the door
+		_exit_light.light_energy = 0.8
 	_exit.add_child(_exit_light)
 
 

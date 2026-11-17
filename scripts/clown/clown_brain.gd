@@ -143,7 +143,7 @@ func hear(where: Vector3, extra_cells: int = 0) -> void:
 	if clown.dead or mind == Mind.HUNT:
 		return
 	var cells := maze.path_cells(maze.cell_of(clown.global_position), maze.cell_of(where)) - 1
-	if cells <= hearing_cells + extra_cells:
+	if cells <= maze.span(hearing_cells + extra_cells):
 		alert(where)
 
 
@@ -1023,10 +1023,11 @@ func _through_opening(target: Vector3) -> Vector3:
 	var rel := clown.global_position - centre
 	var off := rel.dot(along)
 	var ahead := rel.dot(dv)
-	if absf(off) <= 0.45 or ahead > Maze.CELL * 0.5 - 0.35:
+	var k := maze.scale()
+	if absf(off) <= 0.45 * k or ahead > maze.cell * 0.5 - 0.35 * k:
 		return target
 	# a point on the middle line, short of the doorway
-	return centre + dv * minf(ahead + 0.6, Maze.CELL * 0.5 - 0.6) + along * clampf(off, -0.3, 0.3)
+	return centre + dv * minf(ahead + 0.6 * k, maze.cell * 0.5 - 0.6 * k) + along * clampf(off, -0.3 * k, 0.3 * k)
 
 
 ## A spot in a cell with room for a clown: the middle if it is clear, or
@@ -1045,6 +1046,8 @@ func _free_spot(cell: Vector2i) -> Vector3:
 		Vector3(0.7, 0, 0.7), Vector3(-0.7, 0, 0.7), Vector3(0.7, 0, -0.7), Vector3(-0.7, 0, -0.7)]
 	offs.shuffle()
 	offs.push_front(Vector3.ZERO)
+	for i in offs.size():
+		offs[i] *= maze.scale()
 	for o: Vector3 in offs:
 		var p := maze.keep_walkable(centre + o)
 		p.y = maze.floor_height(p)

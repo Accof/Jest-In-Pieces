@@ -1,0 +1,384 @@
+extends Node
+## The Drowned Trenches (TrenchMaze), checked. Sections (user args; none = all):
+##   layouts   many seeds: every cell reachable, the trench parts all there,
+##             no two trenches touching where they should not, route length,
+##             trench length, build time
+##   ground    the carved ground: collision matching the walked surface
+##   game      in the game: floors 3, 6, 9 are trenches (2 and 4 are not),
+##             overcast light there and the bunker dark back after, enemy
+##             mix, the exit at the bunker door, the player walking the route
+##             (duckboards, fire step) without catching or falling through
+##   bodies    on a trench floor: deaths on duckboards, in water, on the
+##             fire step, against a wall, a Carnival Curse: bodies settle on
+##             the ground (not floating, not through it), blood pools
+## Add "render" (with a window) for views in /tmp/tr_*.png; "ascii" prints a layout.
+
+var render := false
+var fails := 0
+
+
+func _ready() -> void:
+	_run()
+
+
+func _check(ok: bool, what: String) -> void:
+	print(("   ok    " if ok else "   FAIL  ") + what)
+	if not ok:
+		fails += 1
+
+
+func _frames(n: int) -> void:
+	for i in n:
+		await get_tree().physics_frame
+
+
+func _shot(name_: String) -> void:
+	if not render:
+		return
+	await get_tree().process_frame
+	await get_tree().process_frame
+	get_viewport().get_texture().get_image().save_png("/tmp/tr_%s.png" % name_)
+
+
+func _run() -> void:
+	var args := OS.get_cmdline_user_args()
+	render = args.has("render")
+	var secs := ["layouts", "ground", "game", "bodies", "views"]
+	var any := false
+	for s: String in secs:
+		any = any or args.has(s)
+	for s: String in secs:
+		if not any or args.has(s):
+			await call("_" + s)
+	print("TRENCH: %d failed" % fails)
+	get_tree().quit()
+
+
+func _make(seed_: int) -> TrenchMaze:
+	var m := TrenchMaze.new()
+	add_child(m)
+	m.generate(0, 0, seed_)
+	return m
+
+
+func _layouts() -> void:
+	print("-- layouts")
+	var bad := 0
+	var lengths: Array[float] = []
+	var routes: Array[float] = []
+	var times: Array[float] = []
+	var missing := {}
+	for s in 30:
+		var t0 := Time.get_ticks_msec()
+		var m := TrenchMaze.new()
+		m.w = TrenchMaze.GRID_W
+		m.d = TrenchMaze.GRID_D
+		m.rng.seed = 1000 + s
+		var ok := false
+		for attempt in 40:
+			m._reset()
+			if m._layout():
+				ok = true
+				break
+		times.append(Time.get_ticks_msec() - t0)
+		if not ok:
+			bad += 1
+			m.free()
+			continue
+		lengths.append(m.open_cells.size() * m.cell)
+		m._astar.clear()
+		for c: Vector2i in m.open_cells:
+			m._astar.add_point(m.idx(c), Vector2(c.x, c.y))
+		for k: String in m.links:
+			var p := k.split("|")
+			m._astar.connect_points(int(p[0]), int(p[1]))
+		routes.append(m._astar.get_id_path(m.idx(m.start_cell), m.idx(m.exit_cell)).size() * m.cell)
+		for need: String in ["dugout", "gunpit", "op", "tree", "flood_junction"]:
+			if not m.landmarks.any(func(l: Dictionary) -> bool: return l.kind == need):
+				missing[need] = missing.get(need, 0) + 1
+		# no stray contact: every pair of touching open cells is linked
+		for c: Vector2i in m.open_cells:
+			for dir in Maze.DIRS:
+				if m.open_cells.has(c + dir) and not m.linked(c, c + dir):
+					bad += 1
+		if s == 0 and OS.get_cmdline_user_args().has("ascii"):
+			print(m.ascii())
+		m.free()
+	print("      %d of 30 failed; trench %.0f-%.0f m (avg %.0f); start to exit %.0f-%.0f m; layout %.0f ms avg; missing %s" % [
+		bad, lengths.min(), lengths.max(), _avg(lengths), routes.min(), routes.max(), _avg(times), missing])
+	_check(bad == 0, "every layout made, every cell reachable, nothing touching unlinked")
+	_check(_avg(lengths) >= 180.0 and _avg(lengths) <= 340.0, "about 2-3x a bunker floor of trench (%.0f m)" % _avg(lengths))
+	_check(missing.get("dugout", 0) + missing.get("op", 0) + missing.get("tree", 0) < 6, "the landmarks are nearly always there (%s)" % missing)
+
+
+func _avg(a: Array) -> float:
+	var s := 0.0
+	for v in a:
+		s += v
+	return s / maxf(a.size(), 1)
+
+
+func _ground() -> void:
+	print("-- ground")
+	var t0 := Time.get_ticks_msec()
+	var m := _make(77)
+	print("      built in %d ms; %d x %d samples" % [Time.get_ticks_msec() - t0, m.hx, m.hz])
+	if OS.get_cmdline_user_args().has("ascii"):
+		print(m.ascii())
+	await _frames(3)
+	var space := m.get_world_3d().direct_space_state
+	var worst := 0.0
+	var depths: Array[float] = []
+	for c: Vector2i in m.route:
+		var p := m.cell_center(c)
+		var q := PhysicsRayQueryParameters3D.create(p + Vector3.UP * 3.0, p + Vector3.DOWN * 3.0, 1)
+		var hit := space.intersect_ray(q)
+		if hit.is_empty():
+			worst = 99.0
+			continue
+		worst = maxf(worst, absf((hit.position as Vector3).y - p.y))
+		depths.append(m.ground_height(p.x + 3.0, p.z) - p.y)
+	print("      collision vs floor_height along the route: worst %.3f m" % worst)
+	_check(worst < 0.03, "the collision is the walked surface")
+	m.queue_free()
+	await _frames(2)
+
+
+var game: Node3D
+
+
+func _new_game(floor_: int) -> void:
+	if game == null:
+		Engine.set_meta(&"test_save", true)
+		game = load("res://scenes/game.tscn").instantiate()
+		add_child(game)
+		await _frames(2)
+		FpsPlayer.god_mode = true
+	game.start_run()
+	game.floor_number = floor_ - 1
+	var t0 := Time.get_ticks_msec()
+	game.next_floor()
+	if game.maze is TrenchMaze:
+		print("      trench floor built in %d ms" % (Time.get_ticks_msec() - t0))
+	await _frames(3)
+
+
+func _game() -> void:
+	print("-- game")
+	var kinds := []
+	for f in [1, 2, 3, 4, 6]:
+		await _new_game(f)
+		kinds.append("%d:%s" % [game.floor_number, "trench" if game.maze is TrenchMaze else "bunker"])
+		if f == 3:
+			var env: Environment = game._world_env.environment
+			_check(env.ambient_light_source == Environment.AMBIENT_SOURCE_SKY and env.ambient_light_energy > 1.0, "overcast daylight on the trench floor")
+			var counts := {}
+			for c: Clown in game.clowns:
+				counts[c.body] = counts.get(c.body, 0) + 1
+			print("      floor 3 enemies: %s" % counts)
+			var soldiers: int = game.clowns.filter(func(c: Clown) -> bool: return c.body != "clown").size()
+			_check(soldiers >= game.clowns.size() * 0.6, "mostly soldiers (%d of %d)" % [soldiers, game.clowns.size()])
+			var m: TrenchMaze = game.maze
+			var ex: Vector3 = game._exit.global_position
+			_check(m.is_open(m.cell_of(ex)) and absf(ex.y - m.floor_height(ex)) < 0.1, "the exit door stands on the floor in the end of the fire trench")
+			await _walk(m)
+		if f == 4:
+			_check(game._world_env.environment == game._bunker_env, "back to the bunker's dark below ground")
+	print("      floors: %s" % [kinds])
+	_check(kinds == ["1:bunker", "2:bunker", "3:trench", "4:bunker", "6:trench"], "every third floor is the trenches")
+
+
+## Walk the player along the whole route by input-free velocity: he should
+## follow the floor (duckboards, slopes) and never fall through or stick.
+func _walk(m: TrenchMaze) -> void:
+	var p: FpsPlayer = game.player
+	for c: Clown in game.clowns:
+		c.queue_free()
+	game.clowns.clear()
+	await _frames(2)
+	p.global_position = m.cell_center(m.route[0]) + Vector3.UP * 0.2
+	var stuck := 0
+	var worst_off := 0.0
+	var reached := 0
+	_key(KEY_W, true)
+	for i in range(1, m.route.size()):
+		var target := m.cell_center(m.route[i])
+		var t := 0.0
+		while t < 2.5:
+			var to := target - p.global_position
+			to.y = 0.0
+			if to.length() < 0.35:
+				break
+			p.rotation.y = atan2(-to.x, -to.z)        # walk at it (forward is -Z)
+			await get_tree().physics_frame
+			t += 1.0 / 60.0
+			worst_off = maxf(worst_off, absf(p.global_position.y - m.floor_height(p.global_position)))
+		if t >= 2.5:
+			stuck += 1
+		else:
+			reached += 1
+	_key(KEY_W, false)
+	print("      walked the route: %d of %d cells reached, %d stuck, worst height off the walked surface %.2f m" % [reached, m.route.size() - 1, stuck, worst_off])
+	_check(stuck == 0, "the player walks the whole route, start to exit")
+	_check(worst_off < 0.5, "and stays on the ground (%.2f m)" % worst_off)
+
+
+func _key(k: Key, down: bool) -> void:
+	var e := InputEventKey.new()
+	e.keycode = k
+	e.physical_keycode = k
+	e.pressed = down
+	Input.parse_input_event(e)
+
+
+func _bodies() -> void:
+	print("-- bodies")
+	await _new_game(3)
+	var m: TrenchMaze = game.maze
+	for c: Clown in game.clowns:
+		c.queue_free()
+	game.clowns.clear()
+	await _frames(2)
+	game.player.global_position = m.cell_center(m.start_cell) + Vector3.UP * 0.2
+	# spots: on a duckboard, in water, on a fire step, against a wall
+	var spots := {}
+	for d: Dictionary in m.duckboards:
+		if d.sunk == 0.0 and not spots.has("duckboard"):
+			spots["duckboard"] = ((d.a as Vector3) + (d.b as Vector3)) * 0.5
+	for wa: Dictionary in m.water:
+		var cells: Array = wa.cells
+		spots["water"] = m.cell_center(cells[0])
+		break
+	for c: Vector2i in m.bays:
+		var r := m._rect(c)
+		spots["fire step"] = Vector3(r.get_center().x, 0, r.position.y + 0.3)
+		break
+	for c: Vector2i in m.open_cells:
+		if m.wall(c, Vector2i(1, 0)) == "earth":
+			var r := m._rect(c)
+			spots["earth wall"] = Vector3(r.end.x - 0.35, 0, r.get_center().y)
+			break
+	var kinds := ["witzsoldat", "clown", "rattlejack", "klappersoldat"]
+	var i := 0
+	var victims := {}
+	for name_: String in spots:
+		var p: Vector3 = spots[name_]
+		p.y = m.floor_height(p)
+		var c: Clown
+		match kinds[i % kinds.size()]:
+			"rattlejack": c = game.spawn_rattlejack()
+			"klappersoldat": c = game.spawn_klapper()
+			_: c = game._spawn_clown(kinds[i % kinds.size()] == "witzsoldat", false)
+		c.global_position = p
+		var b := c.get_node_or_null("Brain")
+		if b:
+			b.set_process(false)
+			b.set_physics_process(false)
+		victims[name_] = c
+		i += 1
+	await _frames(20)
+	for name_: String in victims:
+		var c: Clown = victims[name_]
+		var chest: PhysicalBone3D = c.ragdoll.bones[&"Chest"]
+		var dir := Vector3(randf_range(-1, 1), -0.1, randf_range(-1, 1)).normalized()
+		c.hit({collider = chest, position = chest.global_position - dir * 0.1, direction = dir, damage = 500.0, impulse = 18.0, shot_id = randi()})
+	# and a Carnival Curse on a WitzSoldat in the middle of a trench
+	var cc: Clown = game._spawn_clown(true, false)
+	var cp := m.cell_center(m.route[m.route.size() / 2])
+	cc.global_position = cp
+	await _frames(15)
+	var cursed: bool = cc.begin_curse({}, cc.global_position + Vector3.UP * 1.3, -cc.global_basis.z)
+	await _frames(60 * 6)
+	for name_: String in victims:
+		var c: Clown = victims[name_]
+		_report(m, name_, c)
+	_check(cursed, "the curse takes a WitzSoldat in the trench")
+	if is_instance_valid(cc):
+		_report(m, "cursed", cc)
+		var info: Dictionary = cc.get_meta(&"curse", {})
+		_check(info.get("handover_at", -1.0) > 2.0, "the execution ran to the ragdoll (%.2f s)" % info.get("handover_at", -1.0))
+	print("      blood pools %d" % Blood.pools().size())
+	_check(Blood.pools().size() >= 2, "blood pools on the trench floor")
+
+
+func _report(m: TrenchMaze, name_: String, c: Clown) -> void:
+	var lowest := 9.0
+	var hips := 9.0
+	var under := 0.0
+	for bn: StringName in c.ragdoll.bones:
+		var pb: PhysicalBone3D = c.ragdoll.bones[bn]
+		var g := m.floor_height(pb.global_position)
+		var off := pb.global_position.y - g
+		lowest = minf(lowest, off)
+		if bn == &"Hips":
+			hips = off
+		under = minf(under, off)
+	var speed := 0.0
+	for pb: PhysicalBone3D in c.ragdoll.bones.values():
+		speed = maxf(speed, pb.linear_velocity.length())
+	print("      %s (%s): hips %.2f m above the walked surface, lowest bone %.2f, moving %.2f m/s" % [name_, c.body, hips, lowest, speed])
+	_check(hips > -0.12 and hips < 0.6 and lowest > -0.2, "%s: lying on the ground, not floating or through it" % name_)
+	_check(speed < 0.3, "%s: at rest" % name_)
+
+
+func _views() -> void:
+	if not render:
+		return
+	print("-- views")
+	await _new_game(3)
+	var m: TrenchMaze = game.maze
+	game.player.visible = false
+	for c: Clown in game.clowns:
+		var b := c.get_node_or_null("Brain")
+		if b:
+			b.set_process(false)
+			b.set_physics_process(false)
+	var cam := Camera3D.new()
+	add_child(cam)
+	cam.make_current()
+	cam.far = 500.0
+	cam.fov = 75.0
+	await _frames(30)
+	var mid := Vector3(m.w * m.cell * 0.5, 0, m.d * m.cell * 0.5)
+	cam.global_position = mid + Vector3(-20, 45, 45)
+	cam.look_at(mid)
+	await _frames(2)
+	await _shot("top")
+	var i := 0
+	var picks := [m.start_cell, m.route[m.route.size() / 4], m.route[m.route.size() / 2], m.route[m.route.size() * 3 / 4], m.route[m.route.size() - 3]]
+	for c: Vector2i in picks:
+		var k := m.route.find(c)
+		var p := m.cell_center(c) + Vector3.UP * 1.65
+		cam.global_position = p
+		var look := m.cell_center(m.route[mini(k + 3, m.route.size() - 1)]) + Vector3.UP * 1.4
+		if Vector2(look.x - p.x, look.z - p.z).length() < 0.5:
+			look = p + Vector3(1, -0.1, 0)
+		cam.look_at(look)
+		await _frames(2)
+		await _shot("eye_%d" % i)
+		i += 1
+	# over the parapet from a fire step, into No Man's Land
+	for c: Vector2i in m.bays:
+		var r := m._rect(c)
+		cam.global_position = Vector3(r.get_center().x, m.floor_height(Vector3(r.get_center().x, 0, r.position.y + 0.25)) + 1.65, r.position.y + 0.3)
+		cam.look_at(cam.global_position + Vector3(0.3, 0.05, -1))
+		await _frames(2)
+		await _shot("nml")
+		break
+	# a soldier in a trench, from 6 m: can he be seen?
+	for c: Clown in game.clowns:
+		if c.body == "witzsoldat":
+			var at := c.global_position
+			var cc := m.cell_of(at)
+			var k := m.route.find(cc)
+			var from := at + Vector3(4, 1.6, 0)
+			for dir in Maze.DIRS:
+				var n: Vector2i = cc + dir * 3
+				if m.open_cells.has(n) and m.open_cells.has(cc + dir) and m.open_cells.has(cc + dir * 2):
+					from = m.cell_center(n) + Vector3.UP * 1.6
+					break
+			cam.global_position = from
+			cam.look_at(at + Vector3.UP * 1.1)
+			await _frames(2)
+			await _shot("enemy")
+			break

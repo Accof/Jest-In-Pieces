@@ -1,5 +1,5 @@
 extends Node
-## Enemies against the level: a dozen hunters chase the player round floors
+## Enemies against the level ("trench": on the Drowned Trenches floors 3, 6, 9): a dozen hunters chase the player round floors
 ## with stairs. Every frame, every living one is checked for being inside a
 ## wall (its cell is not open, or its body overlaps level geometry), sunk
 ## below the floor, or stuck beside a staircase. Prints the counts.
@@ -22,6 +22,8 @@ func _run() -> void:
 	for fl in floors:
 		game.start_run()
 		game.floor_number = 3 + fl * 2          # bigger floors, more stairs
+		if OS.get_cmdline_user_args().has("trench"):
+			game.floor_number = 2 + fl * 3        # next_floor makes it 3, 6, 9: the Drowned Trenches
 		game.next_floor()
 		await get_tree().physics_frame
 		var m: Maze = game.maze
@@ -38,7 +40,7 @@ func _run() -> void:
 		for i in 12:
 			var cell: Vector2i = spots[i % spots.size()] if not spots.is_empty() else m.route[i % m.route.size()]
 			var c: Clown = game._spawn_clown(i % 3 == 0, i % 3 == 1)
-			c.global_position = m.cell_center(cell) + Vector3(randf_range(-1.2, 1.2), 0, randf_range(-1.2, 1.2))
+			c.global_position = m.cell_center(cell) + Vector3(randf_range(-1.2, 1.2), 0, randf_range(-1.2, 1.2)) * m.scale()
 			c.global_position.y = m.floor_height(c.global_position)
 			(c.get_node("Brain") as ClownBrain).alert(p.global_position)
 		var last := {}
@@ -56,6 +58,8 @@ func _run() -> void:
 				hop = 4.0
 				var cell: Vector2i = m.route[randi() % m.route.size()]
 				p.global_position = m.cell_center(cell) + Vector3.UP * (m.floor_height(m.cell_center(cell)) + 0.1)
+				if m is TrenchMaze:
+					p.global_position = m.cell_center(cell) + Vector3.UP * 0.1
 				for c: Clown in game.clowns:
 					var b := c.get_node_or_null("Brain")
 					if b and b is ClownBrain and not c.dead and not c.has_meta(&"seated"):

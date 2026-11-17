@@ -4,6 +4,9 @@ extends Node3D
 ## height levels, joined by real staircases that bodies can tumble down.
 
 const CELL := 3.0            ## metres per grid cell (corridor width, wall to wall)
+## This maze's cell size: CELL for the bunker floors, smaller for the trench
+## floor (TrenchMaze). Every query goes through this.
+var cell := CELL
 const LEVEL := 1.2           ## height of one level
 const MAX_LEVEL := 3
 const WALL_T := 0.3
@@ -374,7 +377,7 @@ func _all_reachable() -> bool:
 
 # --- queries ------------------------------------------------------------------
 func cell_of(pos: Vector3) -> Vector2i:
-	return Vector2i(clampi(int(floor(pos.x / CELL)), 0, w - 1), clampi(int(floor(pos.z / CELL)), 0, d - 1))
+	return Vector2i(clampi(int(floor(pos.x / cell)), 0, w - 1), clampi(int(floor(pos.z / cell)), 0, d - 1))
 
 
 func is_trench(c: Vector2i) -> bool:
@@ -407,7 +410,7 @@ func ceiling_height(c: Vector2i) -> float:
 
 
 func cell_center(c: Vector2i) -> Vector3:
-	return Vector3((c.x + 0.5) * CELL, level[idx(c)] * LEVEL, (c.y + 0.5) * CELL)
+	return Vector3((c.x + 0.5) * cell, level[idx(c)] * LEVEL, (c.y + 0.5) * cell)
 
 
 ## Height of the walkable surface under a point (stairs are treated as a slope).
@@ -453,6 +456,21 @@ func path(from: Vector3, to: Vector3) -> Array[Vector3]:
 	for i in range(1, ids.size()):
 		out.append(cell_center(Vector2i(ids[i] % w, ids[i] / w)))
 	return out
+
+
+## Where the exit door stands, facing back into the level.
+func exit_transform() -> Transform3D:
+	return Transform3D(Basis(), cell_center(exit_cell))
+
+
+## A distance given in bunker cells (3 m), as a number of this maze's cells.
+func span(bunker_cells: int) -> int:
+	return int(round(bunker_cells * CELL / cell))
+
+
+## This maze's cell size relative to a bunker cell (1 in the bunkers).
+func scale() -> float:
+	return cell / CELL
 
 
 func path_cells(a: Vector2i, b: Vector2i) -> int:

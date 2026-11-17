@@ -30,6 +30,7 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 ## The game
 
 - Each floor is one winding route: a short stretch of open trench, then down into a dieselpunk concrete bunker. Corridors run straight for a few cells at a time, framed by concrete pillars and steel beams, lit by caged bulbs, with wet floors, pipes and steel doors. There are a couple of stairwells down, a few wider halls (dormitory, mess, stores) and dead-end side rooms. A little of the circus survives: faded harlequin paint, a stencilled star, a clown's face over the way in, an old drum in the mess.
+- Every third floor (3, 6, 9...) is outdoors instead: the Drowned Trenches (below).
 - Kill every clown, then find the door (it turns green) to leave.
 - After each floor you pick one of three upgrades. Floors get bigger, with more clowns and more gunmen.
 - Kills earn tickets (two for a headshot). When you die they are banked, and you come round in the base.
@@ -54,6 +55,51 @@ A forward command bunker the circus moved into: concrete, sandbags, crates, a fi
 - **Armoury** (north wall): the guns on a rack with how many each has killed. [E] on one to start every run holding it.
 - **Map table**: a painted map with pins, and a board with your last six runs.
 - **The steel door** (north wall, TO THE FRONT): start a run.
+
+## The Drowned Trenches
+
+Every third floor (`trench_every` on the game, 3) is a Western Front trench system in daylight the morning after heavy rain. It is a new layout every time, about 270 m of trench in a 48 x 42 m area, cut into open ground that runs out to the horizon.
+
+**Layout** (`scripts/world/trench_maze.gd`, `TrenchMaze`, on a 1.5 m grid, the width of a trench):
+- **Fire trench** facing No Man's Land: bays and traverses, a fire step under the front wall of every bay (step up onto it to see out over the parapet), sandbags on the parapet with a loophole here and there, and a parados behind.
+- **Support line**, sinuous, about 12 m back, and a partial **reserve line** behind that.
+- **Communication trenches**: zigzags between the lines, three to the front and two to the reserve, making loops. One runs back to the rear edge, which is where you come in.
+- **Saps**: zigzags out from the fire trench to an **observation post** with a periscope.
+- **Side features**:
+  - dead-end firing positions;
+  - dugouts (a timber entrance, a roof of beams, iron and sandbags, a lantern burning inside);
+  - a flooded side trench;
+  - a ruined field gun in its pit.
+- **Landmarks**: a shattered tree at one junction, a flooded junction at another, and a stretch where the wall has slumped in (still passable).
+- **Exit**: the H.Q. bunker, a concrete portal at the far end of the fire trench.
+
+**Ground:**
+- One carved heightfield (0.2 m) is both the mesh and the collision (`HeightMapShape3D`).
+- The trench floors are uneven, with ruts, sumps and mud heaped at the foot of the walls.
+- Walls lean back by their lining. Bare earth walls slump and bulge.
+- Linings: timber boards on posts, corrugated iron on pickets, sandbags, woven hurdles, or boards that have come away. Most stop short of the top. Each has a thin collision box so bodies hit the lining.
+- **Duckboards** run down the middle of the trenches. Some slats are missing or tilted, and the boards are sunk in the flooded stretches. You walk on them: the walked surface is raised under them.
+- Bodies, blood pools, gibs, the Carnival Curse and the killcam all work on it.
+
+**Mud and water:**
+- `shaders/mud_terrain.gdshader` blends four generated muds (`tools/gen_trench_textures.py`, in `art/trench/`):
+  - churned mud on the ground near the trenches;
+  - sludge on the trench floors;
+  - the cut soil strata on the walls;
+  - firmer ground further off.
+- Everything is darker and glossier the wetter it is, with puddles lying in the flat low places.
+- Standing water (`shaders/water_mud.gdshader`) is opaque brown and mostly calm, with a slow shiver of wind across it.
+
+**Light:**
+- An overcast procedural sky (`shaders/overcast_sky.gdshader`) lights everything, with a faint soft sun and light haze that softens the distance.
+- No rain, no lightning, no dark fog. Enemies stay readable in the shade of the walls.
+- The bunkers and the base get their own dark lighting back.
+
+**Enemies:**
+- 1.5x the usual number: mostly WitzSoldaten, Rattlejacks and Klappersoldaten, a few clowns, and always an officer.
+- The AI is unchanged. Hearing, the spawn spread and doorway approaches scale with the 1.5 m grid.
+
+Settings on the game: `trench_every`, `trench_enemy_scale`, `trench_soldier_share`.
 
 ## Steel doors
 
@@ -375,5 +421,7 @@ godot --headless --fixed-fps 60 res://scenes/test_limbs.tscn   # broken limbs on
 godot --headless --fixed-fps 60 res://scenes/test_locker.tscn  # joker lockers: laughs near, silent far; plain doors stay shut; the joker's door bursts at ~90 damage; the clown falls out riddled, face down in front, cards spilled; 40 floors placed flush to a wall (sections: open levels; add "render" for /tmp/locker_*.png)
 godot --headless --fixed-fps 60 res://scenes/test_killcam.tscn  # final-kill camera: ordinary kills leave it alone, the last kill runs it once, time curve, never inside the level, body in view, player untouched and restored; shots chosen over 12 floors; two at once; interrupted (player dies, body freed, floor changes, pause); a Klappersoldat; a fall off a platform; an event room; the injury report (eye, jaw, heart, lung, guts, liver, explosion, Klappersoldat wording); the report over a floor finale, tickets paid a cursed last kill (sections: injuries report floor variety double interrupt klapper zornhauptmann throat curse fall event; add "render")
 godot --headless --fixed-fps 60 res://scenes/test_curse.tscn   # Carnival Curse: charging (counted once, not friendly or curse kills, full waits), the HUD text; aim checks (not charged, nothing under the crosshair, immune, a body on the floor); a real hex in a level (a wall, a target that died in flight, running out of time: all keep the charge; one in the air; a hit executes, others carry on, no cinematic); the execution on five bodies (phases in order, arms jerk into place and stay, neck snaps, still in the pause, hand-over pose error, no fling, cracks, blood or oil, nothing left behind); walls on each side; one arm gone, a blast mid-curse, freed mid-curse; ten in a row (sections: charge aim play bodies walls edges repeat; "render [front] [only=kind]" for frames; "closeup render" for the broken neck held still from three sides)
+godot --headless --fixed-fps 60 res://scenes/test_trench.tscn  # Drowned Trenches: 30 layouts (all connected, nothing touching that should not, 260-290 m of trench, landmarks); collision is the walked surface; in the game: floors 3 and 6 are trenches, 1, 2 and 4 bunkers, the light swaps, mostly soldiers, the exit door on the floor, the player walks the whole route (duckboards, slopes) without sticking; bodies on a duckboard, in water, on a fire step, against an earth wall and a Carnival Curse all settle on the ground, blood pools (sections: layouts ground game bodies; "views render" for /tmp/tr_*.png; "ascii" prints a layout)
+godot --headless --fixed-fps 60 res://scenes/test_nav.tscn -- trench  # the crowd navigation test on trench floors 3, 6, 9
 godot --path . res://scenes/render_level.tscn                  # saves views of a level to /tmp/lvl_*.png (needs a window)
 ```
