@@ -515,7 +515,7 @@ func _on_player_fired(weapon: int) -> void:
 		if is_instance_valid(c) and not c.dead:
 			var b := c.get_node_or_null("Brain") as ClownBrain
 			if b:
-				b.hear(player.global_position, 1 if weapon == 1 else 0)
+				b.hear(player.global_position, 1 if weapon == 1 or weapon == FpsPlayer.REVOLVER else 0)   # the shotgun and the revolver carry further
 
 
 ## A loud noise anywhere (an explosion): clowns within `cells` come looking.

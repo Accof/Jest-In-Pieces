@@ -121,6 +121,13 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _drip(0.25, rng)
 		"timber_creak":
 			data = _creak(1.1, rng)
+		# --- the revolver
+		"revolver_shot":
+			data = _gunshot(rng)
+		"revolver_open":
+			data = _mix(_crack(0.08, rng, 0.7), _ratchet(0.25, 20.0, rng))
+		"revolver_close":
+			data = _mix(_thump(0.09, 300.0, 180.0, 0.02, 0.6, rng, 0.01, 0.8), _crack(0.06, rng, 0.9))
 		"metal_rattle":
 			data = _rattle(1.6, rng)
 		"water_slosh":
@@ -633,5 +640,29 @@ static func _whistle_far(rng: RandomNumberGenerator) -> PackedFloat32Array:
 		out[i] = lp
 	for i in range(n - 1, int(0.18 * RATE), -1):
 		out[i] += out[i - int(0.18 * RATE)] * 0.35
+	return out
+
+
+## A heavy black-powder-era revolver round: a hard crack on the front, a deep
+## boom under it, and a rough tail rolling off.
+static func _gunshot(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var len := 1.1
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var lp := 0.0
+	var lp2 := 0.0
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		lp += (x - lp) * 0.35
+		lp2 += (lp - lp2) * 0.04
+		ph += TAU * lerpf(45.0, 110.0, exp(-t * 18.0)) / RATE
+		var crack := x * exp(-t * 160.0) * 1.0
+		var body := lp * exp(-t * 22.0) * 0.8
+		var boom := sin(ph) * exp(-t * 9.0) * 0.75
+		var tail := lp2 * exp(-t * 3.5) * 2.2
+		out[i] = clampf((crack + body + boom + tail) * minf(t / 0.0007, 1.0), -1.0, 1.0)
 	return out
 

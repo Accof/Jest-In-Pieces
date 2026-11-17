@@ -1,7 +1,8 @@
 class_name FpsPlayer
 extends CharacterBody3D
 ## First-person player. WASD move, Shift sprint, mouse look, left click fire,
-## R reload, 1 pistol, 2 shotgun, 3 submachine gun, 4 stake gun, F flashlight,
+## R reload, 1 pistol, 2 shotgun, 3 submachine gun, 4 stake gun, 6 rifle,
+## 7 revolver, F flashlight,
 ## G god mode (no damage; for testing).
 ## L every eligible Zornhauptmann kill is a Last Defiance (for testing).
 ## Q Carnival Curse (once charged by ten kills; see CarnivalCurse).
@@ -20,6 +21,11 @@ const WEAPONS := [
 	# and it carries on through: up to four bodies in a line, losing 15% of
 	# its punch in each.
 	{name = "Rifle", damage = 180.0, pellets = 1, spread = 0.0, impulse = 20.0, heavy = true, can_dismember = false, cooldown = 1.1, falloff = 220.0, mag = 5, pierce = 4},
+	# A WW1 top-break service revolver (the Tripo model): six heavy rounds,
+	# one per pull of the trigger (semi: holding the button does not repeat),
+	# a hard upward kick, slow to reload. The procedural Pistol stays as the
+	# testing gun.
+	{name = "Revolver", damage = 80.0, pellets = 1, spread = 0.0, impulse = 18.0, heavy = true, can_dismember = false, cooldown = 0.48, falloff = 70.0, mag = 6, semi = true, punch = 2.4},
 ]
 ## The machine gun on its mount in the nest: same rounds, steadier.
 const MOUNTED_MG := {name = "Maxim", damage = 60.0, pellets = 1, spread = 1.1, impulse = 22.0, heavy = true, can_dismember = true, cooldown = 0.11, falloff = 120.0, mag = 0}
@@ -29,6 +35,7 @@ const SMG := 2
 const STAKE := 3
 const MAXIM := 4
 const RIFLE := 5
+const REVOLVER := 6
 
 ## Testing aid: take no damage. Kept for the whole session, across runs.
 static var god_mode := false
@@ -57,7 +64,7 @@ var health := 100.0
 var dead := false
 var weapon := 0
 ## Rounds loaded in each gun. Spare ammunition is unlimited for now.
-var ammo: Array[int] = [17, 6, 32, 1, 0, 5]
+var ammo: Array[int] = [17, 6, 32, 1, 0, 5, 6]
 ## Inside an event room (gunshots are not heard in the level).
 var in_event := false
 ## The final-kill camera has the view: no moving, looking or shooting, and the
@@ -86,6 +93,11 @@ var _shot_id := 0
 var _label: Label
 var _hurt: ColorRect
 var _kick := 0.0
+## Muzzle climb from a heavy gun: added to the camera pitch, recovering.
+var _punch := 0.0
+var _punch_v := 0.0
+## A semi-automatic shot asked for a moment too early: taken when it can be.
+var _queued := -1.0
 var _shake := 0.0
 var _cross: Control
 ## The super kill, charged by kills.
@@ -201,6 +213,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				if ammo[MAXIM] > 0:
 					select_weapon(MAXIM)
 			KEY_6: select_weapon(RIFLE)
+			KEY_7: select_weapon(REVOLVER)
 			KEY_E: _use()
 			KEY_G:
 				god_mode = not god_mode
@@ -226,6 +239,7 @@ func _process(delta: float) -> void:
 	_hurt.color.a = move_toward(_hurt.color.a, 0.0, delta * 1.2)
 	_kick = move_toward(_kick, 0.0, delta * 0.5)
 	camera.rotation.z = _kick * 0.3
+	_tick_punch(delta)
 	# explosion shake: a hard jolt that rattles out
 	if _shake > 0.001:
 		_shake = move_toward(_shake, 0.0, delta * 1.6)
@@ -250,9 +264,15 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		return
 	_tick_reload(delta)
-	# Holding the button keeps firing.
-	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+	# Holding the button keeps firing (not a semi-automatic: one shot a pull).
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
+			and not WEAPONS[weapon].get("semi", false):
 		fire()
+	if _queued >= 0.0:
+		_queued -= delta
+		if _cooldown <= 0.0:
+			_queued = -1.0
+			fire()
 	var input := Vector3.ZERO
 	if Input.is_key_pressed(KEY_W): input.z -= 1.0
 	if Input.is_key_pressed(KEY_S): input.z += 1.0
@@ -273,6 +293,7 @@ func select_weapon(w: int) -> void:
 		return
 	_reload_left = -1.0
 	_shell_left = -1.0
+	_queued = -1.0
 	weapon = w
 	view.swap_to(w)
 	_cooldown = maxf(_cooldown, ViewModel.SWAP_TIME)
@@ -295,8 +316,27 @@ func reload() -> void:
 		_reload_left = ViewModel.STAKE_SEAT
 	elif weapon == RIFLE:
 		_reload_left = ViewModel.RIFLE_SEAT
+	elif weapon == REVOLVER:
+		_reload_left = ViewModel.REVOLVER_SEAT
+		SfxSynth.play(self, "revolver_open", camera.global_position, -8.0, 1.0)
 	else:
 		_shell_left = ViewModel.SHELL_INTRO + ViewModel.SHELL_TIME * 0.85
+
+
+## The climb after a heavy shot: pitch goes up fast, then settles back over
+## about half a second (a spring), so the next deliberate shot is on target.
+func _tick_punch(delta: float) -> void:
+	if absf(_punch) < 0.00001 and absf(_punch_v) < 0.00001:
+		return
+	var before := _punch
+	# small fixed steps: a long frame (a hitch) must not throw the spring out
+	var left := minf(delta, 0.25)
+	while left > 0.0:
+		var h := minf(left, 1.0 / 240.0)
+		_punch_v += (-_punch * 90.0 - _punch_v * 13.0) * h
+		_punch += _punch_v * h
+		left -= h
+	camera.rotation.x = clampf(camera.rotation.x + (_punch - before), -1.5, 1.5)
 
 
 func _tick_reload(delta: float) -> void:
@@ -305,9 +345,11 @@ func _tick_reload(delta: float) -> void:
 			_reload_left -= delta
 			if _reload_left < 0.0:
 				ammo[weapon] = WEAPONS[weapon].mag
+				if weapon == REVOLVER:
+					SfxSynth.play(self, "revolver_close", camera.global_position, -6.0, 1.0)
 				ammo_changed.emit()
 				_update_label()
-		var total: float = {PISTOL: ViewModel.PISTOL_RELOAD, SMG: ViewModel.SMG_RELOAD, STAKE: ViewModel.STAKE_RELOAD, RIFLE: ViewModel.RIFLE_RELOAD}.get(weapon, ViewModel.STAKE_RELOAD)
+		var total: float = {PISTOL: ViewModel.PISTOL_RELOAD, SMG: ViewModel.SMG_RELOAD, STAKE: ViewModel.STAKE_RELOAD, RIFLE: ViewModel.RIFLE_RELOAD, REVOLVER: ViewModel.REVOLVER_RELOAD}.get(weapon, ViewModel.STAKE_RELOAD)
 		if view.reloading() and view._reload_t >= total:
 			view.stop_reload()
 			view.slide_locked = false
@@ -329,6 +371,8 @@ func fire() -> void:
 	if mount:
 		mount.trigger()
 		return
+	if _cooldown > 0.0 and WEAPONS[weapon].get("semi", false) and not dead:
+		_queued = 0.15                           # pulled a moment early: fire when it can
 	if _cooldown > 0.0 or dead or view.swapping():
 		return
 	if WEAPONS[weapon].get("belt", false) and ammo[weapon] <= 0:
@@ -351,6 +395,12 @@ func fire() -> void:
 	view.fire()
 	var from := camera.global_position
 	var aim := -camera.global_basis.z
+	if w.has("punch"):
+		# a heavy round: the muzzle climbs, the view jolts, and it is loud
+		_punch_v += deg_to_rad(w.punch) * randf_range(0.9, 1.1) * 14.0
+		_kick += randf_range(-0.05, 0.05)
+		shake(0.14)
+		SfxSynth.play(self, "revolver_shot", camera.global_position + aim * 0.3, 2.0, randf_range(0.95, 1.04))
 	if w.get("projectile", false):
 		# a stake, not a bullet: it flies, and loads again by itself
 		var world := get_tree().get_first_node_in_group(&"world_root")
@@ -542,4 +592,4 @@ func heal(amount: float) -> void:
 
 
 func _update_label() -> void:
-	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]
+	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [7] revolver  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]

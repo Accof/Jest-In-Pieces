@@ -19,6 +19,7 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 | E | Use: open a steel door, man a mounted gun, rip it off its mount |
 | 5 | The Maxim, once you have torn it off its mount |
 | 6 | Bolt-action rifle |
+| 7 | Revolver |
 | G | God mode on/off (take no damage; for testing, stays on across runs until you turn it off or quit the game) |
 | F | Flashlight |
 | Q | Carnival Curse, once charged (10 kills) |
@@ -174,6 +175,10 @@ Key 4. A compressed-air launcher that fires one iron-tipped stake. It goes strai
 ## Bolt-action rifle
 
 Key 6. A WW1 service rifle: five rounds, one shot per pull of the bolt (you see the right hand go up to it after every shot, about a second), reloaded from a stripper clip thumbed into the open breech (2.5 s). Each round is 180 damage and carries on through: it comes out the back of the first body with a spray of blood and goes into whoever is behind, up to four more, losing 15% each time. Line them up in a corridor. Tuning: `pierce` and `damage` in the Rifle entry of `WEAPONS` in `fps_player.gd`.
+
+## Revolver
+
+Key 7. A WW1 top-break service revolver, the Tripo model (`art/weapons/revolver/revolver.glb`), held low on the right. It is a separate gun from the procedural pistol (key 1), which stays as it was as the testing gun. Six rounds of 80 damage (the pistol's are 34), one shot per pull (holding the button does not repeat; a pull up to 0.15 s early is taken as soon as it can fire), about two shots a second at most, dead accurate. Each shot kicks: the view climbs about 2 degrees and springs back on target in about half a second, the gun jumps up and back in the hand, a big flash at its own muzzle, a heavy report (synthesised `revolver_shot`), and clowns hear it as far as the shotgun. Reloading takes 3 s (temporary: the whole gun tips down and in as if broken open, flicks the empties out, six go in, and it snaps shut and comes back up); the rounds go in at 2.35 s, and swapping away before that abandons the reload. Ammunition and reloads are its own, not shared with the pistol. There are no hands on it yet: the model is one fused mesh, so the hammer, cylinder and break-open cannot move until it is split or rigged. Tuning: the Revolver entry of `WEAPONS` in `fps_player.gd` (`punch` is the climb in degrees); `V_HOME`, `V_TILT`, `V_SCALE`, `REVOLVER_RELOAD`, `REVOLVER_SEAT` in `view_model.gd`. Test: `scenes/test_revolver.tscn` (`--render` for /tmp/revolver_*.png).
 
 ## Point-blank shotgun
 
@@ -391,7 +396,7 @@ Every body uses the same 21 bone names and 15 dismemberment segments, so the rag
 | `shaders/clown_body.gdshader` | Bullet dents, blood soaking into cloth (a dark irregular stain with a tide line, wet only round the hole, droplet spray and runs; `soak_darkness`, `spatter_amount`), hiding severed limbs. `scenes/look_blood.tscn` films three shot bodies in lantern light |
 | `scripts/blood/blood_pool.gd` | One pool: samples the floor, floods it (steps, walls, slopes), builds a mesh on the surfaces |
 | `shaders/blood_pool.gdshader` | The spreading pool's look: grows with `progress`, thickness, gloss, lip, droplets, runs, drying |
-| `scripts/player/fps_player.gd` | Player, health and the two weapons |
+| `scripts/player/fps_player.gd` | Player, health and the weapons |
 | `scripts/player/view_model.gd` | First-person hands and guns, recoil and reload animation |
 | `scripts/game/game.gd` | Run loop, floors, upgrades, perks, menu, saving |
 | `scripts/world/maze.gd` | Maze generator, stairs, pathfinding, collision; `theme` picks the linear bunker (default), the trench maze, or the old funhouse |
