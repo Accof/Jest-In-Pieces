@@ -36,7 +36,7 @@ extends Rattlejack
 
 @export_group("Last Defiance")
 @export var enable_last_defiance := true
-@export var last_defiance_chance := 0.6
+@export var last_defiance_chance := 0.8
 @export var real_shot_weight := 0.55
 @export var fail_to_fire_weight := 0.2
 @export var bang_flag_weight := 0.15

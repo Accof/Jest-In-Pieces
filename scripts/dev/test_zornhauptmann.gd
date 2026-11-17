@@ -8,7 +8,7 @@ extends Node
 ##   sabre     a wind-up you can see; standing there you are cut, stepping
 ##             back or round him during the wind-up you are not; he is open
 ##             afterwards
-##   odds      Last Defiance on about 60% of eligible deaths (300 kills);
+##   odds      Last Defiance on about 80% of eligible deaths (300 kills);
 ##             never on headshots, explosions, a lost pistol arm, a shotgun
 ##             that takes limbs; the outcome weights, normalised
 ##   outcomes  each outcome forced several times: dead and counted at once,
