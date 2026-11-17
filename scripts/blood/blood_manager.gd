@@ -11,7 +11,7 @@ const LAYER_WORLD := 1
 const MAX_DECALS := 320
 const MAX_DROPLETS := 160
 const MAX_POOLS := 28
-const POOL_QUAD_RADIUS := 1.2          # metres; the largest pool that can form
+const POOL_QUAD_RADIUS := 1.2          # metres; the largest pool that can form (kept for callers)
 const DRY_TIME := 50.0                 # seconds for fresh blood to darken
 const FRESH := Color(1, 1, 1, 1)
 const DRIED := Color(0.55, 0.42, 0.40, 1)
@@ -31,15 +31,34 @@ var _drop_life := PackedFloat32Array()
 var _drop_oil := PackedByteArray()
 var _decal_oil := PackedByteArray()
 
-var _pools: Array = []                  # {node, r, target, born}
+## Pools: geometry-aware (BloodPool, scripts/blood/blood_pool.gd). Each
+## samples the floor round it once, works out where the blood can go, and is
+## drawn on a mesh that lies on the real surfaces; growth runs in the shader.
+@export_group("Blood pools")
+@export var enable_organic_pool_shapes := true
+@export var enable_geometry_aware_spreading := true
+@export var enable_stair_flow := true
+@export var enable_slope_bias := true
+@export var enable_pool_merging := true
+@export var enable_wet_reflections := true
+@export var pool_expansion_duration := Vector2(3.0, 8.0)     ## seconds, by how much blood
+@export var pool_settling_duration := Vector2(1.0, 3.0)
+@export var shape_variation := 1.0                            ## 0: round pools
+@export var edge_irregularity := 1.0
+@export var maximum_pool_radius := 0.95                       ## metres
+@export var maximum_active_spreading_pools := 8               ## beyond this the oldest spreading one settles at once
+@export var surface_sampling_quality := 1                     ## 0 low, 1 medium, 2 high (grid spacing 0.12 / 0.085 / 0.065 m)
+@export var maximum_stair_flow_steps := 3                     ## how many step edges blood will run down
+@export var pool_work_ms := 2.5                               ## time a frame may spend setting up new pools (rays, flood, mesh)
+@export var pool_slope_bias := 0.6
+var _pools: Array[BloodPool] = []
+var _sampling: Array[BloodPool] = []   # waiting for (or part way through) their rays
 var _pool_material: ShaderMaterial
-var _pool_mesh: PlaneMesh
 var _mist: Array[GPUParticles3D] = []
 var _mist_oil: Array[GPUParticles3D] = []
 var _oil_material: ShaderMaterial
-var _oil_mesh: PlaneMesh
-## Oil puddles: permanent until clear() (a new floor). {node, r, target}
-var _oil_pools: Array = []
+## Oil puddles: permanent until clear() (a new floor).
+var _oil_pools: Array[BloodPool] = []
 var _mist_next := 0
 var _rng := RandomNumberGenerator.new()
 
@@ -75,15 +94,12 @@ func _ready() -> void:
 	_pool_material = ShaderMaterial.new()
 	_pool_material.shader = load("res://shaders/blood_pool.gdshader")
 	_pool_material.set_shader_parameter("noise_tex", load("res://art/blood/pool_noise.png"))
-	_pool_mesh = PlaneMesh.new()
-	_pool_mesh.size = Vector2.ONE * POOL_QUAD_RADIUS * 2.0
-	_pool_mesh.material = _pool_material
 	_oil_material = _pool_material.duplicate()
 	_oil_material.set_shader_parameter("thin_color", Color(0.055, 0.048, 0.036))
 	_oil_material.set_shader_parameter("deep_color", Color(0.011, 0.010, 0.008))
+	_oil_material.set_shader_parameter("dry_color", Color(0.03, 0.028, 0.022))
 	_oil_material.set_shader_parameter("sheen", 1.0)
-	_oil_mesh = _pool_mesh.duplicate()
-	_oil_mesh.material = _oil_material
+	_apply_pool_settings()
 	_mist = _build_mist(Color(0.2, 0.01, 0.012, 0.9))
 	_mist_oil = _build_mist(Color(0.03, 0.027, 0.02, 0.92))
 
@@ -92,11 +108,14 @@ func clear() -> void:
 	for d in _decals:
 		d.visible = false
 	for p in _pools:
-		p.node.queue_free()
+		if is_instance_valid(p):
+			p.queue_free()
 	_pools.clear()
 	for p in _oil_pools:
-		p.node.queue_free()
+		if is_instance_valid(p):
+			p.queue_free()
 	_oil_pools.clear()
+	_sampling.clear()
 	_drop_pos.clear(); _drop_vel.clear(); _drop_size.clear(); _drop_life.clear(); _drop_oil.clear()
 
 
@@ -173,64 +192,83 @@ func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along
 
 
 # --- pools --------------------------------------------------------------------
-## Start (or feed) a pool on the floor. `radius` is where it will stop spreading.
+func _apply_pool_settings() -> void:
+	for m: ShaderMaterial in [_pool_material, _oil_material]:
+		m.set_shader_parameter("edge_irregularity", edge_irregularity if enable_organic_pool_shapes else 0.25)
+		m.set_shader_parameter("wet_reflections", enable_wet_reflections)
+
+
+func _pool_cfg() -> Dictionary:
+	return {
+		shape_variation = shape_variation if enable_organic_pool_shapes else 0.0,
+		max_pool_radius = maximum_pool_radius,
+		stair_flow = enable_stair_flow and enable_geometry_aware_spreading,
+		max_drops = maximum_stair_flow_steps,
+		slope_bias_on = enable_slope_bias and enable_geometry_aware_spreading,
+		slope_bias = pool_slope_bias,
+		geometry = enable_geometry_aware_spreading,
+	}
+
+
+## Start (or feed) a pool on the floor at `pos`. `radius` is about how far it
+## will spread on open floor (walls, steps and slopes reshape it).
 func spawn_pool(pos: Vector3, normal: Vector3, radius: float, oil := false) -> void:
-	radius = minf(radius, POOL_QUAD_RADIUS * 0.8)
 	if oil:
 		spawn_oil_puddle(pos, normal, radius)
 		return
-	for p in _pools:
-		if p.node.global_position.distance_to(pos) < 0.35:
-			p.target = minf(sqrt(p.target * p.target + radius * radius * 0.6), POOL_QUAD_RADIUS * 0.8)
-			return
+	radius = minf(radius, maximum_pool_radius)
+	if enable_pool_merging:
+		for p in _pools:
+			if is_instance_valid(p) and p.covers(pos):
+				p.feed(pos, radius, _space())
+				if not p.sampling_done() and not _sampling.has(p):
+					_sampling.append(p)
+				return
 	if _pools.size() >= MAX_POOLS:
-		var old: Dictionary = _pools.pop_front()
-		var tw := create_tween()
-		tw.tween_method(func(v: float) -> void: old.node.set_instance_shader_parameter("fade", v), 1.0, 0.0, 2.0)
-		tw.tween_callback(old.node.queue_free)
-	var m := MeshInstance3D.new()
-	m.mesh = _pool_mesh
-	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	m.layers = 2
-	add_child(m)
-	var y := normal.normalized()
-	var x := y.cross(Vector3.FORWARD)
-	if x.length() < 0.01:
-		x = y.cross(Vector3.RIGHT)
-	x = x.normalized()
-	m.global_transform = Transform3D(Basis(x, y, x.cross(y)).rotated(y, _rng.randf() * TAU), pos + y * 0.004)
-	m.set_instance_shader_parameter("seed", _rng.randf() * 10.0)
-	m.set_instance_shader_parameter("grow", 0.0)
-	m.set_instance_shader_parameter("fade", 1.0)
-	_pools.append({node = m, r = 0.02, target = radius})
+		var old: BloodPool = _pools.pop_front()
+		_sampling.erase(old)
+		if is_instance_valid(old):
+			var tw := create_tween()
+			tw.tween_method(func(v: float) -> void:
+				if is_instance_valid(old):
+					old.set_instance_shader_parameter("fade", v), 1.0, 0.0, 2.0)
+			tw.tween_callback(old.queue_free)
+	_pools.append(_new_pool(pos, radius, false))
 
 
-## A puddle of machine oil. Permanent: no lifetime, no cap, never faded out;
-## only clear() (the floor being torn down) removes them. One landing within
-## 0.35 m of an existing puddle feeds that one instead of stacking another.
+## A puddle of machine oil: the same spreading, oil's look. Permanent: no
+## cap and never faded; only clear() (the floor being torn down) removes
+## them. One landing on an existing puddle feeds that one.
 func spawn_oil_puddle(pos: Vector3, normal: Vector3, radius: float) -> void:
-	radius = minf(radius, POOL_QUAD_RADIUS * 0.8)
+	radius = minf(radius, maximum_pool_radius)
 	for p in _oil_pools:
-		if p.node.global_position.distance_to(pos) < 0.35:
-			p.target = minf(sqrt(p.target * p.target + radius * radius * 0.6), POOL_QUAD_RADIUS * 0.8)
+		if is_instance_valid(p) and p.covers(pos):
+			p.feed(pos, radius, _space())
+			if not p.sampling_done() and not _sampling.has(p):
+				_sampling.append(p)
 			set_process(true)
 			return
-	var m := MeshInstance3D.new()
-	m.mesh = _oil_mesh
-	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	m.layers = 2
-	add_child(m)
-	var y := normal.normalized()
-	var x := y.cross(Vector3.FORWARD)
-	if x.length() < 0.01:
-		x = y.cross(Vector3.RIGHT)
-	x = x.normalized()
-	# a hair above any blood pool, so where they overlap the oil shows on top
-	m.global_transform = Transform3D(Basis(x, y, x.cross(y)).rotated(y, _rng.randf() * TAU), pos + y * 0.006)
-	m.set_instance_shader_parameter("seed", _rng.randf() * 10.0)
-	m.set_instance_shader_parameter("grow", 0.0)
-	m.set_instance_shader_parameter("fade", 1.0)
-	_oil_pools.append({node = m, r = 0.02, target = radius})
+	_oil_pools.append(_new_pool(pos, radius, true))
+
+
+func _new_pool(pos: Vector3, radius: float, oil: bool) -> BloodPool:
+	var p := BloodPool.new()
+	add_child(p)
+	p.global_transform = Transform3D(Basis.IDENTITY, pos)
+	p.material_override = _oil_material if oil else _pool_material
+	# coarser sampling far from the camera
+	var spacing: float = [0.12, 0.085, 0.065][clampi(surface_sampling_quality, 0, 2)]
+	var cam := get_viewport().get_camera_3d() if get_viewport() else null
+	if cam:
+		spacing *= 1.0 + clampf((cam.global_position.distance_to(pos) - 12.0) / 20.0, 0.0, 0.6)
+	p.setup(pos, radius, oil, _pool_cfg(), spacing)
+	# a big pool takes longer to spread
+	var size := clampf((radius - 0.15) / maxf(maximum_pool_radius - 0.15, 0.01), 0.0, 1.0)
+	p.expand = lerpf(pool_expansion_duration.x, pool_expansion_duration.y, size) * _rng.randf_range(0.85, 1.15) * (0.7 if oil else 1.0)
+	p.settle = _rng.randf_range(pool_settling_duration.x, pool_settling_duration.y)
+	_sampling.append(p)
+	set_process(true)
+	return p
 
 
 ## How many oil puddles there are (tests).
@@ -238,16 +276,48 @@ func oil_puddle_count() -> int:
 	return _oil_pools.size()
 
 
+## The blood pools there are now (tests).
+func pools() -> Array[BloodPool]:
+	return _pools
+
+
+func _space() -> PhysicsDirectSpaceState3D:
+	return get_viewport().find_world_3d().direct_space_state
+
+
+func _update_pools(delta: float) -> void:
+	# sampling: a shared ray budget per frame, oldest request first
+	var deadline := Time.get_ticks_usec() + int(pool_work_ms * 1000.0)
+	while Time.get_ticks_usec() < deadline and not _sampling.is_empty():
+		var p: BloodPool = _sampling[0]
+		if not is_instance_valid(p):
+			_sampling.pop_front()
+			continue
+		if p.work(_space(), deadline):
+			_sampling.pop_front()
+		else:
+			break
+	# growing: only so many at once; the oldest beyond the cap settles at once
+	var spreading := 0
+	for list: Array[BloodPool] in [_pools, _oil_pools]:
+		for i in range(list.size() - 1, -1, -1):
+			var p := list[i]
+			if not is_instance_valid(p) or not p.sampling_done():
+				continue
+			if not p.settled:
+				spreading += 1
+				if spreading > maximum_active_spreading_pools:
+					p._t = p.expand + p.settle
+				p.advance(delta)
+			elif p.age < 1.0 and not p.oil:
+				# drying, a little at a time
+				p.age = minf((Time.get_ticks_msec() / 1000.0 - p.born) / DRY_TIME, 1.0)
+				if Engine.get_process_frames() % 30 == 0:
+					p.set_instance_shader_parameter("age", p.age)
+
+
 func _process(delta: float) -> void:
-	# Pools spread quickly at first and slow as they thin out.
-	for p in _pools:
-		if p.r < p.target - 0.002:
-			p.r += (p.target - p.r) * (1.0 - exp(-delta / 3.2))
-			p.node.set_instance_shader_parameter("grow", p.r / POOL_QUAD_RADIUS)
-	for p in _oil_pools:
-		if p.r < p.target - 0.002:
-			p.r += (p.target - p.r) * (1.0 - exp(-delta / 2.4))   # oil runs a little quicker
-			p.node.set_instance_shader_parameter("grow", p.r / POOL_QUAD_RADIUS)
+	_update_pools(delta)
 	# Darken a few decals each frame as the blood dries.
 	var now := Time.get_ticks_msec() / 1000.0
 	for i in 12:

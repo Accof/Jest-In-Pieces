@@ -215,6 +215,8 @@ func _last() -> void:
 						facing = fwd.dot(ls._wall_n)
 			if ls and ls.stage == ClownLastStand.Phase.SIT and not ls.sat and not last_pts.is_empty():
 				for k in pts.size():
+					if pts[k].distance_to(last_pts[k]) > 0.3 and OS.get_cmdline_user_args().has("dbg"):
+						print("      [dbg] jump %.2f point %d part %d phase %.2f arms out L %s R %s broken %s swing %s release %s" % [pts[k].distance_to(last_pts[k]), k, ls._sit_part, ls._phase_t, c.arm_out("Left"), c.arm_out("Right"), str(c.broken_arms), str(c._swing), ls._sit_t])
 					sit_jump = maxf(sit_jump, pts[k].distance_to(last_pts[k]))
 			if ls and ls.sat and sit_jump >= 0.0 and not sit_done:
 				sit_done = true

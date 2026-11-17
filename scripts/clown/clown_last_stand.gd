@@ -46,7 +46,8 @@ var _shot_t := 1.0
 var _swipe_t := 0.0
 var _swing := 0.0
 var _leg_rest := {}
-var _sit_from := {}                  # bone -> [rotation, position] as it stopped crawling
+var _sit_from := {}
+var _sit_sign := {}                  # bone -> last blend target (kept on one hemisphere)                  # bone -> [rotation, position] as it stopped crawling
 var _turned := false                 # the 180 is now in its yaw, not its model
 var _lift := 0.0                     # raised this much to keep its legs out of the floor
 const SIT_HIPS := 0.15
@@ -280,6 +281,7 @@ func _start_sitting(at_wall: bool) -> void:
 	_wall_z = _wall_dist() if at_wall and wall_found else INF
 	# the pose it is in now, to ease out of
 	_sit_from.clear()
+	_sit_sign.clear()
 	var sk := clown.skeleton
 	for i in sk.get_bone_count():
 		_sit_from[i] = [sk.get_bone_pose_rotation(i), sk.get_bone_pose_position(i)]
@@ -504,7 +506,15 @@ func _pose_sitting() -> void:
 	if w < 1.0:
 		for i: int in _sit_from:
 			var f: Array = _sit_from[i]
-			sk.set_bone_pose_rotation(i, (f[0] as Quaternion).slerp(sk.get_bone_pose_rotation(i), w))
+			# the target kept on one side of the sphere from frame to frame,
+			# and no shortest-path flip, so a joint turning through half a
+			# circle as it rolls does not jump
+			var to := sk.get_bone_pose_rotation(i)
+			var last: Quaternion = _sit_sign.get(i, f[0])
+			if last.dot(to) < 0.0:
+				to = -to
+			_sit_sign[i] = to
+			sk.set_bone_pose_rotation(i, (f[0] as Quaternion).slerpni(to, w))
 			sk.set_bone_pose_position(i, (f[1] as Vector3).lerp(sk.get_bone_pose_position(i), w))
 	_keep_off_floor(dt)
 

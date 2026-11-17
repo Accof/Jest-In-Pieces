@@ -1163,7 +1163,9 @@ func dangle_arm(side: String, swing: float = 0.0, limp := false) -> void:
 	# what the body did this frame (worked out once, whichever arm asks first)
 	if _swing_frame != Engine.get_process_frames():
 		_swing_frame = Engine.get_process_frames()
-		var acc := (velocity - _swing_prev_vel) / dt
+		# (capped: a body that stops dead in one frame, as a crawler does
+		# when it starts to sit up, should not fling the arm about)
+		var acc := ((velocity - _swing_prev_vel) / dt).limit_length(6.0)
 		_swing_prev_vel = velocity
 		_swing_acc = _swing_acc.lerp(global_basis.inverse() * acc, 0.5)
 		var yaw := global_rotation.y

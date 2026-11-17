@@ -175,6 +175,31 @@ Every locker door takes bullets (a bright nick and a dent you hear), but only th
 
 `scripts/world/joker_locker.gd` (the bank, the laugh, the door), `scripts/clown/locker_joker.gd` (the clown's look, its fall, the cards). The card and paint textures and the sounds (`art/locker/`) are placeholders made by `tools/gen_locker_assets.py`.
 
+## Blood pools
+
+Blood (and the Klappersoldat's oil) pools on the real floor. When a pool starts, it casts a grid of downward rays round its source, once, spread over a few frames (`pool_work_ms`, 2.5 ms a frame for all new pools together). That gives the floor height and slope at each point, and which points are inside a wall or a box. A flood from the source over that grid works out how soon the blood would reach each point:
+
+- **Steps and sills:** it cannot climb anything over 2.5 cm, so a step, a door sill or a box stops it.
+- **Slopes:** it runs downhill more readily than uphill, so on a slope the pool comes out longer downhill.
+- **Down stairs:** it can run over a step edge (up to 0.45 m down, at most `maximum_stair_flow_steps` times). It goes over in a few narrow tongues rather than a sheet, and spreads less on each tread below, so a little blood stays on the tread it fell on and a lot runs a step or two further.
+- **Walls:** walls block it, and blood that is stopped by a wall or a step spreads further the other way, so a pool against a wall runs along it.
+
+Each source gets its own outline from a seed: an ellipse at a random angle, soft lobes, and now and then a narrow tongue (`shape_variation`). No two are alike.
+
+The pool is a mesh built on the floor itself. Where a step edge or a wall runs through a grid cell, the cell is split at the edge (found with a few more rays). Each part lies on its own surface, and a strip runs down the step face where blood went over. Nothing spans two heights, so nothing floats.
+
+Every vertex carries when the blood reaches it. The shader draws the pool up to the current progress, which rises over 3-8 s (more for more blood, `pool_expansion_duration`) then creeps to a stop over 1-3 s (`pool_settling_duration`). Growing costs one shader parameter a frame, and nothing once the pool has settled.
+
+- **Look:** dark red, deeper and darker toward the middle, glossy where it is thick, thin edges a little see-through, a rounded lip at the edge, a few separate droplets just past it, and thin runs down step faces. It dries from the edges in over `DRY_TIME`, going brown and dull.
+- **Merging:** a second body bleeding next to a pool feeds that pool as a new source (one mesh, no doubled darkening).
+- **Caps:** at most `MAX_POOLS` (28) blood pools, the oldest fading out; at most `maximum_active_spreading_pools` growing at once. Sampling is coarser far from the camera (`surface_sampling_quality` sets the grid: 0.12 / 0.085 / 0.065 m). Oil puddles are never recycled, as before.
+
+All the settings are exports on the `Blood` autoload (`scripts/blood/blood_manager.gd`): `enable_organic_pool_shapes`, `enable_geometry_aware_spreading`, `enable_stair_flow`, `enable_slope_bias`, `enable_pool_merging`, `enable_wet_reflections`, `pool_expansion_duration`, `pool_settling_duration`, `shape_variation`, `edge_irregularity`, `maximum_pool_radius`, `maximum_active_spreading_pools`, `surface_sampling_quality`, `maximum_stair_flow_steps`. The pool itself is `scripts/blood/blood_pool.gd`.
+
+Two scenes for checking it:
+- `scenes/test_pools.tscn`: a test room with a wall, a 4 cm sill, debris, a platform with five steps (the maze's stair dimensions) and a 10° slope.
+- `scenes/look_pools_game.tscn`: films pools at the top of a real staircase.
+
 ## Fuel drums
 
 Red fuel drums stand in corners of the bunkers and halls (more on bigger floors), never inside a crate, a wall piece or a mess-table chair: once a floor is dressed, any drum that ended up inside something slides toward the middle of its cell until it stands clear, or is taken away. Shoot one and it goes up: a hard hit sets it off at once, a lighter one punches a hole that spits flame for a second first. Drums near a blast go up too.
@@ -210,7 +235,8 @@ Every body uses the same 21 bone names and 15 dismemberment segments, so the rag
 | `scripts/clown/gore_bit.gd` | Meat chunks, skull fragments, links of gut |
 | `scripts/blood/blood_manager.gd` | Autoload `Blood`: splatter decals, droplets, mist, pools |
 | `shaders/clown_body.gdshader` | Bullet dents, blood soaking into cloth (a dark irregular stain with a tide line, wet only round the hole, droplet spray and runs; `soak_darkness`, `spatter_amount`), hiding severed limbs. `scenes/look_blood.tscn` films three shot bodies in lantern light |
-| `shaders/blood_pool.gdshader` | The spreading pool |
+| `scripts/blood/blood_pool.gd` | One pool: samples the floor, floods it (steps, walls, slopes), builds a mesh on the surfaces |
+| `shaders/blood_pool.gdshader` | The spreading pool's look: grows with `progress`, thickness, gloss, lip, droplets, runs, drying |
 | `scripts/player/fps_player.gd` | Player, health and the two weapons |
 | `scripts/player/view_model.gd` | First-person hands and guns, recoil and reload animation |
 | `scripts/game/game.gd` | Run loop, floors, upgrades, perks, menu, saving |
@@ -278,6 +304,7 @@ godot --headless --fixed-fps 60 res://scenes/test_stairs_walk.tscn  # walks the 
 godot --path . res://scenes/test_punch.tscn                    # point-blank shotgun hole: renders /tmp/punch_*.png (needs a window)
 godot --path . res://scenes/test_soldier_pose.tscn             # WitzSoldat stand/walk/run/aim/thrust from the side, /tmp/pose_*.png (needs a window)
 godot --headless --fixed-fps 60 res://scenes/test_nav.tscn     # a crowd chasing the player round three floors with stairs: counts frames inside walls, sunk, beside a stair, stuck, inside another clown
+godot --headless res://scenes/test_pools.tscn                       # Blood pools: different outlines, lie on the floor, stop at a wall (and spread along it), held by a 4 cm sill, run down stair treads in proportion to the blood, never span two heights, do not climb stairs, longer downhill, grow and settle, merge, oil, 25 at once (add "render" with a window for pictures)
 godot --headless --fixed-fps 60 res://scenes/test_rattlejack.tscn  # Rattlejack: model, helmet, Lewis gun; bursts (~9 rounds/s), pan change, damage to the player; the staged deaths (headshot sway: head snap, helmet, pelvis/knees/ankles, planted feet, steps, hand-over mid-fall without a jump, fall directions; stagger steps and a wall behind; Death Rattle firing through the ragdoll, gun in hand, hitting clowns; blast fallback) (sections: model fire deaths; "film render" for frames)
 godot --headless --fixed-fps 60 res://scenes/test_klapper.tscn     # Klappersoldat: speed, square-to-the-maze walking, knees/ankles/elbows, foot slide, head snaps, noticing you (head, then body, then it moves), the blow, staggers, mechanical gore, the deaths (head; random body deaths: shorting out and toppling all four ways, collapse, malfunction; how often each comes up), smoke, oil puddle, ordinary clowns unchanged (sections: walk notice fight gore deaths crowd; add "render" for pictures, "film render" for the walk)
 godot --headless res://scenes/test_drum_clear.tscn          # twelve floors: counts fuel drums standing inside anything solid (should be 0)
