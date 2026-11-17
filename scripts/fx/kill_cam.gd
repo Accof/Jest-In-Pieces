@@ -292,6 +292,8 @@ func _still_going() -> bool:
 	var dy: Variant = _target.get("dying")
 	if dy is String and dy != "":
 		return true
+	if _target.get("bleeding_out") == true:
+		return true                      # shot through the throat, still writhing
 	var rd := _target.ragdoll
 	if rd and rd.active:
 		var pb: Variant = rd.bones.get(&"Hips")

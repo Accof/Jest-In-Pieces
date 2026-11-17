@@ -10,6 +10,8 @@ extends Node3D
 ##   interrupt the player dies mid-shot; the body is freed mid-shot; the
 ##             floor is torn down mid-shot: time and camera always come back
 ##   klapper   a Klappersoldat as the last: it waits for it to fall
+##   throat    a soldier shot through the throat as the last kill: the
+##             camera stays while he writhes and bleeds
 ##   zornhauptmann  an officer's Last Defiance as the last kill, every
 ##             outcome: the camera stays until he goes over; his real round
 ##             never hurts the player while the camera has the controls
@@ -52,7 +54,7 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var secs := ["injuries", "report", "floor", "variety", "double", "interrupt", "klapper", "rattlejack", "zornhauptmann", "fall", "event"]
+	var secs := ["injuries", "report", "floor", "variety", "double", "interrupt", "klapper", "rattlejack", "zornhauptmann", "throat", "fall", "event"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -396,6 +398,42 @@ func _zornhauptmann() -> void:
 		_check(fired_while_on and handed_while_on, "%s: the camera stayed for the trigger and the fall" % outcome)
 		_check(deaths[0] == 1 and game.remaining == 0, "%s: counted once, the floor cleared" % outcome)
 		_check(p.health == h0 and res != "player", "%s: no damage to the player while the camera has him" % outcome)
+
+
+func _throat() -> void:
+	print("-- throat")
+	await _new_game(5180)
+	var living := _living()
+	for c: Clown in living.slice(1):
+		c.queue_free()
+	var c: Clown = living[0]
+	game.clowns.clear()
+	game.clowns.append(c)
+	game.remaining = 1
+	await _frames(2)
+	_face(c)
+	await _frames(2)
+	c.health = 1.0
+	var deaths := [0]
+	c.died.connect(func(_x: Clown) -> void: deaths[0] += 1)
+	var sk := c.skeleton
+	var neck: PhysicalBone3D = c.ragdoll.bones[&"Neck"]
+	var throat := sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Neck")).origin + Vector3.UP * 0.05
+	var dir: Vector3 = (throat - game.player.camera.global_position).normalized()
+	c.hit({collider = neck, position = throat - dir * 0.06, direction = dir, damage = 40.0, impulse = 12.0, shot_id = randi(), weapon = "Pistol"})
+	await _frames(1)
+	var kc: KillCam = game.kill_cam
+	_check(c.throat_death and kc.active, "shot through the throat as the last kill: the killcam runs")
+	var held := 0.0
+	var spurts_seen := 0
+	while kc.active and held < 8.0:
+		await get_tree().process_frame
+		held += get_process_delta_time()
+		if is_instance_valid(c):
+			spurts_seen = c.throat_spurts
+	print("      killcam held %.1f s (game time slowed), %d spurts while it was on; deaths %d, remaining %d" % [held, spurts_seen, deaths[0], game.remaining])
+	_check(spurts_seen >= 2, "it watches him bleed (%d spurts)" % spurts_seen)
+	_check(deaths[0] == 1 and game.remaining == 0, "counted once, floor cleared")
 
 
 func _fall() -> void:

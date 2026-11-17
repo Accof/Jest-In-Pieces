@@ -2,7 +2,7 @@ class_name SfxSynth
 extends RefCounted
 ## Placeholder sounds made in code, for effects that have no recording yet
 ## (the Zornhauptmann's gag pops and squeaks, a dry click, a snarl, breath,
-## a sabre's swish, boots). Each is a short mono 16-bit clip, built once and
+## a sabre's swish, boots; anyone's gurgling through a cut throat). Each is a short mono 16-bit clip, built once and
 ## cached. Swap any of them for a real recording by dropping a .wav of the
 ## same name into res://art/zornhauptmann/sfx/ (see stream()).
 
@@ -23,6 +23,28 @@ static func stream(name: String) -> AudioStream:
 		s = _make(name)
 	_cache[name] = s
 	return s
+
+
+## Play `name` once at `at` (world); the player frees itself.
+static func play(parent: Node, name: String, at: Vector3, db := 0.0, pitch := 1.0) -> void:
+	var stream := SfxSynth.stream(name)
+	if stream == null or parent == null or not parent.is_inside_tree():
+		return
+	var p := AudioStreamPlayer3D.new()
+	p.stream = stream
+	p.unit_size = 5.0
+	p.max_distance = 45.0
+	p.volume_db = db
+	p.pitch_scale = pitch * randf_range(0.96, 1.04)
+	parent.add_child(p)
+	p.global_position = at
+	p.finished.connect(p.queue_free)
+	p.play()
+	var wr: WeakRef = weakref(p)
+	parent.get_tree().create_timer(stream.get_length() / maxf(p.pitch_scale, 0.1) + 0.5).timeout.connect(func() -> void:
+		var node: Variant = wr.get_ref()
+		if node:
+			(node as Node).queue_free())
 
 
 ## Whether `name` is a real recording rather than a placeholder.
@@ -57,6 +79,10 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _thump(0.14, 95.0, 50.0, 0.06, 1.0, rng, 0.025, 0.6)
 		"step":
 			data = _thump(0.09, 120.0, 70.0, 0.03, 0.55, rng, 0.03, 0.45)
+		"gurgle":
+			data = _gurgle(1.1, rng)
+		"choke":
+			data = _gurgle(0.5, rng, 1.6)
 		_:
 			return null
 	return _wav(data)
@@ -176,6 +202,31 @@ static func _growl(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array
 		var pulse := 0.55 + 0.45 * sin(t * TAU * 27.0)
 		var env := smoothstep(0.0, 0.12, u) * (1.0 - smoothstep(0.6, 1.0, u))
 		out[i] = (lp2 * 3.0 + sin(ph) * 0.25) * pulse * env * 0.7
+	return out
+
+
+## Choking on blood: a wet, bubbling rasp with irregular pops.
+static func _gurgle(len: float, rng: RandomNumberGenerator, rough := 1.0) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var lp := 0.0
+	var lp2 := 0.0
+	var bub := 0.0
+	var bub_ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var u := t / len
+		var x := rng.randf_range(-1.0, 1.0)
+		lp += (x - lp) * 0.08 * rough
+		lp2 += (lp - lp2) * 0.25
+		if rng.randf() < 0.0012 * rough:
+			bub = 1.0
+			bub_ph = 0.0
+		bub *= 0.9985
+		bub_ph += TAU * (180.0 + 400.0 * bub) / RATE
+		var env := smoothstep(0.0, 0.08, u) * (1.0 - smoothstep(0.55, 1.0, u)) * (0.6 + 0.4 * sin(t * TAU * 6.5))
+		out[i] = (lp2 * 2.5 + sin(bub_ph) * bub * 0.35) * env * 0.8
 	return out
 
 

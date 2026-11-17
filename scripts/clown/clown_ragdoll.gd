@@ -201,6 +201,23 @@ func build(skel: Skeleton3D, shape_scale: Dictionary = {}) -> void:
 			var x := y.cross(Vector3.FORWARD if absf(y.z) < 0.9 else Vector3.UP).normalized()
 			cs.basis = Basis(x, y, x.cross(y))
 		pb.add_child(cs)
+		if d.n == &"Neck":
+			# The throat: the head's sphere sits above the jaw and the chest box
+			# stops at the collarbones, so the neck itself gets a capsule of its
+			# own (from the base of the neck to just under the chin).
+			var head_o := skel.get_bone_global_rest(skel.find_bone("Head")).origin
+			var a := j
+			var b := head_o + Vector3(0, 0.03, 0)
+			var tc := CollisionShape3D.new()
+			tc.name = "Throat"
+			var tcap := CapsuleShape3D.new()
+			tcap.radius = 0.058 * k
+			tcap.height = a.distance_to(b) + tcap.radius * 2.0
+			tc.shape = tcap
+			var ty := (b - a).normalized()
+			var tx := ty.cross(Vector3.FORWARD).normalized()
+			tc.transform = Transform3D(Basis(tx, ty, tx.cross(ty)), (a + b) * 0.5 - c)
+			pb.add_child(tc)
 		centres[d.n] = c
 		pb.body_offset = bone_rest.affine_inverse() * Transform3D(Basis.IDENTITY, c)
 		var frame: Basis = arm_frame if d.get("arm", false) else Basis.IDENTITY
@@ -520,6 +537,23 @@ static func profile_limp() -> Dictionary:
 		neck = [Vector2(0, 0.25), Vector2(0.9, 0)],
 		arms = [Vector2(0, 0.15), Vector2(0.6, 0)],
 		drift = 0.0, drift_time = 0.1,
+	}
+
+
+## Shot through the throat: stays up a moment, hands flying to the neck,
+## sinks to the floor and writhes there (the clown kicks it about) for `secs`
+## seconds while it bleeds out, then goes slack.
+static func profile_throat(secs: float, f: float = 1.35) -> Dictionary:
+	var T := secs * f
+	return {
+		support = [Vector2(0, 1), Vector2(0.5 * f, 0.95), Vector2(1.1 * f, 0.75), Vector2(1.7 * f, 0.45), Vector2(2.2 * f, 0)],
+		sink = [Vector2(0, 0), Vector2(0.5 * f, 0.05), Vector2(1.3 * f, 0.35), Vector2(2.0 * f, 0.55)],
+		legs = [Vector2(0, 0.8), Vector2(0.8 * f, 0.45), Vector2(2.0 * f, 0.3), Vector2(T, 0.22), Vector2(T + 1.2 * f, 0)],
+		spine = [Vector2(0, 0.8), Vector2(1.5 * f, 0.55), Vector2(T, 0.32), Vector2(T + 1.5 * f, 0)],
+		neck = [Vector2(0, 0.7), Vector2(T, 0.35), Vector2(T + 1.0 * f, 0)],
+		arms = [Vector2(0, 0.45), Vector2(T * 0.85, 0.4), Vector2(T, 0.2), Vector2(T + 1.0 * f, 0)],
+		lean = [Vector2(0, 0), Vector2(0.6 * f, 0.12), Vector2(1.6 * f, 0.25)],
+		fold = 22.0, drift = 0.25, drift_time = 0.8,
 	}
 
 

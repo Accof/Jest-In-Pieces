@@ -281,15 +281,18 @@ sb.inputs["Roughness"].default_value = 0.9
 body.data.materials.append(scalp_mat)
 scalp_i = len(body.data.materials) - 1
 uvl = bm.loops.layers.uv["UVMap"]
-top_z = 1.715                       # the crown of the skull, well inside the dome
+top_z = 1.692                       # the crown of the skull, well inside the dome
 scalp_faces = [bm.faces[i] for i in helm]      # every helmet face, specks included
 edge = {v for f in scalp_faces for v in f.verts if any(g.index not in helm for g in v.link_faces)}
 inner = {v for f in scalp_faces for v in f.verts} - edge
-SKULL_X, SKULL_FRONT, SKULL_BACK = 0.082, 0.098, 0.092
+SKULL_X, SKULL_FRONT, SKULL_BACK = 0.08, 0.09, 0.093
+SKULL_UP = top_z - 1.575              # the crown above the skull's middle
 cy = axis.y + 0.005
+C = Vector((axis.x, cy, 1.575))       # the middle of the skull, just under the brow (so the dome narrows into the forehead)
 
 
 def skull_r(d):
+    """Horizontal radius of the skull's outline in direction d (2D)."""
     if d.length < 1e-6:
         return SKULL_X
     n = d.normalized()
@@ -297,28 +300,67 @@ def skull_r(d):
     return 1.0 / math.sqrt((n.x / SKULL_X) ** 2 + (n.y / ry) ** 2)
 
 
-def shrink(co, keep_z=False):
-    d = Vector((co.x - axis.x, co.y - cy))
+def on_skull(co):
+    """Straight out from the middle of the skull onto its surface: an
+    ellipsoid, round on top (a smooth dome, as the other models' skulls)."""
+    d = co - C
+    if d.length < 1e-6:
+        d = Vector((0, 0, 1))
+    ry = SKULL_FRONT if d.y < 0 else SKULL_BACK
+    rz = SKULL_UP if d.z > 0 else 0.07
+    k = 1.0 / math.sqrt((d.x / SKULL_X) ** 2 + (d.y / ry) ** 2 + (d.z / rz) ** 2)
+    return C + d * k
+
+
+def to_rim(co):
+    """An edge vert (shared with the face): in to the skull's outline at its height."""
+    d = Vector((co.x - C.x, co.y - C.y))
     R = skull_r(d)
+    up = max(co.z - C.z, 0.0) / SKULL_UP
+    R *= math.sqrt(max(1.0 - up * up, 0.05))
     if d.length > R:
         d = d.normalized() * R
-    q = min(1.0, d.length / R)
-    zmax = top_z - 0.075 * q * q
-    z = co.z if keep_z else min(co.z, zmax)
-    return Vector((axis.x + d.x, cy + d.y, z))
+    return Vector((C.x + d.x, C.y + d.y, co.z))
 
 
 for v in edge:
-    v.co = shrink(v.co, True)
+    v.co = to_rim(v.co)
 for v in inner:
-    v.co = shrink(v.co)
-for _ in range(12):                 # relax the crumple, keeping it on the skull
+    v.co = on_skull(v.co)
+for _ in range(16):                 # relax it smooth, keeping it on the skull
     new_co = {}
     for v in inner:
         nb = [e.other_vert(v).co for e in v.link_edges]
-        new_co[v] = shrink(sum(nb, Vector()) / len(nb) * 0.6 + v.co * 0.4)
+        new_co[v] = on_skull(sum(nb, Vector()) / len(nb) * 0.7 + v.co * 0.3)
     for v, c in new_co.items():
         v.co = c
+far = [v.co for v in edge | inner if (Vector((v.co.x - C.x, v.co.y - C.y)).length > 0.11)]
+print("scalp verts outside the skull", len(far))
+# what is left of the helmet's band just under the cut (at the sides and back)
+# sticks out past the skull like a brim: tuck it in to the skull's outline,
+# fading out down the head (the face, in front, is left alone)
+scalp_set = edge | inner
+tucked = 0
+for v in bm.verts:
+    if v in scalp_set or v.co.z < 1.52 or v.co.z > 1.7:
+        continue
+    d = Vector((v.co.x - C.x, v.co.y - C.y))
+    if d.length < 1e-6:
+        continue
+    front = d.normalized().y < -0.45
+    # in front only the bits of the peak's underside above the brow, not the face
+    lo = 1.585 if front else 1.52
+    if v.co.z < lo:
+        continue
+    R = skull_r(d) * (1.07 if front else 1.03)
+    if d.length <= R:
+        continue
+    w = min(max((v.co.z - lo) / (0.035 if front else 0.07), 0.0), 1.0)
+    w = w * w * (3.0 - 2.0 * w)
+    d = d.lerp(d.normalized() * R, w)
+    v.co = Vector((C.x + d.x, C.y + d.y, v.co.z))
+    tucked += 1
+print("tucked", tucked, "verts under the cut")
 for f in scalp_faces:
     f.material_index = scalp_i
     for l in f.loops:

@@ -8,7 +8,7 @@ extends Node
 ##   sabre     a wind-up you can see; standing there you are cut, stepping
 ##             back or round him during the wind-up you are not; he is open
 ##             afterwards
-##   odds      Last Defiance on about 20% of eligible deaths (300 kills);
+##   odds      Last Defiance on about 60% of eligible deaths (300 kills);
 ##             never on headshots, explosions, a lost pistol arm, a shotgun
 ##             that takes limbs; the outcome weights, normalised
 ##   outcomes  each outcome forced several times: dead and counted at once,
@@ -127,10 +127,33 @@ func _model() -> void:
 			z.aim_amount = 1.0
 			await get_tree().process_frame
 		await _shot("model_aim")
+		for k in 3:
+			var a: float = [0.9, -0.6, 2.4][k]
+			var sp := z.global_position + Vector3.UP * 1.35 + z.global_basis.x * -0.35
+			cam.global_position = sp + Vector3(sin(a), 0.15, cos(a)).normalized() * 1.1
+			cam.look_at(sp)
+			for f in 5:
+				z.aim_amount = 1.0
+				await get_tree().process_frame
+			await _shot("arm_%d" % k)
 		cam.queue_free()
 	var neck: PhysicalBone3D = z.ragdoll.bones[&"Neck"]
 	z.knock_off_helmet(Vector3(0, 0, -1), neck.global_position)
 	_check(not z.has_helmet, "the Pickelhaube can be shot off")
+	if render:
+		var cam2 := Camera3D.new()
+		add_child(cam2)
+		cam2.make_current()
+		cam2.fov = 30.0
+		for k in 3:
+			var a: float = [0.5, 1.6, 3.0][k]
+			var hp := z.global_position + Vector3.UP * 1.62
+			cam2.global_position = hp + Vector3(sin(a), 0.25, cos(a)).normalized() * 1.0
+			cam2.look_at(hp)
+			for f in 30:
+				await get_tree().process_frame
+			await _shot("bare_%d" % k)
+		cam2.queue_free()
 	z.queue_free()
 	await get_tree().physics_frame
 
@@ -226,11 +249,17 @@ func _combat() -> void:
 		shot_count, str(shots.map(func(x: float) -> String: return "%.1f" % x)), mean_gap, str(raises.map(func(x: float) -> String: return "%.2f" % x)), mean_raise,
 		hits, 100.0 * hits / maxf(shot_count, 1), brain.misses, z.furious - furious0, max_speed])
 	_check(shot_count >= 10, "fires steadily (%d shots)" % shot_count)
-	_check(mean_gap >= 2.0 and mean_gap <= 3.3, "a shot every 2-3 seconds (%.2f)" % mean_gap)
-	var raise_ok := true
+	# (the median: a gap where he lost sight of the player, or a raise that
+	# ran across a broken aim, is not the rhythm)
+	var sg := shots.duplicate()
+	sg.sort()
+	var med: float = sg[sg.size() / 2] if not sg.is_empty() else 0.0
+	_check(med >= 2.0 and med <= 3.2, "a shot every 2-3 seconds (median %.2f)" % med)
+	var good := 0
 	for r: float in raises:
-		raise_ok = raise_ok and r >= 0.7 and r <= 1.4          # from the first visible lift
-	_check(raise_ok and not raises.is_empty(), "the pistol is up in sight 0.8-1.3 s before each shot")
+		if r >= 0.7 and r <= 1.4:          # from the first visible lift
+			good += 1
+	_check(not raises.is_empty() and good >= 0.8 * raises.size(), "the pistol is up in sight 0.8-1.3 s before the shot (%d of %d)" % [good, raises.size()])
 	_check(float(hits) / maxf(shot_count, 1) > 0.4, "accurate (%d of %d; 70-80%% expected at this range)" % [hits, shot_count])
 	_check(max_speed < 2.3, "slow and deliberate (top %.2f m/s)" % max_speed)
 	# losing sight stops the aim
@@ -386,7 +415,10 @@ func _odds() -> void:
 			await get_tree().physics_frame
 	print("      Last Defiance on %d of %d eligible kills (%.1f%%)" % [act, eligible, 100.0 * act / maxf(eligible, 1)])
 	_check(eligible == n, "every chest kill on his feet is eligible (%d)" % eligible)
-	_check(act > 0.14 * n and act < 0.26 * n, "about one in five (%.1f%%)" % (100.0 * act / n))
+	var want := Zornhauptmann.new()
+	var ch := want.last_defiance_chance
+	want.free()
+	_check(act > (ch - 0.08) * n and act < (ch + 0.08) * n, "about %.0f%% (%.1f%%)" % [ch * 100.0, 100.0 * act / n])
 	# never on these
 	var cases := {
 		"headshot": [&"Neck", {}],
@@ -665,6 +697,8 @@ func _floors() -> void:
 		game = load("res://scenes/game.tscn").instantiate()
 		add_child(game)
 		await get_tree().process_frame
+	seed(5190)
+	game.rng.seed = 5190
 	game.start_run()
 	var counts: Array = []
 	var total := 0

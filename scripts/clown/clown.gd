@@ -211,6 +211,8 @@ func hit(info: Dictionary) -> void:
 	var pb := info.collider as PhysicalBone3D
 	if pb == null:
 		return
+	if bleeding_out:
+		_throat_hit(info)
 	var bone := StringName(pb.bone_name)
 	var zone := _zone(bone)
 	var dir: Vector3 = info.direction.normalized()
@@ -297,6 +299,7 @@ func hit(info: Dictionary) -> void:
 		_wear(zone, bone, info.position, dir, raw)
 
 	var was_dead := dead
+	_fatal_severed = severed
 	if not dead:
 		var leg_hit := zone in [&"UpperLeg", &"LowerLeg", &"Foot"]
 		if leg_hit:
@@ -334,9 +337,282 @@ func hit(info: Dictionary) -> void:
 
 
 func _die(info: Dictionary, zone: StringName) -> void:
+	if _throat_ok(info, zone):
+		_begin_throat(info, zone)
+		return
 	dead = true
 	_start_ragdoll(info, zone)
 	_record_death(info, zone)
+
+
+# --- shot through the throat ----------------------------------------------------------
+## A fatal round through the neck (not the head): the weapon drops, both
+## hands go to the throat, the knees go, and it writhes on the floor while
+## the artery pumps blood out in spurts that weaken with every beat, over
+## the floor and up the walls. Then it is still. The kill counts at once;
+## another round (after the first moment) ends it there and then.
+@export_group("Throat")
+@export var enable_throat_death := true
+@export var throat_death_chance := 1.0           ## of fatal throat shots
+@export var throat_bleed_seconds := Vector2(5.0, 7.5)
+@export var throat_interrupt_grace := 0.35       ## rounds this soon after the fatal one (a held trigger) do not end it
+@export var throat_spurt_strength := 1.0
+var throat_hold_y := -0.1                         # tuning: where the arms' muscles aim the hands, up/down from the throat
+@export_group("")
+var bleeding_out := false                        ## a throat death playing out (the killcam waits for it)
+var throat_death := false                        ## tests: how this one died
+var throat_spurts := 0
+var throat_interrupted := false
+var force_throat := false                        ## tests: a neck hit counts as the throat wherever it lands
+var _thr := {}
+var _fatal_severed := false
+
+
+## Whether a round landed in the neck itself: under the chin on the neck
+## bone, or on the very top of the chest, in the middle.
+func is_throat_hit(info: Dictionary, zone: StringName) -> bool:
+	if not info.has("position"):
+		return false
+	var p := skeleton.global_transform.affine_inverse() * (info.position as Vector3)
+	var head := skeleton.get_bone_global_pose(skeleton.find_bone("Head")).origin
+	var neck := skeleton.get_bone_global_pose(skeleton.find_bone("Neck")).origin
+	if zone == &"Neck":
+		return force_throat or p.y <= head.y + 0.035
+	if zone == &"Chest":
+		# the top of the chest box, in the middle: the base of the neck (and
+		# never the chest itself, on a body whose neck bone sits low)
+		var chest_pb: PhysicalBone3D = ragdoll.bones.get(&"Chest")
+		var chest_c := (skeleton.global_transform.affine_inverse() * chest_pb.global_position).y if chest_pb else -INF
+		return p.y >= maxf(neck.y - 0.03, chest_c + 0.09) and absf(p.x - neck.x) < 0.1
+	return false
+
+
+func _throat_ok(info: Dictionary, zone: StringName) -> bool:
+	if not enable_throat_death or mechanical or skeleton == null:
+		return false
+	if info.get("blast", false) or info.get("stake", false) or info.has("profile"):
+		return false
+	if _fatal_severed or _head_open or crawling or downed or last_stand or _halved or ragdoll.active:
+		return false
+	if not is_throat_hit(info, zone):
+		return false
+	return randf() < throat_death_chance
+
+
+## Let go of whatever it was holding.
+func _drop_weapons() -> void:
+	_drop_rifle()
+	has_rifle = false
+	if has_gun:
+		_drop_gun()
+		has_gun = false
+	_drop_club()
+	has_club = false
+
+
+func _begin_throat(info: Dictionary, zone: StringName) -> void:
+	dead = true
+	throat_death = true
+	bleeding_out = true
+	throat_interrupted = false
+	throat_spurts = 0
+	_record_death(info, zone)
+	_drop_weapons()
+	var sk := skeleton
+	var to_skel := sk.global_transform.affine_inverse()
+	var neck_pb: PhysicalBone3D = ragdoll.bones[&"Neck"]
+	var wound: Vector3 = info.get("position", neck_pb.global_position)
+	var p := to_skel * wound
+	var nb := sk.get_bone_global_pose(sk.find_bone("Neck")).origin
+	# the hole faces out from the middle of the neck, mostly forward
+	var out := Vector3(p.x - nb.x, 0, p.z - nb.z)
+	out = (out.normalized() if out.length() > 0.01 else Vector3.BACK) + Vector3.BACK * 0.6
+	var out_w := sk.global_basis * out.normalized()
+	# the wound sits on the throat's surface, not wherever the round went in
+	var surface := sk.global_transform * Vector3(nb.x, clampf(p.y, nb.y + 0.02, nb.y + 0.12), nb.z) + out_w * 0.055
+	_thr = {
+		t = 0.0, T = randf_range(throat_bleed_seconds.x, maxf(throat_bleed_seconds.y, throat_bleed_seconds.x)),
+		local = neck_pb.global_transform.affine_inverse() * surface,
+		dir = (neck_pb.global_basis.orthonormalized().inverse() * out_w).normalized(),
+		beat = 0.05, writhe = 0.3, gurgle = randf_range(0.2, 0.5), shot = info.get("shot_id", -1),
+		pool_t = 0.9, rate = randf_range(1.5, 1.9),
+	}
+	# the arms' muscles are set to hold the hands at the throat; they get
+	# there on their own (the arms come up), not by a jump in the pose
+	var keep := {}
+	for side: String in ["Left", "Right"]:
+		for part: String in ["UpperArm", "LowerArm", "Hand"]:
+			var bi := sk.find_bone(side + part)
+			keep[bi] = sk.get_bone_pose_rotation(bi)
+	var throat := to_skel * surface + Vector3(0, 0.03 + throat_hold_y, 0.02)
+	for side: String in ["Left", "Right"]:
+		var s := 1.0 if side == "Left" else -1.0
+		var sh := sk.get_bone_global_pose(sk.find_bone(side + "UpperArm")).origin
+		reach(side, throat + Vector3(0.035 * s, -0.01 if s > 0.0 else 0.02, 0.02), sh + Vector3(0.3 * s, -0.4, 0.15))
+		point_bone(side + "Hand", Vector3(-s, 0.25, -0.2))
+	for side: String in ["Left", "Right"]:
+		for part: String in ["UpperArm", "LowerArm", "Hand"]:
+			var bi := sk.find_bone(side + part)
+			var pbn := StringName(side + part)
+			var parent_bone: StringName = &"Chest" if part == "UpperArm" else StringName(side + ("UpperArm" if part == "LowerArm" else "LowerArm"))
+			var pi := sk.find_bone(parent_bone)
+			# the joint's angle as the physical bones measure it (body = pose * rest^-1)
+			var rel := sk.get_bone_global_rest(pi).basis * sk.get_bone_global_pose(pi).basis.inverse() \
+				* sk.get_bone_global_pose(bi).basis * sk.get_bone_global_rest(bi).basis.inverse()
+			ragdoll.eq_override[pbn] = rel.orthonormalized()
+	for bi: int in keep:
+		sk.set_bone_pose_rotation(bi, keep[bi])
+	# hands and forearms pressed to the neck and chest must not be held off them
+	for side: String in ["Left", "Right"]:
+		for part: String in ["Hand", "LowerArm"]:
+			var a: PhysicalBone3D = ragdoll.bones.get(StringName(side + part))
+			for other: StringName in [&"Neck", &"Chest"]:
+				var b: PhysicalBone3D = ragdoll.bones.get(other)
+				if a and b:
+					PhysicsServer3D.body_add_collision_exception(a.get_rid(), b.get_rid())
+					PhysicsServer3D.body_add_collision_exception(b.get_rid(), a.get_rid())
+	var fling := ragdoll.arm_fling
+	ragdoll.arm_fling = 0.0
+	var d: Vector3 = info.get("direction", Vector3.ZERO)
+	ragdoll.start(ClownRagdoll.profile_throat(_thr.T, ragdoll.fall_speed), Vector3(d.x, 0, d.z), velocity * 0.3)
+	ragdoll.arm_fling = fling
+	gore.start_bleeding()
+	set_process(true)
+
+
+## Every frame of the bleed-out: the heart pumps, the body fights, the hands
+## press on the wound.
+func _throat_process(delta: float) -> void:
+	var d := minf(delta, 1.0 / 30.0)
+	_thr.t += d
+	var t: float = _thr.t
+	var T: float = _thr.T
+	var life := clampf(1.0 - t / T, 0.0, 1.0)
+	var neck_pb: PhysicalBone3D = ragdoll.bones.get(&"Neck")
+	if neck_pb == null or not is_instance_valid(neck_pb):
+		_end_throat()
+		return
+	# the heartbeat: a spurt each beat, weaker and slower as the blood runs out
+	if not throat_interrupted and life > 0.0:
+		_thr.beat -= d
+		if _thr.beat <= 0.0:
+			_thr.beat = 1.0 / (float(_thr.rate) * lerpf(0.55, 1.0, life))
+			_spurt(neck_pb, pow(life, 0.6) * throat_spurt_strength)
+	# and between the beats it never stops: a steady run of blood from the wound
+	if not throat_interrupted and life > 0.0:
+		_thr.flow = float(_thr.get("flow", 0.0)) - d
+		if _thr.flow <= 0.0:
+			_thr.flow = 0.045
+			var at := neck_pb.global_transform * (_thr.local as Vector3)
+			var dir := (neck_pb.global_basis.orthonormalized() * (_thr.dir as Vector3)).normalized()
+			var pulse := 0.5 + 0.5 * clampf(float(_thr.beat) * float(_thr.rate), 0.0, 1.0)   # strongest just after a beat
+			Blood.add_droplet(at, (dir + Vector3.UP * 0.1) * randf_range(0.6, 1.8) * (0.35 + 0.65 * life) * pulse + Vector3(randf_range(-0.2, 0.2), randf_range(-0.1, 0.2), randf_range(-0.2, 0.2)), randf_range(0.035, 0.07))
+	# writhing: twisting, kicking, the back arching; weaker as it dies
+	if not throat_interrupted and life > 0.0:
+		_thr.writhe -= d
+		if _thr.writhe <= 0.0:
+			_thr.writhe = randf_range(0.12, 0.4)
+			var parts := [&"Spine", &"Chest", &"Hips", &"LeftUpperLeg", &"RightUpperLeg", &"LeftLowerLeg", &"RightLowerLeg", &"Neck"]
+			var pb: PhysicalBone3D = ragdoll.bones.get(parts.pick_random())
+			if pb and is_instance_valid(pb):
+				var kick := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)).normalized()
+				var on_floor := t > 1.4
+				PhysicsServer3D.body_apply_torque_impulse(pb.get_rid(), kick * pb.mass * randf_range(0.4, 1.0) * (0.35 + 0.65 * life) * (1.0 if on_floor else 0.45))
+				# and a knee drawn up, now one side, now the other
+				if on_floor and randf() < 0.45:
+					var leg: PhysicalBone3D = ragdoll.bones.get([&"LeftUpperLeg", &"RightUpperLeg"].pick_random())
+					var hips_pb: PhysicalBone3D = ragdoll.bones.get(&"Hips")
+					if leg and hips_pb:
+						PhysicsServer3D.body_apply_torque_impulse(leg.get_rid(), hips_pb.global_basis.x.normalized() * leg.mass * randf_range(-0.9, -0.4) * (0.4 + 0.6 * life))
+	# the hands clamp onto the wound and stay there (a spring on each hand
+	# and forearm toward the throat, weakening only at the very end)
+	if not throat_interrupted:
+		var grip := clampf((float(_thr.T) + 0.8 - t) / 1.6, 0.0, 1.0)
+		var wound: Vector3 = neck_pb.global_transform * (_thr.local as Vector3)
+		var across := neck_pb.global_basis.x.normalized()
+		var out := (neck_pb.global_basis.orthonormalized() * (_thr.dir as Vector3)).normalized()
+		for side: String in ["Left", "Right"]:
+			var s := 1.0 if side == "Left" else -1.0
+			for spec: Array in [["Hand", across * 0.035 * s + out * 0.02, 320.0], ["LowerArm", across * 0.1 * s + out * 0.06 + Vector3.DOWN * 0.12, 160.0]]:
+				var pb: PhysicalBone3D = ragdoll.bones.get(StringName(side + String(spec[0])))
+				if pb == null or not is_instance_valid(pb):
+					continue
+				var v: Vector3 = PhysicsServer3D.body_get_state(pb.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY)
+				var f: Vector3 = ((wound + (spec[1] as Vector3)) - pb.global_position) * float(spec[2]) - v * 14.0
+				# a constant force, re-set every frame (so the frame rate does not change it)
+				PhysicsServer3D.body_set_constant_force(pb.get_rid(), (f * pb.mass).limit_length(110.0 * pb.mass) * grip)
+	if not throat_interrupted and life > 0.0:
+		_thr.gurgle -= d
+		if _thr.gurgle <= 0.0:
+			_thr.gurgle = randf_range(1.2, 2.4)
+			SfxSynth.play(get_parent(), "gurgle" if randf() < 0.7 else "choke", neck_pb.global_position, lerpf(-16.0, -3.0, life), randf_range(0.85, 1.05))
+	if t > T + 1.5 or (throat_interrupted and t > float(_thr.get("stop", t)) + 0.5):
+		_end_throat()
+
+
+## One beat of the artery: a jet out of the wound (it reaches the walls), a
+## mist, drops arcing onto the floor, and the pool under the neck fed.
+func _spurt(neck_pb: PhysicalBone3D, strength: float) -> void:
+	throat_spurts += 1
+	var at := neck_pb.global_transform * (_thr.local as Vector3)
+	var dir := (neck_pb.global_basis.orthonormalized() * (_thr.dir as Vector3)).normalized()
+	var jet := (dir + Vector3.UP * 0.2 + Vector3(randf_range(-0.15, 0.15), randf_range(-0.1, 0.15), randf_range(-0.15, 0.15))).normalized()
+	Blood.spawn_hit(at, jet, clampf(0.35 + 1.1 * strength, 0.3, 1.5))
+	for i in 3 + int(9.0 * strength):
+		var v := jet * randf_range(1.2, 4.4) * (0.4 + 0.6 * strength) + Vector3(randf_range(-0.3, 0.3), randf_range(0.0, 0.6), randf_range(-0.3, 0.3))
+		Blood.add_droplet(at, v, randf_range(0.05, 0.11))
+	# and onto whatever is close in front of it
+	var space := get_world_3d().direct_space_state
+	for i in 2:
+		var dd := (jet + Vector3(randf_range(-0.3, 0.3), randf_range(-0.25, 0.25), randf_range(-0.3, 0.3))).normalized()
+		var q := PhysicsRayQueryParameters3D.create(at, at + dd * (1.2 + 2.0 * strength), 1)
+		var hit := space.intersect_ray(q)
+		if not hit.is_empty():
+			Blood.spawn_decal(hit.position, hit.normal, randf_range(0.25, 0.5) * (0.6 + 0.6 * strength), "impact" if absf(dd.dot(hit.normal)) > 0.5 else "streak", dd - (hit.normal as Vector3) * dd.dot(hit.normal))
+	# the pool under the neck grows as long as it pumps (once he is down
+	# there: a pool started while he stood would end up at his feet)
+	_thr.pool_t -= 1.0 / float(_thr.rate)
+	var q := PhysicsRayQueryParameters3D.create(at + Vector3.UP * 0.2, at + Vector3.DOWN * 1.8, 1)
+	var under := space.intersect_ray(q)
+	if _thr.pool_t <= 0.0 and not under.is_empty() and at.y - (under.position as Vector3).y < 0.4:
+		_thr.pool_t = 1.0
+		Blood.spawn_pool(under.position, under.normal, 0.4 + 0.5 * clampf(float(_thr.t) / float(_thr.T), 0.0, 1.0))
+
+
+## Where the hole in the throat is now (world), while bleeding out.
+func throat_wound_position() -> Vector3:
+	var neck_pb: PhysicalBone3D = ragdoll.bones.get(&"Neck")
+	if neck_pb == null or _thr.is_empty():
+		return Vector3.INF
+	return neck_pb.global_transform * (_thr.local as Vector3)
+
+
+## Shot again while bleeding out: that one finishes it (after a short grace
+## for rounds still coming from the same trigger pull).
+func _throat_hit(info: Dictionary) -> void:
+	if throat_interrupted:
+		return
+	if info.get("shot_id", -2) == _thr.get("shot", -1) or float(_thr.get("t", 0.0)) < throat_interrupt_grace:
+		return
+	throat_interrupted = true
+	_thr["stop"] = _thr.t
+	_release_throat()
+	ragdoll.restart(ClownRagdoll.profile_limp())
+
+
+## Let go of the throat (no more pull on the hands).
+func _release_throat() -> void:
+	for side: String in ["Left", "Right"]:
+		for part: String in ["Hand", "LowerArm"]:
+			var pb: PhysicalBone3D = ragdoll.bones.get(StringName(side + part))
+			if pb and is_instance_valid(pb):
+				PhysicsServer3D.body_set_constant_force(pb.get_rid(), Vector3.ZERO)
+
+
+func _end_throat() -> void:
+	_release_throat()
+	bleeding_out = false
+	set_process(false)
 
 
 ## The body goes over: picks how it falls (or takes info.profile) and hands it
@@ -1021,6 +1297,9 @@ func _flinch_from(world_pos: Vector3, dir: Vector3, damage: float) -> void:
 
 func _process(delta: float) -> void:
 	_shot_t += delta
+	if bleeding_out:
+		_throat_process(delta)
+		return
 	if dead or crawling or last_stand:
 		set_process(false)
 		return

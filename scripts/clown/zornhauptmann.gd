@@ -36,7 +36,7 @@ extends Rattlejack
 
 @export_group("Last Defiance")
 @export var enable_last_defiance := true
-@export var last_defiance_chance := 0.2
+@export var last_defiance_chance := 0.6
 @export var real_shot_weight := 0.55
 @export var fail_to_fire_weight := 0.2
 @export var bang_flag_weight := 0.15
@@ -76,6 +76,7 @@ var pistol_shots := 0               ## rounds fired alive
 var swing_kind := ""                ## "slash" or "thrust", the swing under way
 
 var _gun_node: Node3D
+var _gun_up_h := Vector3(0, 0, 1)   # the pistol's top, in the hand bone's frame
 var _sabre: Node3D
 var _sabre_att: BoneAttachment3D
 var _sabre_side := "Left"
@@ -166,9 +167,17 @@ func give_gun(side: String = "Right") -> void:
 	guard.layers = 2
 	gun.add_child(guard)
 	att.add_child(gun)
-	# in the hand: barrel along the bone (the fingers), its top along the
-	# bone's Z; the aim pose rolls the hand to keep it upright
-	gun.transform = Transform3D(Basis(Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 1, 0)), Vector3(0, 0.075, 0))
+	# in the hand: barrel along the bone (the fingers), its top on the thumb
+	# side (forward in the T-pose the rig was built in, palms down), so a
+	# hand held thumb-up holds it upright with the wrist straight; the grip
+	# sits in the palm
+	var hr := skeleton.get_bone_global_rest(skeleton.find_bone(side + "Hand")).basis.orthonormalized()
+	var along := Vector3(0, 1, 0)
+	var thumb := hr.inverse() * Vector3(0, 0, 1)
+	thumb = (thumb - along * thumb.dot(along)).normalized()
+	var palm := hr.inverse() * Vector3(0, -1, 0)
+	_gun_up_h = thumb
+	gun.transform = Transform3D(Basis(thumb.cross(along), thumb, along), along * 0.055 + thumb * 0.035 + palm * 0.02)
 	_gun_node = gun
 	_muzzle = Node3D.new()
 	_muzzle.position = Vector3(0, 0.038, 0.205)
@@ -187,21 +196,27 @@ func fired() -> void:
 		pistol_shots += 1
 
 
-## Roll the hand about its own length so the pistol sits upright (by `w`).
+## Keep the pistol upright (by `w`) by turning the whole arm about the line
+## from the shoulder to the hand, as a man does, rather than wringing the
+## wrist: the hand stays straight on the forearm.
 func _upright_gun(side: String, w: float) -> void:
 	if w <= 0.001:
 		return
+	var ua := skeleton.find_bone(side + "UpperArm")
 	var hb := skeleton.find_bone(side + "Hand")
-	var gp := skeleton.get_bone_global_pose(hb)
-	var b := gp.basis.orthonormalized()
-	var dir := b.y
-	var up := b * Vector3(0, 0, 1)
-	var want := Vector3.UP - dir * dir.dot(Vector3.UP)
-	var have := up - dir * dir.dot(up)
+	var sh := skeleton.get_bone_global_pose(ua).origin
+	var hp := skeleton.get_bone_global_pose(hb)
+	var axis := hp.origin - sh
+	if axis.length() < 0.05:
+		return
+	axis = axis.normalized()
+	var up := hp.basis.orthonormalized() * _gun_up_h
+	var want := Vector3.UP - axis * axis.dot(Vector3.UP)
+	var have := up - axis * axis.dot(up)
 	if want.length() < 0.05 or have.length() < 0.05:
 		return
-	var ang := have.normalized().signed_angle_to(want.normalized(), dir)
-	_rotate_global(hb, Quaternion(dir, ang * w))
+	var ang := have.normalized().signed_angle_to(want.normalized(), axis)
+	_rotate_global(ua, Quaternion(axis, ang * w))
 
 
 # --- the sabre -----------------------------------------------------------------------------
@@ -491,6 +506,12 @@ func _pistol_arm(side: String, w: float, waver: Vector3, kick: float, target_wor
 
 # --- dying ---------------------------------------------------------------------------------
 func _die(info: Dictionary, zone: StringName) -> void:
+	if _throat_ok(info, zone):
+		death_kind = "throat"
+		handed_over = true
+		handover_at = 0.0
+		_begin_throat(info, zone)
+		return
 	defiance_eligible = _defiance_ok(info, zone)
 	var forced := force_death == "defiance"
 	var go := false
@@ -914,6 +935,11 @@ func _defiance_arm(rise: float, after: float, trem: float) -> void:
 	var bw := smoothstep(0.0, 0.3, w)
 	for bi in bones:
 		sk.set_bone_pose_rotation(bi, (from[bi] as Quaternion).slerp(sk.get_bone_pose_rotation(bi), bw))
+
+
+func _drop_weapons() -> void:
+	super._drop_weapons()
+	_drop_sabre()
 
 
 ## The ragdoll takes him: the sabre falls out of his hand (the pistol stays

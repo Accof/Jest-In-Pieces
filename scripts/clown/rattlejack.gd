@@ -232,6 +232,9 @@ func start_reload() -> void:
 
 # --- every frame ---------------------------------------------------------------------
 func _process(delta: float) -> void:
+	if bleeding_out:
+		_throat_process(delta)
+		return
 	if dying != "":
 		_shot_t += delta
 		_dying_process(minf(delta, 1.0 / 30.0))
@@ -268,6 +271,12 @@ func _reload_pose() -> void:
 
 # --- dying ---------------------------------------------------------------------------
 func _die(info: Dictionary, zone: StringName) -> void:
+	if _throat_ok(info, zone):
+		death_kind = "throat"
+		handed_over = true
+		handover_at = 0.0
+		_begin_throat(info, zone)
+		return
 	var staged: bool = enable_hybrid_deaths and not (info.get("blast", false) or info.get("stake", false) or info.has("profile") \
 		or crawling or downed or last_stand or ragdoll.active or _halved or info.get("heavy", false) \
 		or (info.get("can_dismember", false) and float(info.damage) >= dismember_damage) or broken_leg != "")
