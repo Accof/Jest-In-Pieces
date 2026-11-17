@@ -3,6 +3,9 @@ extends Node
 ##   model   the body, the helmet, the Lewis gun, the bones
 ##   fire    on a real floor: bursts at about 9 rounds a second, pauses,
 ##           a reload, and how hard he hits the player (god mode)
+##   walls   each staged death (and the officer's Last Defiance) with a
+##           level wall (0.3 m) close on every side, falling toward it and
+##           not: no part of him ends up in the wall or through it
 ##   deaths  in the gore sandbox, each staged death several times:
 ##           headshot, stagger (and against a wall), Death Rattle (with
 ##           clowns in the line of fire), and the immediate-ragdoll fallback
@@ -34,13 +37,15 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var all := not (args.has("model") or args.has("fire") or args.has("deaths") or args.has("film"))
+	var all := not (args.has("model") or args.has("fire") or args.has("deaths") or args.has("film") or args.has("walls"))
 	if all or args.has("model"):
 		await _model()
 	if all or args.has("fire"):
 		await _fire()
 	if all or args.has("deaths") or args.has("film"):
 		await _deaths(args)
+	if all or args.has("walls"):
+		await _walls(args)
 	print("RATTLEJACK: %d failed" % fails)
 	get_tree().quit()
 
@@ -433,3 +438,88 @@ func _deaths(args: Array) -> void:
 	_check(r.dead and r.ragdoll.active and r.dying == "" and r.death_kind == "ragdoll", "a heavy blast goes straight to ragdoll")
 	r.queue_free()
 	await get_tree().physics_frame
+
+
+## How far into a wall (m, along `into`) the deepest part of the body is:
+## each physical bone's centre plus its size. > 0: touching the near face
+## from inside; > 0.3: out the far side.
+func _wall_pen(c: Clown, face: Vector3, into: Vector3) -> float:
+	var worst := -9.0
+	for pb: PhysicalBone3D in c.ragdoll.bones.values():
+		if not is_instance_valid(pb):
+			continue
+		worst = maxf(worst, (pb.global_position - face).dot(into))
+	return worst
+
+
+func _walls(args: Array) -> void:
+	print("-- walls")
+	var room := await _sandbox()
+	var kinds := ["headshot", "stagger", "rattle", "defiance"]
+	var dirs := {"front": Vector3(0, 0, 1), "back": Vector3(0, 0, -1), "left": Vector3(1, 0, 0), "right": Vector3(-1, 0, 0)}
+	var worst_all := -9.0
+	var through := 0
+	var runs := 0
+	var rows: Array = []
+	for kind: String in kinds:
+		for dname: String in dirs:
+			for gap: float in [0.45, 0.8]:
+				for toward: bool in [true, false]:
+					var at := Vector3(0, 0, -3)
+					var dl: Vector3 = dirs[dname]
+					var r: Rattlejack
+					if kind == "defiance":
+						var z := Zornhauptmann.new()
+						room.add_child(z)
+						z.give_officer_kit()
+						z.force_outcome = "fail_to_fire"
+						r = z
+					else:
+						r = Rattlejack.new()
+						room.add_child(r)
+						r.give_rifle()
+					r.position = at
+					var wall := StaticBody3D.new()
+					var cs := CollisionShape3D.new()
+					var bx := BoxShape3D.new()
+					var into := r.global_basis * dl
+					bx.size = Vector3(0.3, 2.6, 4.0) if absf(into.x) > 0.5 else Vector3(4.0, 2.6, 0.3)
+					cs.shape = bx
+					wall.add_child(cs)
+					room.add_child(wall)
+					var face := at + into * gap
+					wall.global_position = face + into * 0.15 + Vector3.UP * 1.3
+					for i in 10:
+						await get_tree().physics_frame
+					r.force_death = kind
+					if toward:
+						r.force_fall = dl
+					r.health = 1.0
+					var pb: PhysicalBone3D = r.ragdoll.bones[&"Neck" if kind == "headshot" else &"Chest"]
+					var shot_dir := -into if toward else into
+					shot_dir = (shot_dir + Vector3(0, 0, 0.001)).normalized()
+					r.hit({collider = pb, position = pb.global_position - shot_dir * 0.1, direction = shot_dir, damage = 30.0, impulse = 10.0, weapon = "Pistol", shot_id = randi()})
+					var worst := -9.0
+					var at_handover := -9.0
+					var t := 0.0
+					while t < 4.0:
+						await get_tree().physics_frame
+						t += get_physics_process_delta_time()
+						var pen := _wall_pen(r, face, into)
+						worst = maxf(worst, pen)
+						if r.handed_over and at_handover < -8.0:
+							at_handover = pen
+					var final := _wall_pen(r, face, into)
+					runs += 1
+					if final > 0.3 or worst > 0.3:
+						through += 1
+					worst_all = maxf(worst_all, worst)
+					rows.append("%s %s %.2f%s: hand-over %.2f, worst %.2f, end %.2f" % [kind, dname, gap, " toward" if toward else "", at_handover, worst, final])
+					r.queue_free()
+					wall.queue_free()
+					await get_tree().physics_frame
+	for row: String in rows:
+		print("      " + row)
+	print("      %d runs: %d ended up in or through the wall; deepest any bone went %.2f m past the face" % [runs, through, worst_all])
+	_check(through == 0, "never through a wall (%d of %d)" % [through, runs])
+	_check(worst_all < 0.12, "never more than a few cm into one (%.2f m)" % worst_all)

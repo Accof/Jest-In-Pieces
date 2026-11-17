@@ -81,6 +81,9 @@ var foot_slip := 0.0             ## largest planted-foot drift (m)
 var rattle_rounds := 0
 var rattle_hits := 0             ## rounds that struck another clown
 var sway_log: Array = []         ## [t, pelvis x, pelvis z, drop, left load] while swaying
+var wall_handovers := 0          ## tests: hand-overs brought forward by a wall
+## Hand over to the ragdoll the moment the posed body touches a wall.
+@export var wall_guard := true
 
 var _info := {}
 var _d_zone := &""
@@ -440,6 +443,33 @@ func _room(dir_local: Vector3, reach: float) -> float:
 	return best
 
 
+## Whether any part of the posed body is at (or in) a wall: a ray from the
+## pelvis out to each limb and the head, a little past it (the bone's own
+## thickness). The floor does not count.
+func _touching_wall() -> bool:
+	var hips: PhysicalBone3D = ragdoll.bones.get(&"Hips")
+	if hips == null:
+		return false
+	var space := get_world_3d().direct_space_state
+	var from := hips.global_position
+	var ex := _own_rids()
+	for n: StringName in [&"Neck", &"Chest", &"LeftHand", &"RightHand", &"LeftLowerArm", &"RightLowerArm", &"LeftLowerLeg", &"RightLowerLeg", &"LeftFoot", &"RightFoot"]:
+		var pb: PhysicalBone3D = ragdoll.bones.get(n)
+		if pb == null or not is_instance_valid(pb):
+			continue
+		var to := pb.global_position
+		var dv := to - from
+		if dv.length() < 0.05:
+			continue
+		var margin := 0.13 if n == &"Neck" else 0.07
+		var q := PhysicsRayQueryParameters3D.create(from, to + dv.normalized() * margin, 1)
+		q.exclude = ex
+		var hit := space.intersect_ray(q)
+		if not hit.is_empty() and (hit.normal as Vector3).y < 0.6:
+			return true
+	return false
+
+
 func _own_rids() -> Array[RID]:
 	var out: Array[RID] = []
 	for pb: PhysicalBone3D in ragdoll.bones.values():
@@ -455,6 +485,14 @@ func _dying_process(d: float) -> void:
 	_balance(d)
 	_pose_dying(d)
 	_snapshot(d)
+	# The posed body is not physics: nothing stops it leaning into a wall,
+	# and a ragdoll started with bones inside one is pushed out the far
+	# side. So the moment any part of him touches a wall, physics takes over
+	# from there (and the wall holds him).
+	if wall_guard and dying != "" and _touching_wall():
+		wall_handovers += 1
+		_handover()
+		return
 	if _collapsing:
 		_collapse_t += d
 		if _collapse_t >= _collapse_len:
@@ -536,8 +574,9 @@ func _start_collapse(e: Vector3) -> void:
 	dir.y = 0.0
 	if dir.length() < 0.01:
 		dir = Vector3.BACK * -1.0
-	# no falling into a wall a hand's breadth away: turn toward where there is room
-	if _room(dir.normalized(), 0.9) < 0.35:
+	# no falling into a wall: he is nearly two metres long, so turn toward
+	# where there is room for him to land
+	if _room(dir.normalized(), 1.5) < 1.1:
 		var best := dir
 		var best_room := 0.0
 		for i in 8:
