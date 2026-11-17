@@ -11,9 +11,9 @@ extends ClownCrawler
 enum Phase { CRAWL, TO_WALL, SIT }
 
 @export var crawl_for := Vector2(1.2, 2.2)     ## how far it drags itself away before looking for a wall (m)
-@export var sit_seconds := 2.0                 ## rolling onto its back and sitting up against the wall
-## Share of sit_seconds spent rolling over onto its back (the rest is sitting up).
-@export var roll_share := 0.4
+@export var roll_seconds := 0.9                ## rolling over onto its back, facing the wall the whole time
+@export var backup_speed := 0.32               ## m/s shuffling back on its arms until its back is against the wall
+@export var settle_knees := 0.6                ## drawing its knees up once its back is to the wall
 @export var draw_after := 0.7                  ## seconds after sitting before the pistol comes out
 @export var shot_gap := Vector2(1.3, 2.3)
 @export var shot_damage := 7.0
@@ -30,8 +30,16 @@ var wall_found := false
 var _crawl_left := 2.5
 var _crawl_t := 0.0
 var _sit_t := 0.0
-var _sit_at := Vector3.ZERO
-var _sit_yaw := 0.0
+var _wall_hit := Vector3.ZERO                  # a point on the wall it will sit against
+var _wall_n := Vector3.ZERO                    # out from that wall (flat)
+var _square := false                           # crawled out to square up and is now heading straight in
+var _hips_z := 0.0                             # hips along its length (crawl frame), shuffling back
+var _wall_z := 0.0                             # the wall along its length (crawl frame)
+var _push := 0.0                               # 0..1 cycle of the arm shoves
+var _phase_t := 0.0                            # time in the current part of sitting
+var _sit_part := 0                             # 0 rolling, 1 shuffling back, 2 knees up, 3 sat
+var _sat_t := 0.0
+var _b := 0.0                                  # how far it has sat up, eased
 var _crawl_yaw := 0.0
 var _gun_out := false
 var _shot_t := 1.0
@@ -39,10 +47,13 @@ var _swipe_t := 0.0
 var _swing := 0.0
 var _leg_rest := {}
 var _sit_from := {}                  # bone -> [rotation, position] as it stopped crawling
-var _sit_hips := Vector3.ZERO        # where the hips end up (crawling frame)
 var _turned := false                 # the 180 is now in its yaw, not its model
 var _lift := 0.0                     # raised this much to keep its legs out of the floor
-const SIT_HIPS := 0.15               # hip height sitting
+const SIT_HIPS := 0.15
+const PRONE_Z := -0.32               # hips along its length lying down (crawl frame)
+const STOP_AT := 0.6                 # crawls in head first until its middle is this far from the wall
+const BACK_OFF := 0.3                # hips this far from the wall, sat up against it
+const REACH := 0.85                  # hips to the back of its head, leaning back as it sits               # hip height sitting
 const HIPS_REST := 0.97              # hip height standing, in the model
 const LEG_CLEAR := 0.06              # how far a knee or ankle (the middle of the limb) stays off the floor
 const LEG_BONES := ["LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg", "LeftFoot", "RightFoot"]
@@ -164,16 +175,32 @@ func _crawl_step(delta: float, player: Node3D) -> void:
 			else:
 				_start_sitting(false)
 				return
-	var goal := _sit_at if stage == Phase.TO_WALL else _target
+	var goal := _target
+	var heading_err := 0.0
+	if stage == Phase.TO_WALL:
+		# out to a spot square in front of the wall, then straight in at it,
+		# head first, turned to face it squarely while still crawling
+		var out := _wall_hit + _wall_n * 1.0
+		var flat := out - clown.global_position
+		flat.y = 0.0
+		if not _square and (flat.length() < 0.3 or _crawl_t > 10.0):
+			_square = true
+		goal = out if not _square else clown.global_position - _wall_n
+		if _square:
+			heading_err = absf(angle_difference(_yaw, atan2(-_wall_n.x, -_wall_n.z)))
+			if _wall_dist() <= STOP_AT + 0.01 and heading_err < 0.08:
+				_start_sitting(true)
+				return
+			if _crawl_t > 15.0:
+				_start_sitting(_wall_dist() < STOP_AT + 0.15)
+				return
 	var to := goal - clown.global_position
 	to.y = 0.0
-	if stage == Phase.TO_WALL and (to.length() < 0.2 or _crawl_t > 11.0):
-		_start_sitting(true)
-		return
-	var moving := _pause <= 0.0
+	var moving := _pause <= 0.0 or stage == Phase.TO_WALL
+
 	var surge := 0.0
 	if moving:
-		_yaw = rotate_toward(_yaw, atan2(to.x, to.z), delta * 1.8)
+		_yaw = rotate_toward(_yaw, atan2(to.x, to.z), delta * 1.4)
 		var v := speed * (1.0 if arms == 2 else 0.5)
 		_cycle = fposmod(_cycle + delta * v * STANCE / STROKE, 1.0)
 		phase = _cycle * TAU
@@ -183,8 +210,13 @@ func _crawl_step(delta: float, player: Node3D) -> void:
 			if q < STANCE:
 				surge = maxf(surge, 0.25 + 1.35 * sin(PI * q / STANCE))
 		var step := _forward() * v * surge * delta
-		if stage == Phase.TO_WALL:
-			step = step.limit_length(to.length())
+		if stage == Phase.TO_WALL and not _square:
+			# turns rather than circling the spot it wants
+			step *= clampf(cos(angle_difference(_yaw, atan2(to.x, to.z))), 0.0, 1.0)
+		if stage == Phase.TO_WALL and _square:
+			# turning on the spot until it faces the wall, then in no further than it should
+			step *= clampf(1.0 - heading_err / 0.6, 0.0, 1.0)
+			step = step.limit_length(maxf(_wall_dist() - STOP_AT, 0.0))
 		var q2 := PhysicsRayQueryParameters3D.create(clown.global_position + Vector3.UP * 0.2, clown.global_position + Vector3.UP * 0.2 + _forward() * 0.6, 1)
 		if clown.get_world_3d().direct_space_state.intersect_ray(q2).is_empty() or stage == Phase.TO_WALL:
 			clown.global_position += step
@@ -225,25 +257,27 @@ func _find_wall() -> bool:
 				score += d.dot(to_p.normalized()) * 0.8      # rather away from the player
 		if score < best:
 			best = score
-			var wall_n := Vector3(n.x, 0, n.z).normalized()
-			_sit_at = Vector3(hit.position.x, clown.global_position.y, hit.position.z) + wall_n * 0.36
-			_sit_yaw = atan2(wall_n.x, wall_n.z)              # facing out from the wall
+			_wall_n = Vector3(n.x, 0, n.z).normalized()
+			_wall_hit = Vector3(hit.position.x, clown.global_position.y, hit.position.z)
 	wall_found = best < INF
 	return wall_found
+
+
+## How far its middle (the clown's origin) is from the wall it is making for.
+func _wall_dist() -> float:
+	return (clown.global_position - _wall_hit).dot(_wall_n)
 
 
 func _start_sitting(at_wall: bool) -> void:
 	stage = Phase.SIT
 	_sit_t = 0.0
+	_phase_t = 0.0
+	_sit_part = 0
 	_crawl_yaw = _yaw
-	if not at_wall or not wall_found:
-		_sit_yaw = _yaw + PI                                  # rolls over where it is
-		_sit_at = clown.global_position
 	clown.velocity = Vector3.ZERO
-	# where its hips are to end up, in its own (crawling) frame: against the
-	# wall it crawled up to, a little behind where its head now is
-	var local := clown.global_basis.inverse() * (_sit_at - clown.global_position)
-	_sit_hips = Vector3(local.x, SIT_HIPS, local.z)
+	_hips_z = PRONE_Z
+	# the wall, along its length: it crawled in head first, square to it
+	_wall_z = _wall_dist() if at_wall and wall_found else INF
 	# the pose it is in now, to ease out of
 	_sit_from.clear()
 	var sk := clown.skeleton
@@ -251,27 +285,65 @@ func _start_sitting(at_wall: bool) -> void:
 		_sit_from[i] = [sk.get_bone_pose_rotation(i), sk.get_bone_pose_position(i)]
 
 
+## How far it has sat up (0 lying, 1 upright), from how close its hips are to
+## the wall: the back of its head is against the wall from the moment it gets
+## there, and slides up it as the hips come in.
+func _sit_amount() -> float:
+	if _sit_part >= 2:
+		return 1.0
+	if _wall_z == INF:
+		return smoothstep(0.0, 1.0, _phase_t / 1.2) if _sit_part == 1 else 0.0
+	var d := _wall_z - _hips_z
+	var up := acos(clampf(d / REACH, 0.0, 1.0))                       # angle off the floor
+	var end := acos(clampf(BACK_OFF / REACH, 0.0, 1.0))
+	return clampf(up / end, 0.0, 1.0)
+
+
 func _sit_step(delta: float, player: Node3D) -> void:
 	_sit_t += delta
-	if _sit_t < sit_seconds:
+	_phase_t += delta
+	match _sit_part:
+		0:
+			if _phase_t >= roll_seconds:
+				_sit_part = 1
+				_phase_t = 0.0
+		1:
+			# shoves itself back along the floor on its elbows, a heave at a time
+			_push = fposmod(_push + delta * 1.3, 1.0)
+			var heave := 0.35 + 1.3 * maxf(sin(TAU * _push), 0.0)
+			var done := false
+			if _wall_z == INF:
+				done = _phase_t >= 1.2
+			else:
+				_hips_z = minf(_hips_z + backup_speed * heave * delta, _wall_z - BACK_OFF)
+				done = _hips_z >= _wall_z - BACK_OFF - 0.001 or _phase_t > 6.0
+			if done:
+				_sit_part = 2
+				_phase_t = 0.0
+		2:
+			if _phase_t >= settle_knees and _b >= 0.999:
+				_sit_part = 3
+				_phase_t = 0.0
+	if _sit_part < 3:
 		return
 	if not sat:
-		# the turn is done: it now faces out from the wall in its own right
 		sat = true
 		# its origin moves under its hips and its yaw takes the half-turn the
-		# model made: nothing on screen changes
-		clown.global_position += clown.global_basis * Vector3(_sit_hips.x, 0, _sit_hips.z)
+		# model made, so nothing on screen changes: it already faces out
+		var hz := _hips_z if _wall_z != INF else PRONE_Z
+		clown.global_position += clown.global_basis * Vector3(0, 0, hz)
+		_y = clown.global_position.y
 		_yaw = _crawl_yaw + PI
 		clown.rotation = Vector3(0, _yaw, 0)
 		_turned = true
-	_yaw = rotate_toward(_yaw, _sit_yaw, delta * 0.6)        # settles square to the wall
+	_sat_t += delta
 	if player == null or not is_instance_valid(player) or (player as Object).get("dead") == true:
 		return
 	var arm := clown.main_arm()
 	var to := player.global_position - clown.global_position
 	# a gun: out from the belt, then a shot every second or two while it can see you
 	if shooter and arm != "":
-		if not _gun_out and _sit_t > sit_seconds + draw_after:
+		if not _gun_out and _sat_t > draw_after:
 			_gun_out = true
 			if not clown.has_gun:
 				clown.give_gun(arm)
@@ -337,69 +409,81 @@ func _process(_delta: float) -> void:
 
 ## The legs, broken: lying flat they trail behind; sitting they stick out in
 ## front, knees and feet at wrong angles.
-func _pose_legs(sit: float) -> void:
+func _pose_legs(sit: float, knees := 0.0) -> void:
 	var sk := clown.skeleton
 	for bi: int in _leg_rest:
 		sk.set_bone_pose_rotation(bi, _leg_rest[bi])
 	for side: String in ["Left", "Right"]:
 		var s := 1.0 if side == "Left" else -1.0
-		_turn(side + "UpperLeg", Vector3.RIGHT, -2.0 * sit)            # knees up, heels on the floor
+		_turn(side + "UpperLeg", Vector3.RIGHT, -1.45 * sit - 0.55 * knees)     # along the floor, then knees up
 		_turn(side + "UpperLeg", Vector3.BACK, (0.1 + 0.12 * sit) * s)
-		_turn(side + "LowerLeg", Vector3.RIGHT, 0.35 * (1.0 - sit) + 1.1 * sit)
+		_turn(side + "LowerLeg", Vector3.RIGHT, 0.35 * (1.0 - sit) + 0.12 * sit + 0.98 * knees)
 		_turn(side + "LowerLeg", Vector3.UP, 0.45 * s)
 		_turn(side + "Foot", Vector3.RIGHT, 0.6)
 
 
-## Rolling over onto its back, then sitting up against the wall, then sat
-## there: hips on the floor, back to the wall, head lolling, the good arm in
-## the lap or up with the pistol. The legs bend at the hip exactly as much
-## as the body sits up, so they stay along the floor the whole way.
+## Rolling over onto its back where it lies (facing the wall all the time),
+## shoving itself back on its elbows until its head meets the wall and its
+## back slides up it, then knees drawn up; then sat there, head lolling, the
+## good arm in its lap or up with the pistol. Hip flexion is exactly how far
+## the body has sat up, so the legs stay along the floor.
 func _pose_sitting() -> void:
 	var sk := clown.skeleton
 	var dt := get_process_delta_time()
-	var u := clampf(_sit_t / sit_seconds, 0.0, 1.0)
-	var a := smoothstep(0.0, 1.0, clampf(u / roll_share, 0.0, 1.0))                  # the roll
-	var b := smoothstep(0.0, 1.0, clampf((u - roll_share) / (1.0 - roll_share), 0.0, 1.0))   # sitting up
+	var a := smoothstep(0.0, 1.0, clampf(_phase_t / roll_seconds, 0.0, 1.0)) if _sit_part == 0 else 1.0     # the roll
+	_b = move_toward(_b, _sit_amount(), dt * 1.5)
+	var b := _b                                                                                            # sitting up
+	var k := 0.0                                                                                           # knees up
+	if _sit_part == 2:
+		k = smoothstep(0.0, 1.0, minf(_phase_t / settle_knees, _b))
+	elif _sit_part >= 3:
+		k = 1.0
 	# every bone from its idle pose
 	for i in sk.get_bone_count():
 		sk.set_bone_pose_rotation(i, clown._base_rot.get(i, sk.get_bone_rest(i).basis.get_rotation_quaternion()))
 		sk.set_bone_pose_position(i, sk.get_bone_rest(i).origin)
-	# the body: face down -> over onto its back (round its own spine) ->
-	# sitting up (pitching round the hips), all in the frame it crawled in
+	# the body, in the frame it crawled in (it never turns): face down ->
+	# over onto its back round its own spine -> pitched up about the hips
 	var model: Node3D = clown._model
 	var basis: Basis
+	var hips: Vector3
 	if _turned:
 		basis = Basis.IDENTITY
-	elif b <= 0.0:
-		basis = Basis(Vector3.RIGHT, PI * 0.5) * Basis(Vector3.UP, PI * a)
-	else:
-		basis = Basis(Vector3.RIGHT, PI * 0.5 * (1.0 - b)) * Basis(Vector3.UP, PI)
-	var prone_hips := Vector3(0, 0.16, -0.32)
-	var hips := prone_hips + Vector3.UP * 0.04 * sin(PI * a) * (1.0 - b)          # lifts a little as the shoulders roll
-	hips = hips.lerp(_sit_hips, b)
-	if _turned:
 		hips = Vector3(0, SIT_HIPS, 0)
+	else:
+		if _sit_part == 0:
+			basis = Basis(Vector3.RIGHT, PI * 0.5) * Basis(Vector3.UP, PI * a)
+		else:
+			basis = Basis(Vector3.RIGHT, PI * 0.5 * (1.0 - b)) * Basis(Vector3.UP, PI)
+		hips = Vector3(0, lerpf(0.16, SIT_HIPS, b) + 0.04 * sin(PI * a) * float(_sit_part == 0), _hips_z if _wall_z != INF else PRONE_Z)
 	model.basis = basis
 	model.position = hips - basis * Vector3(0, HIPS_REST, 0)
-	# legs: straight while it rolls, then folding at the hip with the sit-up
-	_pose_legs(b if not _turned else 1.0)
-	for side: String in ["Left", "Right"]:
-		_turn(side + "LowerLeg", Vector3.RIGHT, -0.28 * a * (1.0 - b))    # straightens as it rolls, so the knee doesn't swing up
-	var e := b if not _turned else 1.0
+	# legs: straight while it rolls, along the floor as it slides up the wall,
+	# then knees drawn up
+	_pose_legs(b, k)
+	if _sit_part == 0:
+		for side: String in ["Left", "Right"]:
+			_turn(side + "LowerLeg", Vector3.RIGHT, -0.28 * a)       # straightens as it rolls, so the knee doesn't swing up
 	var breath := sin(t * 2.2) * 0.02
-	_turn("Spine", Vector3.RIGHT, (-0.22 + breath) * e)
-	_turn("Chest", Vector3.RIGHT, -0.08 * e)
-	_turn("Neck", Vector3.RIGHT, (0.38 + sin(t * 0.7) * 0.05) * e)
-	_turn("Neck", Vector3.BACK, 0.15 * e)
-	# arms: out to the sides to roll, then down into the lap
+	_turn("Spine", Vector3.RIGHT, (-0.22 + breath) * b)
+	_turn("Chest", Vector3.RIGHT, -0.08 * b)
+	_turn("Neck", Vector3.RIGHT, (0.38 + sin(t * 0.7) * 0.05) * b)
+	_turn("Neck", Vector3.BACK, 0.15 * b)
+	# arms: out a little to roll, then elbows down shoving it back, then the lap
+	var shove := maxf(sin(TAU * _push), 0.0) if _sit_part == 1 else 0.0
+	var on_elbows := 0.0
+	if _sit_part == 1:
+		on_elbows = (1.0 - b) * smoothstep(0.0, 0.4, _phase_t)
+	elif _sit_part == 2:
+		on_elbows = 1.0 - b
 	for side: String in ["Left", "Right"]:
 		var sd := 1.0 if side == "Left" else -1.0
 		if clown.arm_out(side):
 			clown.dangle_arm(side)
 			continue
-		_turn(side + "UpperArm", Vector3.BACK, 0.3 * sd * sin(PI * a) * (1.0 - b))
-		_turn(side + "UpperArm", Vector3.RIGHT, -0.35 * e)
-		_turn(side + "LowerArm", Vector3.RIGHT, -0.7 * e)
+		_turn(side + "UpperArm", Vector3.BACK, 0.3 * sd * sin(PI * a) * float(_sit_part == 0) + 0.25 * sd * on_elbows)
+		_turn(side + "UpperArm", Vector3.RIGHT, -0.35 * b + (0.5 - 0.35 * shove) * on_elbows)
+		_turn(side + "LowerArm", Vector3.RIGHT, -0.7 * b - (1.0 - 0.4 * shove) * on_elbows)
 	var arm := clown.main_arm()
 	var player := get_tree().get_first_node_in_group(&"player") as Node3D
 	if arm != "" and _gun_out and player:
@@ -416,7 +500,7 @@ func _pose_sitting() -> void:
 	elif arm != "" and _swing > 0.0:
 		_turn(arm + "UpperArm", Vector3.RIGHT, -1.4 * _swing)
 	# out of the crawl pose it stopped in, over the first part of the roll
-	var w := smoothstep(0.0, 0.35, u)
+	var w := smoothstep(0.0, roll_seconds * 0.8, _sit_t)
 	if w < 1.0:
 		for i: int in _sit_from:
 			var f: Array = _sit_from[i]

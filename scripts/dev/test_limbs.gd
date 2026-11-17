@@ -171,6 +171,12 @@ func _last() -> void:
 		var worst_leg := 9.0
 		var sit_jump := 0.0
 		var sit_done := false
+		var sit_yaw0 := INF
+		var sat_yaw := INF
+		var sit_spin := 0.0
+		var head_wall := 9.0
+		var hips_wall := -1.0
+		var facing := 0.0
 		while t < 30.0:
 			await _frames(1)
 			t += 1.0 / 60.0
@@ -190,6 +196,23 @@ func _last() -> void:
 				for bn: String in ["LeftLowerLeg", "RightLowerLeg", "LeftFoot", "RightFoot"]:
 					var gy: float = (sk.global_transform * sk.get_bone_global_pose(sk.find_bone(bn)).origin).y
 					worst_leg = minf(worst_leg, gy - fy)
+			# no turning once it is down on its back or sat, and the wall behind it
+			if ls and ls.stage == ClownLastStand.Phase.SIT:
+				if sit_yaw0 == INF:
+					sit_yaw0 = c.rotation.y
+				var expect := sit_yaw0 + (PI if ls.sat else 0.0)
+				if ls.sat:
+					if sat_yaw == INF:
+						sat_yaw = c.rotation.y
+					expect = sat_yaw
+				sit_spin = maxf(sit_spin, absf(angle_difference(c.rotation.y, expect)))
+				if ls.wall_found:
+					var hd: float = (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Head")).origin - ls._wall_hit).dot(ls._wall_n)
+					head_wall = minf(head_wall, hd)
+					if ls.sat:
+						hips_wall = (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Hips")).origin - ls._wall_hit).dot(ls._wall_n)
+						var fwd := Vector3(sin(c.rotation.y), 0, cos(c.rotation.y))
+						facing = fwd.dot(ls._wall_n)
 			if ls and ls.stage == ClownLastStand.Phase.SIT and not ls.sat and not last_pts.is_empty():
 				for k in pts.size():
 					sit_jump = maxf(sit_jump, pts[k].distance_to(last_pts[k]))
@@ -213,8 +236,8 @@ func _last() -> void:
 						pass
 			if ls:
 				crawled = maxf(crawled, Vector2(c.global_position.x - start.x, c.global_position.z - start.z).length())
-				if render and kind == "gun" and ls.stage == ClownLastStand.Phase.SIT and not ls.sat and int(t * 60.0) % 8 == 0:
-					await _shot("situp_%05d" % int(t * 100.0), c.global_position + Vector3.UP * 0.3, c.global_position + c.global_basis * Vector3(1.6, 0.9, -0.6))
+				if render and kind == "gun" and (ls.stage == ClownLastStand.Phase.TO_WALL or (ls.stage == ClownLastStand.Phase.SIT and not ls.sat)) and int(t * 60.0) % 12 == 0:
+					await _shot("situp_%05d" % int(t * 100.0), c.global_position + Vector3.UP * 0.3, c.global_position + (ls._wall_n * 1.3 + ls._wall_n.cross(Vector3.UP) * 1.7 + Vector3.UP * 1.0) if ls.wall_found else c.global_position + Vector3(1.6, 1.0, 1.0))
 				if ls.sat and sat_at < 0.0:
 					sat_at = t
 					await _shot("%s_sat" % kind, c.global_position + Vector3.UP * 0.5, c.global_position + (c.global_basis.z * 2.2) + Vector3.UP * 1.2)
@@ -234,6 +257,9 @@ func _last() -> void:
 		_check(jump_at_start < 0.12, "%s: no snap from the ragdoll into the crawl (largest move in a frame %.2f m)" % [kind, jump_at_start])
 		print("      %s: lowest knee/ankle centre %.3f m above the floor; largest move in a frame while sitting up %.3f m" % [kind, worst_leg, sit_jump])
 		_check(worst_leg > 0.04, "%s: the legs never go into the floor (lowest knee/ankle %.3f m up)" % [kind, worst_leg])
+		print("      %s: turned %.3f rad once on its back; head centre %.2f m from the wall at closest; hips %.2f m from it sat; facing out %.2f" % [kind, sit_spin, head_wall, hips_wall, facing])
+		_check(sit_spin < 0.02, "%s: no spinning on its back or its backside (%.3f rad)" % [kind, sit_spin])
+		_check(head_wall > 0.08 and hips_wall > 0.15 and hips_wall < 0.45 and facing > 0.97, "%s: sat with its back to the wall, square, head not in it (head %.2f, hips %.2f, facing %.2f)" % [kind, head_wall, hips_wall, facing])
 		_check(render or sit_jump < 0.1, "%s: rolls over and sits up smoothly (largest move in a frame %.3f m)" % [kind, sit_jump])
 		_check(crawled > 0.6, "%s: drags itself away (%.1f m)" % [kind, crawled])
 		_check(sat_at > 0.0, "%s: sits up against something (%.1fs)" % [kind, sat_at])
