@@ -35,7 +35,12 @@ const MAX_DROP := 0.45        ## the largest step it will run down (m)
 const SAMPLE_UP := 0.45       ## rays start this far above the source
 const SAMPLE_DOWN := 1.35     ## and look this far below it
 const NEVER := 1000.0
-const LIFT := 0.004
+## Above the surface: clear of painted floor decals (the circus sunbursts
+## lie 4 mm up) without visibly floating.
+const LIFT := 0.011
+## What blood lies on: the world, and visual-only floors such as trench
+## duckboards (their own collision layer, which nothing else uses).
+const SURFACES := 1 | (1 << 5)
 
 var oil := false
 var spacing := 0.08
@@ -136,7 +141,7 @@ func work(space: PhysicsDirectSpaceState3D, deadline_us: int) -> bool:
 func _sample_one(space: PhysicsDirectSpaceState3D) -> void:
 	var k := _sampled
 	var p := _grid_pos(k % n, k / n)
-	var q := PhysicsRayQueryParameters3D.create(Vector3(p.x, centre.y + SAMPLE_UP, p.z), Vector3(p.x, centre.y - SAMPLE_DOWN, p.z), 1)
+	var q := PhysicsRayQueryParameters3D.create(Vector3(p.x, centre.y + SAMPLE_UP, p.z), Vector3(p.x, centre.y - SAMPLE_DOWN, p.z), SURFACES)
 	q.hit_from_inside = true
 	var hit := space.intersect_ray(q)
 	rays_used += 1
@@ -539,7 +544,7 @@ func _crossing(space: PhysicsDirectSpaceState3D, a: int, b: int) -> Dictionary:
 		for it in 3:
 			var mid := (lo + hi) * 0.5
 			var mp := pa.lerp(pb, mid)
-			var q := PhysicsRayQueryParameters3D.create(Vector3(mp.x, centre.y + SAMPLE_UP, mp.z), Vector3(mp.x, centre.y - SAMPLE_DOWN, mp.z), 1)
+			var q := PhysicsRayQueryParameters3D.create(Vector3(mp.x, centre.y + SAMPLE_UP, mp.z), Vector3(mp.x, centre.y - SAMPLE_DOWN, mp.z), SURFACES)
 			q.hit_from_inside = true
 			var hit := space.intersect_ray(q)
 			rays_used += 1

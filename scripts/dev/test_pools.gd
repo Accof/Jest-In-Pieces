@@ -56,6 +56,20 @@ func _ready() -> void:
 		var top := 1.2 - 0.2 * (k + 1)
 		_box(Vector3(4.125 + 0.25 * k, top * 0.5, 0.5), Vector3(0.25, top, 2.0))
 	_box(Vector3(-4.2, 0.0, 3.0), Vector3(2.6, 0.3, 2.0), Basis(Vector3.BACK, deg_to_rad(-10.0)), Color(0.38, 0.36, 0.33))  # rises toward -x
+	# a painted floor 4 mm up, visual only, like the circus rooms' sunbursts
+	var paint := MeshInstance3D.new()
+	var pq := PlaneMesh.new()
+	pq.size = Vector2(4, 4)
+	var pm := StandardMaterial3D.new()
+	pm.albedo_color = Color(0.75, 0.6, 0.35)
+	pq.material = pm
+	paint.mesh = pq
+	paint.position = Vector3(-2.0, 0.004, 0.6)
+	add_child(paint)
+	# a duckboard: drawn, with a box only blood sees (as the level makes them)
+	_box(Vector3(-0.2, 0.035, 3.6), Vector3(2.4, 0.06, 0.4), Basis.IDENTITY, Color(0.3, 0.22, 0.14))
+	var board: StaticBody3D = get_child(get_child_count() - 1)
+	board.collision_layer = 1 << 5
 	var env := WorldEnvironment.new()
 	env.environment = Environment.new()
 	env.environment.background_mode = Environment.BG_COLOR
@@ -242,8 +256,20 @@ func _run() -> void:
 	_check(down > up * 1.12, "longer downhill than uphill on a 10 degree slope")
 	var csl := _contact(psl)
 	_check(csl[0] < 0.012, "lies on the slope (gap %.3f m)" % csl[0])
+	# --- on a duckboard
+	var pd := _spawn(-0.2, 3.6, 0.45)
+	await _settle([pd])
+	var on_board := 0
+	var off_board := 0
+	for wp: Vector3 in _wet_points(pd):
+		if wp.y > 0.05:
+			on_board += 1
+		else:
+			off_board += 1
+	print("      duckboard: %d samples on the board, %d on the floor beside it" % [on_board, off_board])
+	_check(on_board > 0, "blood lies on top of a duckboard, not under it")
 	# --- gradual: a fresh pool, measured as it grows
-	var pg := _spawn(1.6, 2.5, 0.7)
+	var pg := _spawn(1.6, 2.2, 0.7)
 	var series := []
 	var t := 0.0
 	var settled_at := -1.0

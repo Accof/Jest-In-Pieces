@@ -990,6 +990,21 @@ func _commit() -> void:
 		else:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED
 		add_child(mi)
+	# duckboards are only drawn (you walk the mud under them), but blood
+	# should lie on them: boxes on a layer only the blood pools look at
+	if _multi.has("duckboard"):
+		var boards := StaticBody3D.new()
+		boards.name = "DuckboardSurfaces"
+		boards.collision_layer = 1 << 5
+		boards.collision_mask = 0
+		add_child(boards)
+		for xf: Transform3D in _multi["duckboard"]:
+			var cs := CollisionShape3D.new()
+			var box := BoxShape3D.new()
+			box.size = xf.basis.get_scale().abs()
+			cs.shape = box
+			cs.transform = Transform3D(xf.basis.orthonormalized(), xf.origin)
+			boards.add_child(cs)
 	for key: String in _multi:
 		var xfs: Array = _multi[key]
 		var mm := MultiMesh.new()
