@@ -3,6 +3,7 @@ extends CharacterBody3D
 ## First-person player. WASD move, Shift sprint, mouse look, left click fire,
 ## R reload, 1 pistol, 2 shotgun, 3 submachine gun, 4 stake gun, F flashlight,
 ## G god mode (no damage; for testing).
+## L every eligible Zornhauptmann kill is a Last Defiance (for testing).
 
 const LAYER_WORLD := 1
 const LAYER_RAGDOLL := 1 << 2
@@ -183,6 +184,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				god_mode = not god_mode
 				ammo_changed.emit()
 			KEY_F: flashlight.visible = not flashlight.visible
+			KEY_L:
+				# testing: every eligible Zornhauptmann kill is a Last Defiance
+				Zornhauptmann.always_defiance = not Zornhauptmann.always_defiance
 			KEY_R: reload()
 			KEY_ESCAPE: Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		if event.keycode == reset_key:
@@ -514,4 +518,4 @@ func heal(amount: float) -> void:
 
 
 func _update_label() -> void:
-	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [F] light  [G] god mode%s  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else ""]
+	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]

@@ -45,6 +45,7 @@ extends Rattlejack
 @export var last_defiance_min_duration := 1.8    ## from the fatal hit to the ragdoll
 @export var last_defiance_max_duration := 2.5
 @export var last_defiance_interruptible := true  ## another hit sends him straight to the ragdoll
+@export var last_defiance_interrupt_grace := 0.45  ## seconds after the fatal hit when more rounds only rock him (the trigger finger is still going)
 @export var max_real_shots := 1
 @export var real_shot_spread := 9.0              ## degrees: a dying man's aim
 @export var bang_flag_visible_duration := 0.0    ## seconds before the flag is taken away; 0: as long as the pistol
@@ -53,6 +54,9 @@ extends Rattlejack
 @export var bubble_count_max := 7
 
 const OUTCOMES := ["real_shot", "fail_to_fire", "bang_flag", "confetti", "bubbles"]
+
+## Testing (the L key): every eligible death is a Last Defiance.
+static var always_defiance := false
 
 ## Tests: force the outcome ("" to roll it).
 var force_outcome := ""
@@ -492,7 +496,7 @@ func _die(info: Dictionary, zone: StringName) -> void:
 	var go := false
 	if defiance_eligible and (forced or force_death == ""):
 		defiance_rolled = not forced
-		go = forced or randf() < last_defiance_chance
+		go = forced or always_defiance or randf() < last_defiance_chance
 	if not go:
 		var was := force_death
 		if force_death == "defiance":
@@ -507,12 +511,13 @@ func _die(info: Dictionary, zone: StringName) -> void:
 
 
 ## Can this death be a Last Defiance: a fatal round in the body or an arm
-## (not the head), nothing blown up or off, the pistol still in a working
-## hand, and on his feet.
+## (not the head), any gun but the stake, nothing blown up or off, the pistol
+## still in a working hand, and on his feet.
 func _defiance_ok(info: Dictionary, zone: StringName) -> bool:
 	if not enable_last_defiance:
 		return false
-	if info.get("blast", false) or info.get("stake", false) or info.get("heavy", false) or info.has("profile"):
+	# (a heavy round, a rifle or a shotgun, is fine: only what blows him apart is not)
+	if info.get("blast", false) or info.get("stake", false) or info.has("profile"):
 		return false
 	if info.get("can_dismember", false) and float(info.get("damage", 0.0)) >= dismember_damage:
 		return false
@@ -769,7 +774,7 @@ func _bubbles(at: Vector3, dir: Vector3) -> void:
 func hit(info: Dictionary) -> void:
 	if dying == "defiance" and last_defiance_interruptible:
 		var same_shot: bool = info.has("shot_id") and _info.has("shot_id") and info.shot_id == _info.shot_id
-		if not same_shot:
+		if not same_shot and _t >= last_defiance_interrupt_grace:
 			defiance_interrupted = true
 			defiance_events.append([_t, "interrupted" if not _fired else "interrupted_after"])
 			_fired = true

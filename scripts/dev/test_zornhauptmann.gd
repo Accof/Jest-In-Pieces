@@ -401,6 +401,29 @@ func _odds() -> void:
 		_kill(z, c[0], c[1])
 		_check(z.dead and z.dying == "" and z.ragdoll.active, "%s: never a Last Defiance (straight to the ragdoll)" % name_)
 		z.queue_free()
+	# what the player's own guns send: rifle and shotgun rounds are heavy, still fine
+	for gun: Array in [["Rifle", {heavy = true, damage = 180.0}], ["Shotgun pellet", {heavy = true, can_dismember = true, damage = 16.0}], ["SMG", {damage = 21.0}]]:
+		var zg := _officer(room, Vector3(0, 0, -3))
+		await get_tree().physics_frame
+		zg.force_death = "defiance"
+		_kill(zg, &"Chest", gun[1])
+		_check(zg.dying == "defiance", "%s kill: can be a Last Defiance" % gun[0])
+		if gun[0] == "SMG":
+			# the trigger is still held: three more rounds in the next quarter second
+			for k in 3:
+				for f in 5:
+					await get_tree().physics_frame
+				var pb: PhysicalBone3D = zg.ragdoll.bones[&"Chest"]
+				zg.hit({collider = pb, position = pb.global_position, direction = -zg.global_basis.z, damage = 21.0, impulse = 8.0, weapon = "SMG", shot_id = randi()})
+			_check(zg.dying == "defiance" and not zg.defiance_interrupted, "SMG: the rounds right after the kill do not cut it short")
+		zg.queue_free()
+	Zornhauptmann.always_defiance = true
+	var za := _officer(room, Vector3(0, 0, -3))
+	await get_tree().physics_frame
+	_kill(za)
+	_check(za.dying == "defiance", "the L key (always_defiance) makes every eligible kill one")
+	Zornhauptmann.always_defiance = false
+	za.queue_free()
 	var z2 := _officer(room, Vector3(0, 0, -3))
 	await get_tree().physics_frame
 	z2._arm_lost("Right")
