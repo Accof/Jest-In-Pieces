@@ -64,7 +64,24 @@ var head_open_kills := true
 ## True while this clown is a torso dragging itself along the floor.
 var crawling := false
 ## "Left" or "Right" once that leg is broken: it limps, and the knee bends wrong.
-var broken_leg := ""
+var broken_leg := ""             # the first leg broken ("Left"/"Right"); the limp is on this side
+var broken_legs: Array[String] = []   # every broken leg
+var broken_arms: Array[String] = []   # every broken arm (dangling, bone showing)
+## Both legs gone: dragging itself to a wall to sit and make its last stand.
+var last_stand := false
+## Shots to the legs break them rather than kill: leg damage to health is
+## scaled by this, a leg shot never kills while a leg is still unbroken (it
+## breaks one instead), and the break chances below decide when a leg goes.
+@export var leg_damage_scale := 0.4
+@export var leg_break_damage := 26.0       ## one round this strong may break the leg ...
+@export var leg_break_chance := 0.5        ## ... with this chance
+@export var leg_break_total := 60.0        ## enough rounds in one leg always do
+@export var arm_break_damage := 28.0
+@export var arm_break_chance := 0.4
+@export var arm_break_total := 55.0
+var _arm_dmg := {}
+var _gun_att: Node3D
+var gun_side := ""
 ## On the floor after a knee shot, writhing, then getting back up.
 var downed := false
 
@@ -132,6 +149,32 @@ func _ready() -> void:
 	add_child(gore)
 	gore.setup(self)
 	ragdoll.settled.connect(_on_settled)
+	gore.part_severed.connect(func(seg: StringName, _gib: Node3D) -> void:
+		var sn := String(seg)
+		if sn.contains("Arm") or sn.ends_with("Hand"):
+			_arm_lost("Left" if sn.begins_with("Left") else "Right"))
+
+
+## Whether a leg is broken (or gone).
+func leg_out(side: String) -> bool:
+	return broken_legs.has(side) or _segment_gone(side + "UpperLeg") or _segment_gone(side + "LowerLeg")
+
+
+## Whether an arm is useless: broken, or (any part of it) blown off.
+func arm_out(side: String) -> bool:
+	return broken_arms.has(side) or _segment_gone(side + "UpperArm") or _segment_gone(side + "LowerArm") or _segment_gone(side + "Hand")
+
+
+func _segment_gone(seg: String) -> bool:
+	var i := ClownGore.SEGMENTS.find(StringName(seg))
+	return i >= 0 and gore != null and (gore.hidden_mask >> i) & 1 == 1
+
+
+## The arm it fights with: the right, or the left if the right is out, or "".
+func main_arm() -> String:
+	if not arm_out("Right"):
+		return "Right"
+	return "Left" if not arm_out("Left") else ""
 
 
 ## Called by weapons. `info` keys:
@@ -201,18 +244,26 @@ func hit(info: Dictionary) -> void:
 				_shot_blasted[&"leg"] = true
 				if randf() < leg_off_chance:
 					severed = true
-				elif broken_leg == "":
+				elif not leg_out("Left" if String(bone).begins_with("Left") else "Right"):
 					break_leg = true
 
-	# A round in the knee, or enough of them in one leg, breaks it.
-	if not info.get("can_dismember", false) and broken_leg == "" and zone in [&"UpperLeg", &"LowerLeg"]:
-		var side := "Left" if String(bone).begins_with("Left") else "Right"
-		_leg_dmg[side] = _leg_dmg.get(side, 0.0) + raw
-		var knee := _bone_world(StringName(side + "LowerLeg"))
-		var kb := skeleton.find_bone(side + "LowerLeg")
+	# A round in the knee, a strong one anywhere on the leg (sometimes), or
+	# enough of them in one leg breaks it; the other leg too, the same way.
+	var limb_side := "Left" if String(bone).begins_with("Left") else "Right"
+	if not info.get("can_dismember", false) and zone in [&"UpperLeg", &"LowerLeg", &"Foot"] and not leg_out(limb_side):
+		_leg_dmg[limb_side] = _leg_dmg.get(limb_side, 0.0) + raw
+		var knee := _bone_world(StringName(limb_side + "LowerLeg"))
+		var kb := skeleton.find_bone(limb_side + "LowerLeg")
 		knee = skeleton.global_transform * skeleton.get_bone_global_pose(kb).origin if not dead else knee
-		if (raw >= knee_damage and info.position.distance_to(knee) < KNEE_RADIUS) or _leg_dmg[side] >= 85.0:
+		if (raw >= knee_damage and info.position.distance_to(knee) < KNEE_RADIUS) or _leg_dmg[limb_side] >= leg_break_total \
+				or (raw >= leg_break_damage and randf() < leg_break_chance):
 			break_leg = true
+	# Arms the same: the bone goes and the arm hangs useless.
+	var break_arm := false
+	if zone in [&"UpperArm", &"LowerArm", &"Hand"] and not arm_out(limb_side):
+		_arm_dmg[limb_side] = _arm_dmg.get(limb_side, 0.0) + raw
+		if _arm_dmg[limb_side] >= arm_break_total or (raw >= arm_break_damage and randf() < arm_break_chance):
+			break_arm = true
 
 	# Bullets add up: enough rounds into one part slowly tears it open.
 	if not info.get("can_dismember", false) and not info.get("stake", false):
@@ -220,16 +271,26 @@ func hit(info: Dictionary) -> void:
 
 	var was_dead := dead
 	if not dead:
+		var leg_hit := zone in [&"UpperLeg", &"LowerLeg", &"Foot"]
+		if leg_hit:
+			dmg *= leg_damage_scale
 		health -= dmg
+		# a leg shot breaks the leg rather than killing, until both are gone
+		if leg_hit and health <= 0.0 and not severed and not (leg_out("Left") and leg_out("Right") and randf() < 0.25):
+			health = 1.0
+			if not leg_out(limb_side):
+				break_leg = true
 		if health <= 0.0 or (_head_open and head_open_kills) or (severed and zone in [&"UpperLeg", &"LowerLeg", &"Neck"]):
 			_die(info, zone)
 	hurt.emit(self)
-	if not dead and not crawling and not downed:
+	if not dead and not crawling and not downed and not last_stand:
 		_flinch_from(info.position, dir, raw * (1.8 if severed else 1.0))
 	if downed and not dead and ragdoll.active:
 		ragdoll.apply_hit(bone, dir * float(info.get("impulse", 12.0)) * 0.5, info.position)
 	if break_leg and not severed:
-		_break_leg("Left" if String(bone).begins_with("Left") else "Right", info.position, dir)
+		_break_leg(limb_side, info.position, dir)
+	if break_arm and not severed:
+		_break_arm(limb_side, info.position, dir)
 	if dead:
 		var impulse: Vector3 = dir * float(info.get("impulse", 12.0))
 		if was_dead:
@@ -261,7 +322,7 @@ func _start_ragdoll(info: Dictionary, zone: StringName) -> void:
 		profile = info.profile                      # the caller knows best (an event room)
 	elif info.get("blast", false) or info.get("stake", false):
 		profile = ClownRagdoll.profile_blast()      # no fight left: it goes where it is carried
-	elif crawling:
+	elif crawling or last_stand:
 		profile = ClownRagdoll.profile_limp()
 	elif not info.get("heavy", false) and wall_gap >= 0.0 and (force_variant == "wall_slide" or (force_variant == "" and randf() < 0.8)):
 		profile = ClownRagdoll.profile_wall_slide(wall_gap)
@@ -395,17 +456,96 @@ const GETUP_STAND := 0.95
 
 
 func _break_leg(side: String, at: Vector3, dir: Vector3) -> void:
-	if broken_leg != "":
+	if leg_out(side) or crawling:
 		return
-	broken_leg = side
+	broken_legs.append(side)
+	if broken_leg == "":
+		broken_leg = side
 	Blood.spawn_hit(at, dir, 1.4, mechanical)
 	gore.add_wound(StringName(side + "LowerLeg"), at, 40.0)
 	gore.show_broken_knee(side)
 	if dead:
 		if ragdoll.active:
 			ragdoll.break_knee(side, dir)
-	elif not downed and not crawling:
+	elif last_stand:
+		pass                               # already down for good
+	elif downed:
+		if ragdoll.active:
+			ragdoll.break_knee(side, dir)
+		elif _down_stage == 1:
+			_go_down(side, dir)            # was getting up on the good one: back down
+	else:
 		_go_down(side, dir)
+
+
+## The arm breaks: it drops and dangles, a splinter of bone out through the
+## skin. Whatever was in that hand goes; an enemy with no good arm left
+## stops fighting and tries to hide.
+func _break_arm(side: String, at: Vector3, dir: Vector3) -> void:
+	if arm_out(side):
+		return
+	broken_arms.append(side)
+	Blood.spawn_hit(at, dir, 1.2, mechanical)
+	gore.add_wound(StringName(side + "LowerArm"), at, 35.0)
+	gore.show_broken_arm(side)
+	for part in ["UpperArm", "LowerArm", "Hand"]:
+		ragdoll.weaken(StringName(side + part), 0.0)
+	if not dead:
+		_arm_lost(side)
+
+
+## An arm out of use (broken or blown off): weapons it held are dropped, a
+## rifleman carries on with a pistol in the good hand; with neither, it hides.
+func _arm_lost(side: String) -> void:
+	if dead:
+		return
+	var good := main_arm()
+	var b := get_node_or_null("Brain")
+	if has_rifle:
+		_drop_rifle()
+		has_rifle = false
+		has_gun = false
+		if good != "" and not last_stand:
+			give_gun(good)
+			if b and b.has_method("pistol_mode"):
+				b.pistol_mode()
+	elif has_club and side == "Right":
+		_drop_club()
+		has_club = false
+	elif has_gun and gun_side == side:
+		_drop_gun()
+		if good != "":
+			give_gun(good)
+	if good == "":
+		_drop_gun()
+		has_gun = false
+		if b and b.has_method("start_hiding") and not last_stand:
+			b.start_hiding()
+
+
+func _drop_gun() -> void:
+	if _gun_att and is_instance_valid(_gun_att):
+		var gun := _gun_att.get_child(0) as Node3D
+		if gun:
+			var xf := gun.global_transform
+			var body_ := RigidBody3D.new()
+			body_.collision_layer = 1 << 3
+			body_.collision_mask = 1 | (1 << 3)
+			body_.mass = 1.0
+			var cs := CollisionShape3D.new()
+			var box := BoxShape3D.new()
+			box.size = Vector3(0.2, 0.05, 0.035)
+			cs.shape = box
+			body_.add_child(cs)
+			gun.get_parent().remove_child(gun)
+			body_.add_child(gun)
+			gun.transform = Transform3D.IDENTITY
+			get_parent().add_child(body_)
+			body_.global_transform = xf
+			body_.linear_velocity = velocity + Vector3(randf_range(-1, 1), 1.0, randf_range(-1, 1))
+		_gun_att.queue_free()
+	_gun_att = null
+	gun_side = ""
 
 
 ## The knee gives: the body drops, writhes on the floor clutching it, then
@@ -422,9 +562,10 @@ func _go_down(side: String, dir: Vector3) -> void:
 	if b:
 		b.process_mode = Node.PROCESS_MODE_DISABLED
 	ragdoll.start(ClownRagdoll.profile_kneecapped(), dir, velocity * 0.5)
-	for part in ["UpperLeg", "LowerLeg", "Foot"]:
-		ragdoll.weaken(StringName(side + part), 0.1 if part == "UpperLeg" else 0.0)
-	ragdoll.break_knee(side, dir)
+	for leg: String in broken_legs:
+		for part in ["UpperLeg", "LowerLeg", "Foot"]:
+			ragdoll.weaken(StringName(leg + part), 0.1 if part == "UpperLeg" else 0.0)
+		ragdoll.break_knee(leg, dir)
 	gore.start_bleeding()
 	set_process(true)
 
@@ -449,7 +590,10 @@ func _downed_process(delta: float) -> void:
 		var chest: PhysicalBone3D = ragdoll.bones.get(&"Chest")
 		var slow := chest == null or (PhysicsServer3D.body_get_state(chest.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY) as Vector3).length() < 1.2
 		if _down_t > _writhe_for and slow:
-			_begin_getup()
+			if leg_out("Left") and leg_out("Right"):
+				_begin_last_stand()
+			else:
+				_begin_getup()
 	else:
 		_getup()
 
@@ -488,6 +632,36 @@ func _begin_getup() -> void:
 	_apply_pose(_getup_from, _getup_from, 0.0)
 	_down_stage = 1
 	_down_t = 0.0
+
+
+## Both legs broken: it will not get up again. Off the ragdoll and into the
+## last stand: it drags itself away on its arms to a wall, sits against it,
+## and (if it carried a gun) pulls a pistol for a last few shots.
+func _begin_last_stand() -> void:
+	var sk := skeleton
+	var hips: Vector3 = sk.global_transform * ragdoll.bone_pose(sk.find_bone("Hips")).origin
+	ragdoll.stop()
+	downed = false
+	last_stand = true
+	var b := get_node_or_null("Brain")
+	var floor_y := global_position.y
+	if b and b.maze:
+		floor_y = b.maze.floor_height(hips)
+	global_position = Vector3(hips.x, floor_y, hips.z)
+	var shooter := has_gun or has_rifle
+	_drop_rifle()
+	has_rifle = false
+	_drop_club()
+	_model.position = Vector3.ZERO
+	_model.rotation = Vector3.ZERO
+	var ls := ClownLastStand.new()
+	ls.name = "LastStand"
+	add_child(ls)
+	var away := Vector3.FORWARD
+	var player := get_tree().get_first_node_in_group(&"player") as Node3D
+	if player:
+		away = global_position - player.global_position
+	ls.begin_last_stand(self, b.maze if b else null, away, shooter)
 
 
 ## The pose a function leaves the skeleton in, starting from standing.
@@ -627,6 +801,13 @@ func caught_in_blast(center: Vector3, radius: float) -> void:
 			continue
 		if gore.can_sever(limb):
 			gore.sever(limb, dir * lerpf(10.0, 30.0, s) + Vector3(randf_range(-4, 4), randf_range(0, 6), randf_range(-4, 4)))
+	# and it breaks bones: often several at once, more the closer it was
+	if s > 0.2:
+		for side: String in ["Left", "Right"]:
+			if randf() < s * 0.9:
+				_break_leg(side, _bone_world(StringName(side + "LowerLeg")), dir)
+			if randf() < s * 0.8:
+				_break_arm(side, _bone_world(StringName(side + "LowerArm")), dir)
 	gore.watch_impacts(2.2)
 	gore.start_bleeding()
 
@@ -807,7 +988,7 @@ func _flinch_from(world_pos: Vector3, dir: Vector3, damage: float) -> void:
 
 func _process(delta: float) -> void:
 	_shot_t += delta
-	if dead or crawling:
+	if dead or crawling or last_stand:
 		set_process(false)
 		return
 	if downed:
@@ -908,13 +1089,15 @@ func _process(delta: float) -> void:
 	_stance_w = 0.0
 	if spec.get("soldier", false) and has_rifle and aim_amount > 0.01:
 		_aim_stance(aim_amount * (1.0 - clampf(gait * 1.6, 0.0, 1.0)))
-	# Right arm: swung overhead to hit, or held out to aim (pistol gunmen).
-	if attack_amount > 0.01:
-		_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-135.0) * attack_amount)
-		_turn("RightLowerArm", Vector3.RIGHT, deg_to_rad(-35.0) * attack_amount)
+	# The fighting arm (the right, or the left if the right is out): swung
+	# overhead to hit, or held out to aim (pistol gunmen).
+	var arm := main_arm()
+	if attack_amount > 0.01 and arm != "":
+		_turn(arm + "UpperArm", Vector3.RIGHT, deg_to_rad(-135.0) * attack_amount)
+		_turn(arm + "LowerArm", Vector3.RIGHT, deg_to_rad(-35.0) * attack_amount)
 		_turn("Chest", Vector3.RIGHT, deg_to_rad(12.0) * attack_amount)
-	elif aim_amount > 0.01 and not has_rifle:
-		_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-84.0) * aim_amount)
+	elif aim_amount > 0.01 and not has_rifle and arm != "":
+		_turn(arm + "UpperArm", Vector3.RIGHT, deg_to_rad(-84.0) * aim_amount)
 	if _flinch.length() > 0.0005:
 		for b: Array in FLINCH_BONES:
 			_turn(b[0], _flinch.normalized(), _flinch.length() * b[1])
@@ -923,11 +1106,30 @@ func _process(delta: float) -> void:
 		extra_pose.call()
 	if has_rifle and _rifle and is_instance_valid(_rifle):
 		_hold_rifle()
+	for side: String in broken_arms:
+		dangle_arm(side, gait)
 	if not always_pose and _flinch.length() < 0.002 and _flinch_vel.length() < 0.02 and _stagger.length() < 0.002 and _stagger_vel.length() < 0.02:
 		_flinch = Vector3.ZERO
 		_stagger = Vector3.ZERO
 		_model.position = Vector3.ZERO
 		set_process(false)
+
+
+## A broken arm hangs from the shoulder and swings with the body: the
+## elbow bent the wrong way, the forearm twisted, the hand limp.
+func dangle_arm(side: String, swing: float = 0.0) -> void:
+	var s := 1.0 if side == "Left" else -1.0
+	for part in ["UpperArm", "LowerArm", "Hand"]:
+		var bi := skeleton.find_bone(side + part)
+		if _base_rot.has(bi):
+			skeleton.set_bone_pose_rotation(bi, _base_rot[bi])
+	var t := Time.get_ticks_msec() / 1000.0
+	var sway := sin(walk_phase + 0.7) * 16.0 * swing + sin(t * 1.3 + s) * 2.0
+	_turn(side + "UpperArm", Vector3.RIGHT, deg_to_rad(sway) - _flinch.x * 0.6)
+	_turn(side + "UpperArm", Vector3.BACK, deg_to_rad(6.0) * s)
+	_turn(side + "LowerArm", Vector3.BACK, deg_to_rad(-26.0) * s)
+	_turn(side + "LowerArm", Vector3.UP, deg_to_rad(38.0) * s)
+	_turn(side + "Hand", Vector3.RIGHT, deg_to_rad(48.0))
 
 
 # --- a soldier's walk and stance ---------------------------------------------------
@@ -1585,11 +1787,13 @@ func _rifle_part(parent: Node3D, size: Vector3, pos: Vector3, mat: Material) -> 
 
 
 ## Put a pistol in the clown's right hand.
-func give_gun() -> void:
+func give_gun(side: String = "Right") -> void:
 	has_gun = true
+	gun_side = side
 	var att := BoneAttachment3D.new()
-	att.bone_name = "RightHand"
+	att.bone_name = side + "Hand"
 	skeleton.add_child(att)
+	_gun_att = att
 	var gun := MeshInstance3D.new()
 	var box := BoxMesh.new()
 	box.size = Vector3(0.2, 0.05, 0.035)
@@ -1602,8 +1806,8 @@ func give_gun() -> void:
 	gun.layers = 2
 	att.add_child(gun)
 	# Sit it in the palm, barrel along the fingers, whatever the bone's own axes are.
-	var hand := skeleton.get_bone_global_rest(skeleton.find_bone("RightHand"))
-	gun.transform = hand.affine_inverse() * Transform3D(Basis.IDENTITY, hand.origin + Vector3(-0.1, -0.02, 0.0))
+	var hand := skeleton.get_bone_global_rest(skeleton.find_bone(side + "Hand"))
+	gun.transform = hand.affine_inverse() * Transform3D(Basis.IDENTITY, hand.origin + Vector3(-0.1 if side == "Right" else 0.1, -0.02, 0.0))
 
 
 ## World position of the gun's muzzle (roughly the right hand).

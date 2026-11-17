@@ -1013,6 +1013,51 @@ func _mech_broken_knee(side: String) -> void:
 	_bleeding = true
 
 
+## A broken forearm: the bones snapped halfway down and a jagged end of one
+## through the skin (a snapped steel rod and torn wiring on a clockwork
+## body), a little meat round it, and it bleeds.
+func show_broken_arm(side: String) -> void:
+	var skel := clown.skeleton
+	var elbow: Vector3 = skel.get_bone_global_rest(skel.find_bone(side + "LowerArm")).origin
+	var wrist: Vector3 = skel.get_bone_global_rest(skel.find_bone(side + "Hand")).origin
+	var along := (wrist - elbow).normalized()
+	var mid := elbow.lerp(wrist, 0.45)
+	var up := Vector3.UP
+	var back := along.cross(up).normalized() * (1.0 if side == "Left" else -1.0)
+	var att := BoneAttachment3D.new()
+	att.bone_name = side + "LowerArm"
+	skel.add_child(att)
+	var holder := Node3D.new()
+	att.add_child(holder)
+	holder.transform = skel.get_bone_global_rest(skel.find_bone(side + "LowerArm")).affine_inverse()
+	var out := (up * 0.8 + back * 0.6).normalized()
+	var p0 := mid - along * 0.035
+	var p1 := mid + out * 0.075 + along * 0.02
+	if clown.mechanical:
+		var C := Clockwork
+		C.span(holder, C.mat("steel"), p0, p1, 0.016)
+		C.part(holder, C.shard(2), C.mat("steel"), p1, Vector3.ONE * 0.022, Vector3(0.3, 0.5, 0))
+		C.cable(holder, C.mat("wire_red"), mid, mid + out * 0.05 - along * 0.05, 0.02, 0.005)
+	else:
+		_part_between(holder, _mat("bone"), p0, p1, 0.02)
+		for k in 3:
+			var q := p1 + Vector3(_rng.randf_range(-0.01, 0.01), _rng.randf_range(-0.01, 0.01), _rng.randf_range(-0.01, 0.01))
+			_part_between(holder, _mat("bone"), q, q + out * _rng.randf_range(0.01, 0.025) + along * _rng.randf_range(-0.015, 0.015), 0.006)
+		_part(holder, _blob_mesh(), _mat("meat"), mid + out * 0.03, Vector3(0.035, 0.03, 0.035))
+	var bi := skel.find_bone(side + "LowerArm")
+	var world := skel.global_transform * clown.ragdoll.bone_pose(bi) * skel.get_bone_global_rest(bi).affine_inverse()
+	var at := world * (mid + out * 0.035)
+	_add_wound_entry(StringName(side + "LowerArm"), at, 0.05, 0.02, 0.02)
+	add_bleed(StringName(side + "LowerArm"), at, 0.9)
+	Blood.spawn_hit(at, (world.basis * out).normalized(), 1.0, clown.mechanical)
+	if clown.mechanical:
+		MechFx.sparks(clown, at, (world.basis * out).normalized(), 1.0)
+		MechFx.sound(clown, "grind", at, -3.0)
+	set_process(true)
+	set_physics_process(true)
+	_bleeding = true
+
+
 ## A gib off a clockwork body: field-grey cloth, an oily steel stump face
 ## round a brass core, and it drips oil.
 func _mech_gib(gib: Gib, _seg: StringName) -> void:

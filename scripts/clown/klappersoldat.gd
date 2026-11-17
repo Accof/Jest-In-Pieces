@@ -295,7 +295,7 @@ func _process(delta: float) -> void:
 			_dying_process(minf(delta, 1.0 / 30.0))
 		_dead_process(delta)
 		return
-	if crawling or downed:
+	if crawling or downed or last_stand:
 		super._process(delta)
 		return
 	if brain == null:
@@ -315,6 +315,8 @@ func _process(delta: float) -> void:
 		_attack_pose(d)
 	else:
 		_atk_marks.clear()
+	for side: String in broken_arms:
+		dangle_arm(side, walk_amount)
 	_head(d)
 	_twitch_update(d)
 	_idle(d, attacking)
@@ -589,11 +591,15 @@ func _attack_pose(_d: float) -> void:
 		var r := (u - 0.73) / 0.27
 		var a := clampf(r / 0.35, 0.0, 1.0) * 0.5 + clampf((r - 0.55) / 0.3, 0.0, 1.0) * 0.5
 		pose = _lerp_pose(struck, rest, a)
-	_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(pose[0]))
-	_turn("RightLowerArm", Vector3.RIGHT, deg_to_rad(pose[1]))
-	_turn("Chest", Vector3.UP, deg_to_rad(pose[2]))
+	var arm := main_arm()                     # the left, if the right is broken
+	if arm == "":
+		return
+	var flip := 1.0 if arm == "Right" else -1.0
+	_turn(arm + "UpperArm", Vector3.RIGHT, deg_to_rad(pose[0]))
+	_turn(arm + "LowerArm", Vector3.RIGHT, deg_to_rad(pose[1]))
+	_turn("Chest", Vector3.UP, deg_to_rad(pose[2]) * flip)
 	_turn("Spine", Vector3.RIGHT, deg_to_rad(pose[3]))
-	_turn("RightHand", Vector3.RIGHT, deg_to_rad(pose[4]))
+	_turn(arm + "Hand", Vector3.RIGHT, deg_to_rad(pose[4]))
 
 
 static func _lerp_pose(a: Array, b: Array, w: float) -> Array:
@@ -876,7 +882,7 @@ func _on_part_severed(segment: StringName, gib: Node3D) -> void:
 ## ragdoll as for anything else. Every death smokes and arcs from the wounds.
 func _die(info: Dictionary, zone: StringName) -> void:
 	var scripted: bool = not (info.get("blast", false) or info.get("stake", false) or info.has("profile") \
-		or crawling or downed or ragdoll.active or _halved)
+		or crawling or downed or last_stand or ragdoll.active or _halved)
 	if scripted:
 		dead = true
 		_record_death(info, zone)

@@ -41,6 +41,9 @@ const TEXT := {
 	through = ["Shot clean through", "Holed clean through"],
 	bone = ["%s shattered", "%s snapped"],
 	knee = ["%s kneecap blown off", "%s knee joint sheared"],
+	both_legs = ["Both legs broken", "Both leg struts snapped"],
+	arm_broken = ["%s arm broken, bone through the skin", "%s arm strut snapped"],
+	both_arms = ["Both arms broken", "Both arm struts snapped"],
 	limb_off = ["%s torn off", "%s torn from its socket"],
 	halved = ["TORN IN HALF", "SNAPPED IN TWO"],
 	blast = ["Caught in an explosion (%s)", "Caught in an explosion (%s)"],
@@ -61,7 +64,7 @@ const POINTS := {
 	heart = 75, lung = 40, lungs = 85, collarbone = 25, spine = 60, liver = 45, spleen = 40, gut = 35,
 	pelvis = 45, groin = 30, ribs = 60, guts = 70, through = 55, bone = 30, knee = 40, limb_off = 55,
 	halved = 160, blast = 40, ribs_broken = 30, bones_broken = 35, spine_broken = 45, eardrums = 15,
-	stake = 85, riddled = 0, overkill = 0, desecrated = 0, oil = 20,
+	stake = 85, both_legs = 70, arm_broken = 30, both_arms = 50, riddled = 0, overkill = 0, desecrated = 0, oil = 20,
 }
 
 const RANKS := [[0, "CLEAN KILL"], [90, "NASTY"], [170, "BRUTAL"], [270, "SAVAGE"], [400, "BUTCHERED"], [600, "GRAND GUIGNOL"]]
@@ -184,8 +187,14 @@ static func assess(c: Clown) -> Dictionary:
 				var nm: String = BONE_NAMES[part][1 if mech else 0] % sd
 				var t: String = TEXT.bone[1 if mech else 0] % nm
 				found["bone" + bn] = {text = t, points = POINTS.bone}
-	if c.broken_leg != "":
-		add.call("knee", c.broken_leg)
+	for side: String in c.broken_legs:
+		add.call("knee", side)
+	if c.broken_legs.size() >= 2:
+		add.call("both_legs")
+	for side: String in c.broken_arms:
+		add.call("arm_broken", side)
+	if c.broken_arms.size() >= 2:
+		add.call("both_arms")
 	# what the gore system did
 	var g := c.gore
 	var head_seg := ClownGore.SEGMENTS.find(&"Head")

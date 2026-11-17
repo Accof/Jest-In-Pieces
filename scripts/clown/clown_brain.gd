@@ -90,6 +90,11 @@ var _cover_state := 0              # 0 none, 1 going to cover, 2 hiding, 3 peeki
 var _cover_t := 0.0
 var _cover_cooldown := 0.0
 var _hide_for := 2.0
+## No good arm left: it gives up fighting and hides (tests read it too).
+var hiding := false
+var hidden := false                  ## crouched in its hiding place
+var _hide_to := Vector3.INF
+var _hide_t := 0.0
 var _backoff := -2.0              # > 0 while stepping back from a player too close; < 0 resting from it
 var backing := false              # test hook: stepping back this frame
 
@@ -203,11 +208,15 @@ func _physics_process(delta: float) -> void:
 		return
 	_cooldown -= delta
 	_cover_cooldown -= delta
-	clown.crouch_amount = move_toward(clown.crouch_amount, 1.0 if _cover_state == 2 else 0.0, delta * 3.5)
+	if not hiding:
+		clown.crouch_amount = move_toward(clown.crouch_amount, 1.0 if _cover_state == 2 else 0.0, delta * 3.5)
 	if player == null or player.dead:
 		_settle(delta)
 		return
 
+	if hiding:
+		_hide(delta)
+		return
 	# Noticing: the player has to stay in view for a moment before it registers.
 	var seen := _can_see_player()
 	if seen:
@@ -679,6 +688,105 @@ func clubman() -> void:
 	attack_time = 0.7
 	attack_hit_at = 0.42
 	attack_recover = 1.1
+
+
+## The rifle gone with an arm: a pistol in the good hand instead (shorter
+## range, weaker, quicker), and no more fighting from cover.
+func pistol_mode() -> void:
+	use_cover = false
+	_cover_state = 0
+	gun_damage = 9.0
+	gun_range = 16.0
+	aim_time = 0.7
+	shot_gap = Vector2(1.3, 2.0)
+	accuracy = Vector3(0.6, 0.02, 0.2)
+	keep_distance = 7.0
+
+
+## Both arms broken or gone: it cannot fight, so it runs and hides where the
+## player cannot see it, crouches there shaking, and runs again if found.
+func start_hiding() -> void:
+	hiding = true
+	hidden = false
+	_cover_state = 0
+	_attack_t = -1.0
+	_aim_t = -1.0
+	_hide_to = Vector3.INF
+	clown.attack_amount = 0.0
+	clown.aim_amount = 0.0
+
+
+func _hide(delta: float) -> void:
+	_hide_t -= delta
+	clown.attack_amount = 0.0
+	clown.aim_amount = 0.0
+	if player == null:
+		_settle(delta)
+		return
+	var seen := _sees_player()
+	var dist := clown.global_position.distance_to(player.global_position)
+	# found (or nowhere picked yet): somewhere new, away and out of sight
+	if _hide_to == Vector3.INF or (hidden and seen and dist < 7.0 and _hide_t <= 0.0):
+		_pick_hiding_place()
+		hidden = false
+		_hide_t = 1.5
+	if not hidden:
+		var flat := Vector3(_hide_to.x - clown.global_position.x, 0, _hide_to.z - clown.global_position.z)
+		if flat.length() < 0.35:
+			hidden = true
+		else:
+			var target := _hide_to
+			if maze.cell_of(_hide_to) != maze.cell_of(clown.global_position):
+				var p := maze.path(clown.global_position, _hide_to)
+				if not p.is_empty():
+					target = p[0]
+			target = _through_opening(target)
+			var move := Vector3(target.x - clown.global_position.x, 0, target.z - clown.global_position.z).normalized()
+			var facing := Vector3(clown.global_basis.z.x, 0, clown.global_basis.z.z).normalized()
+			var speed := lerpf(move_speed * 0.2, run_speed if can_run else move_speed, smoothstep(0.2, 0.85, facing.dot(move)))
+			var vel := move * speed
+			_step(vel, delta)
+			_face(vel, delta, 9.0)
+			clown.run_amount = move_toward(clown.run_amount, 1.0 if speed > move_speed * 1.2 else 0.0, delta * 4.0)
+			clown.walk_amount = move_toward(clown.walk_amount, clampf(vel.length() / move_speed, 0.0, 1.0), delta * 5.0)
+			clown.crouch_amount = move_toward(clown.crouch_amount, 0.0, delta * 3.0)
+			return
+	# cowering: crouched, turned away, shaking
+	_settle(delta, false)
+	clown.crouch_amount = move_toward(clown.crouch_amount, 1.0, delta * 3.0)
+	var away := clown.global_position - player.global_position
+	_face(Vector3(away.x, 0, away.z), delta, 3.0)
+
+
+## The best spot within a few cells that the player cannot see from where
+## they stand, as far from them along the corridors as it can manage.
+func _pick_hiding_place() -> void:
+	var eye := player.global_position + Vector3.UP * 1.5
+	var start := maze.cell_of(clown.global_position)
+	var pc := maze.cell_of(player.global_position)
+	var cells := {start: 0}
+	var frontier := [start]
+	while not frontier.is_empty():
+		var c: Vector2i = frontier.pop_front()
+		if cells[c] >= 4:
+			continue
+		for dir in Maze.DIRS:
+			var n: Vector2i = c + dir
+			if maze.in_bounds(n) and maze.linked(c, n) and not cells.has(n):
+				cells[n] = cells[c] + 1
+				frontier.append(n)
+	var best := -INF
+	_hide_to = clown.global_position
+	for c: Vector2i in cells:
+		var centre := maze.cell_center(c)
+		for o: Vector3 in [Vector3.ZERO, Vector3(0.8, 0, 0.8), Vector3(-0.8, 0, 0.8), Vector3(0.8, 0, -0.8), Vector3(-0.8, 0, -0.8)]:
+			var p := centre + o
+			p.y = maze.floor_height(p)
+			var unseen := not _clear(eye, p + Vector3.UP * 0.8)
+			var score := float(maze.path_cells(pc, c)) * 1.0 + (6.0 if unseen else 0.0) - float(cells[c]) * 0.3 + randf() * 0.4
+			if score > best:
+				best = score
+				_hide_to = p
 
 
 ## WitzSoldat settings: a bolt-action rifle. Slower to aim and to work the
