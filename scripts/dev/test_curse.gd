@@ -44,7 +44,7 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var secs := ["charge", "aim", "play", "bodies", "walls", "edges", "repeat"]
+	var secs := ["charge", "aim", "play", "bodies", "walls", "edges", "repeat", "closeup"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -328,6 +328,46 @@ func _play() -> void:
 
 
 ## One execution in the sandbox; returns the measurements.
+## Render only: the broken neck held still in the pause, close up from
+## three sides, for each body ("closeup render [only=kind]").
+func _closeup() -> void:
+	if not render:
+		return
+	print("-- neck")
+	var room := await _sandbox()
+	var cam := Camera3D.new()
+	add_child(cam)
+	cam.make_current()
+	cam.fov = 35.0
+	var kinds := ["witzsoldat", "zornhauptmann", "clown", "rattlejack"]
+	for a: String in OS.get_cmdline_user_args():
+		if a.begins_with("only="):
+			kinds = [a.substr(5)]
+	for kind: String in kinds:
+		var c := _make(room, kind, Vector3(0, 0, -3))
+		for i in 12:
+			await get_tree().physics_frame
+		c.begin_curse({}, c.global_position + Vector3.UP * 1.3, -c.global_basis.z)
+		var m := c.get_node_or_null("Marionette") as Marionette
+		m.use_strings = false
+		while is_instance_valid(m) and m.phase != "pause":
+			await get_tree().physics_frame
+		Engine.time_scale = 0.0
+		await get_tree().process_frame
+		var sk := c.skeleton
+		var head := sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Neck")).origin + Vector3.UP * 0.08
+		print("      %s frozen in %s at %.2f s, hips %.2f, neck %s, cam basis %s" % [kind, m.phase, m.t, (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Hips")).origin).y, head, c.global_basis.z])
+		var k := 0
+		for off: Vector3 in [Vector3(0, 0.0, 1.4), Vector3(1.1, 0.05, 0.7), Vector3(-1.1, 0.05, 0.7)]:
+			cam.global_position = head + c.global_basis * off
+			cam.look_at(head)
+			await _shot("neck_%s_%d" % [kind, k])
+			k += 1
+		Engine.time_scale = 1.0
+		c.queue_free()
+		await _frames(2)
+
+
 ## The odd cases: one arm already off; a drum going off beside him mid-curse;
 ## the body freed mid-curse; on a stair step.
 func _edges() -> void:

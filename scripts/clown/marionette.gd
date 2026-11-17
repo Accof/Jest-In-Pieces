@@ -71,6 +71,8 @@ var _played := {}
 var _done := false
 
 const ARM_PARTS := ["UpperArm", "LowerArm", "Hand"]
+## How far over the neck snaps (radians, chest to head), spread over three joints.
+const NECK_ROLL := 1.05
 ## The broken shapes pulled in against the body, for an arm with a wall
 ## beside it (the left arm's; mirrored for the right): the upper arm down
 ## and back, the forearm wrenched up behind the back.
@@ -301,14 +303,19 @@ func _pose(d: float, t_arm1: float, t_arm2: float, t_neck: float, t_pause: float
 		if u >= snap_at:
 			var v := clampf((u - snap_at) / 0.07, 0.0, 1.0)
 			snap = v * v * (3.0 - 2.0 * v) + 0.08 * _pulse(u - snap_at, 0.05, 0.08, 0.22)   # a slight overshoot as it lands
-		roll = neck_sign * (snap * 1.38 - pre)
+		roll = neck_sign * (snap * NECK_ROLL - pre)
 		if u >= snap_at:
 			head_tw = Vector3.ZERO
-	_c._turn("Chest", Vector3.BACK, -roll * 0.12)                 # the shoulders follow a little
-	_c._turn("Neck", Vector3.BACK, -roll * 0.55)
-	_c._turn("Head", Vector3.BACK, -roll * 0.33)
-	_c._turn("Neck", Vector3.RIGHT, 0.15 * absf(roll) + 0.12 * head_tw.y)
-	_c._turn("Head", Vector3.UP, 0.25 * head_tw.x + 0.18 * absf(roll) * neck_sign)
+	# Spread over the chest, neck and head so no one joint bends far: the
+	# skin is weighted across neighbouring bones, and a big bend at a single
+	# joint stretches the collar and jaw (worst on the high-collared bodies).
+	# The twist and the drop forward sell the break as much as the roll.
+	_c._turn("Chest", Vector3.BACK, -roll * 0.22)                 # the shoulders follow a little
+	_c._turn("Neck", Vector3.BACK, -roll * 0.25)                  # least here: the collar or ruff hangs off this joint
+	_c._turn("Head", Vector3.BACK, -roll * 0.53)
+	_c._turn("Neck", Vector3.RIGHT, 0.08 * absf(roll) + 0.12 * head_tw.y)
+	_c._turn("Head", Vector3.RIGHT, 0.14 * absf(roll))
+	_c._turn("Head", Vector3.UP, 0.25 * head_tw.x + 0.32 * absf(roll) * neck_sign)
 	_c._turn("Head", Vector3.RIGHT, 0.2 * head_tw.z)
 	# --- the feet stay where they were
 	_legs()

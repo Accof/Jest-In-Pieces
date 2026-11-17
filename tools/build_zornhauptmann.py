@@ -164,7 +164,7 @@ def weights_for(p: Vector) -> dict:
         # breeches between the crotch and the belt follow the thigh more the lower they are
         w = smooth(0.9, CROTCH, p.z)
         return {"Hips": 1.0 - w, side + "UpperLeg": w} if w > 0.001 else {"Hips": 1.0}
-    return chain_weight(p.z, [WAIST, 1.26, 1.56, NECK_CUT], ["Hips", "Spine", "Chest", "Neck", "Head"], 0.035)
+    return chain_weight(p.z, [WAIST, 1.26, BONES["Chest"][1][2], NECK_CUT], ["Hips", "Spine", "Chest", "Neck", "Head"], 0.035)
 
 
 # --- build ---------------------------------------------------------------------------
