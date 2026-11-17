@@ -449,6 +449,8 @@ func _on_locker_opened(l: JokerLocker) -> void:
 
 func _on_clown_died(c: Clown) -> void:
 	kills += 1
+	if player and player.curse:
+		player.curse.on_kill(c)
 	Records.kill(save, c)
 	remaining -= 1
 	var headshot := c.last_hit_zone == &"Neck"

@@ -290,6 +290,8 @@ func _dress() -> void:
 
 # --- every frame -------------------------------------------------------------------
 func _process(delta: float) -> void:
+	if executing:
+		return
 	if dead:
 		if dying != "":
 			_dying_process(minf(delta, 1.0 / 30.0))

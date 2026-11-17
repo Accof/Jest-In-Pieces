@@ -235,6 +235,8 @@ func start_reload() -> void:
 
 # --- every frame ---------------------------------------------------------------------
 func _process(delta: float) -> void:
+	if executing:
+		return
 	if bleeding_out:
 		_throat_process(delta)
 		return
@@ -1049,6 +1051,16 @@ func hit(info: Dictionary) -> void:
 	if dying != "" and not _collapsing:
 		_hit_while_dying(info)
 	super.hit(info)
+
+
+## The Carnival Curse takes him: no Death Rattle, no staged death, the gun
+## out of his hands (it never fires again).
+func _curse_prepare() -> void:
+	dying = ""
+	_rattle_left = 0.0
+	_collapsing = false
+	if _gun_hand:
+		_gun_hand = null
 
 
 ## Shot again on his feet: it rocks him, and a big one takes him down now.

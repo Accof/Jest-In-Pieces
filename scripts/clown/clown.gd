@@ -214,6 +214,10 @@ func hit(info: Dictionary) -> void:
 		return
 	if bleeding_out:
 		_throat_hit(info)
+	if executing and (info.get("blast", false) or info.get("stake", false)):
+		var m := get_node_or_null("Marionette") as Marionette
+		if m:
+			m.release_now()
 	var bone := StringName(pb.bone_name)
 	var zone := _zone(bone)
 	var dir: Vector3 = info.direction.normalized()
@@ -335,6 +339,61 @@ func hit(info: Dictionary) -> void:
 		if zone == &"Neck":
 			knock_off_helmet(dir, info.position)
 		gore.sever(bone, dir * float(info.get("impulse", 12.0)))
+
+
+# --- Carnival Curse ------------------------------------------------------------------
+## Under the Carnival Curse (a Marionette child has his skeleton): the
+## killcam waits for it, and nothing else poses him.
+var executing := false
+## Some enemies (a boss) shrug the curse off.
+var curse_immune := false
+
+
+## Why this one cannot be cursed now ("" if it can).
+func curse_block() -> String:
+	if dead or executing:
+		return "dead"
+	if curse_immune:
+		return "immune"
+	if crawling or downed or last_stand or _halved or ragdoll.active:
+		return "down"
+	if skeleton == null or skeleton.find_bone("Neck") < 0 or skeleton.find_bone("LeftUpperArm") < 0:
+		return "body"
+	return ""
+
+
+## The Carnival Curse lands: dead and counted now, his weapons dropped,
+## everything he was doing stopped, and the Marionette takes him over.
+## Returns false (nothing happens) if he cannot be cursed.
+func begin_curse(cfg: Dictionary, at: Vector3, from_dir: Vector3) -> bool:
+	if curse_block() != "":
+		return false
+	executing = true
+	dead = true
+	reload_t = 0.0
+	attack_amount = 0.0
+	aim_amount = 0.0
+	walk_amount = 0.0
+	run_amount = 0.0
+	crouch_amount = 0.0
+	velocity = Vector3.ZERO
+	aim_point = Vector3.INF
+	_record_death({position = at, direction = from_dir, weapon = "Carnival Curse", curse = true}, &"Chest")
+	_drop_weapons()
+	_curse_prepare()
+	set_process(false)
+	Marionette.start(self, cfg, at)
+	return true
+
+
+## A subclass stops whatever staged business it had (the Rattlejack's).
+func _curse_prepare() -> void:
+	pass
+
+
+## The Marionette has let go (the ragdoll has him).
+func curse_released() -> void:
+	executing = false
 
 
 func _die(info: Dictionary, zone: StringName) -> void:
@@ -685,6 +744,7 @@ func _record_death(info: Dictionary, zone: StringName) -> void:
 		zone = zone, blast = info.get("blast", false), stake = info.get("stake", false),
 		head_open = _head_open, limbs = limbs, broken_leg = broken_leg != "",
 		crawler = crawling or _halved, through = gore._tunnels.size() > 0,
+		friendly = info.get("friendly", false), curse = info.get("curse", false),
 	}
 	died.emit(self)
 
@@ -1057,6 +1117,10 @@ func _bone_world(bone: StringName) -> Vector3:
 ## An explosion went off at `center`. How badly this clown comes apart depends
 ## on how close it was and whether anything stood in the way.
 func caught_in_blast(center: Vector3, radius: float) -> void:
+	if executing and _bone_world(&"Chest").distance_to(center) < radius:
+		var m := get_node_or_null("Marionette") as Marionette
+		if m:
+			m.release_now()           # the blast takes him from the strings
 	var chest := _bone_world(&"Chest")
 	var to := chest - center
 	var d := to.length()
@@ -1298,6 +1362,8 @@ func _flinch_from(world_pos: Vector3, dir: Vector3, damage: float) -> void:
 
 func _process(delta: float) -> void:
 	_shot_t += delta
+	if executing:
+		return
 	if bleeding_out:
 		_throat_process(delta)
 		return

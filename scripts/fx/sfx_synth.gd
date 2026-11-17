@@ -81,6 +81,27 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _thump(0.09, 120.0, 70.0, 0.03, 0.55, rng, 0.03, 0.45)
 		"gurgle":
 			data = _gurgle(1.1, rng)
+		# --- Carnival Curse
+		"musicbox":
+			data = _musicbox(1.2, [1318.5, 1244.5], 0.5)          # a music-box note, the second tine flat
+		"curse_ready":
+			data = _musicbox(1.4, [1046.5, 1568.0], 0.35)
+		"chime":
+			data = _mix(_musicbox(0.9, [880.0, 932.3, 1396.9], 0.45), _paper(0.3, 0.12, rng))
+		"windup":
+			data = _ratchet(0.32, 34.0, rng)
+		"creak":
+			data = _creak(0.45, rng)
+		"crack":
+			data = _crack(0.18, rng, 1.0)
+		"crack_big":
+			data = _crack(0.32, rng, 1.6)
+		"porcelain":
+			data = _mix(_crack(0.12, rng, 0.8), _chirp(0.25, 3100.0, 2600.0, 0.25))
+		"strain":
+			data = _strain(0.5, rng)
+		"metal_snap":
+			data = _mix(_crack(0.12, rng, 1.1), _chirp(0.35, 1800.0, 1650.0, 0.3))
 		"choke":
 			data = _gurgle(0.5, rng, 1.6)
 		_:
@@ -202,6 +223,93 @@ static func _growl(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array
 		var pulse := 0.55 + 0.45 * sin(t * TAU * 27.0)
 		var env := smoothstep(0.0, 0.12, u) * (1.0 - smoothstep(0.6, 1.0, u))
 		out[i] = (lp2 * 3.0 + sin(ph) * 0.25) * pulse * env * 0.7
+	return out
+
+
+## A music-box tine (or a few): a bright decaying tone with a slightly
+## detuned partial, `wobble` 0..1 bending it out of tune.
+static func _musicbox(len: float, freqs: Array, wobble: float) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for f0: float in freqs:
+		var ph := 0.0
+		var ph2 := 0.0
+		for i in n:
+			var t := float(i) / RATE
+			var f := f0 * (1.0 + wobble * 0.012 * sin(t * TAU * 5.3))
+			ph += TAU * f / RATE
+			ph2 += TAU * f * 2.76 / RATE
+			out[i] += (sin(ph) + 0.25 * sin(ph2) * exp(-t * 9.0)) * exp(-t * 3.2) * minf(t / 0.002, 1.0) * 0.28
+	return out
+
+
+## A clockwork key being wound: quick clicks of a ratchet.
+static func _ratchet(len: float, rate: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var next := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		if t >= next:
+			next = t + 1.0 / rate * rng.randf_range(0.8, 1.2)
+			var k := 0
+			while k < 260 and i + k < n:
+				var tt := float(k) / RATE
+				out[i + k] += rng.randf_range(-1.0, 1.0) * exp(-tt * 900.0) * 0.6 + sin(tt * TAU * 2300.0) * exp(-tt * 400.0) * 0.25
+				k += 1
+	return out
+
+
+## Old wood (or old joints) creaking under strain: a slow, grinding stick-slip.
+static func _creak(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var ph := 0.0
+	var lp := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var u := t / len
+		var f := 140.0 + 60.0 * sin(u * PI) + 25.0 * sin(t * 37.0)
+		ph += TAU * f / RATE
+		var stick := 0.5 + 0.5 * signf(sin(ph))
+		lp += (rng.randf_range(-1.0, 1.0) * stick - lp) * 0.35
+		out[i] = lp * sin(u * PI) * 0.55
+	return out
+
+
+## A sharp crack: a snap of noise with a hard, dry body (bone, or wood).
+static func _crack(len: float, rng: RandomNumberGenerator, size: float) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		ph += TAU * (220.0 / size) / RATE
+		var snap := rng.randf_range(-1.0, 1.0) * exp(-t * 160.0 / size)
+		var crunch := rng.randf_range(-1.0, 1.0) * exp(-t * 35.0 / size) * 0.35 * (1.0 if rng.randf() < 0.3 else 0.2)
+		var body := sin(ph) * exp(-t * 28.0 / size) * 0.4
+		out[i] = (snap + crunch + body) * minf(size, 1.0) * 0.9
+	return out
+
+
+## A strained, choked noise in the throat (no words): a tight buzzing.
+static func _strain(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var ph := 0.0
+	var lp := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var u := t / len
+		ph += TAU * (150.0 + 40.0 * u + 6.0 * sin(t * 40.0)) / RATE
+		var buzz := clampf(sin(ph) * 3.0, -1.0, 1.0)
+		lp += (buzz + rng.randf_range(-0.4, 0.4) - lp) * 0.18
+		out[i] = lp * sin(u * PI) * (0.6 + 0.4 * sin(t * 23.0)) * 0.45
 	return out
 
 

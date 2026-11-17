@@ -54,7 +54,7 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var secs := ["injuries", "report", "floor", "variety", "double", "interrupt", "klapper", "rattlejack", "zornhauptmann", "throat", "fall", "event"]
+	var secs := ["injuries", "report", "floor", "variety", "double", "interrupt", "klapper", "rattlejack", "zornhauptmann", "throat", "curse", "fall", "event"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -434,6 +434,47 @@ func _throat() -> void:
 	print("      killcam held %.1f s (game time slowed), %d spurts while it was on; deaths %d, remaining %d" % [held, spurts_seen, deaths[0], game.remaining])
 	_check(spurts_seen >= 2, "it watches him bleed (%d spurts)" % spurts_seen)
 	_check(deaths[0] == 1 and game.remaining == 0, "counted once, floor cleared")
+
+
+## The last enemy taken by the Carnival Curse: the killcam holds until the
+## puppet is cut loose and fallen, counts him once, and hands the player back.
+func _curse() -> void:
+	print("-- curse")
+	await _new_game(5190)
+	var living := _living()
+	for c: Clown in living.slice(1):
+		c.queue_free()
+	var c: Clown = living[0]
+	game.clowns.clear()
+	game.clowns.append(c)
+	game.remaining = 1
+	await _frames(2)
+	_face(c)
+	await _frames(2)
+	var deaths := [0]
+	c.died.connect(func(_x: Clown) -> void: deaths[0] += 1)
+	var cur: CarnivalCurse = game.player.curse
+	cur.charges = 1
+	var chest: PhysicalBone3D = c.ragdoll.bones[&"Chest"]
+	var dir: Vector3 = (chest.global_position - game.player.camera.global_position).normalized()
+	_check(cur.struck(c, chest.global_position, dir), "the hex strikes the last enemy")
+	await _frames(1)
+	var kc: KillCam = game.kill_cam
+	_check(kc.active, "the killcam starts on the cursed last kill")
+	var held := 0.0
+	var was_executing_at_end := true
+	while kc.active and held < 12.0:
+		await get_tree().process_frame
+		held += get_process_delta_time()
+		if is_instance_valid(c):
+			was_executing_at_end = c.executing
+	var info: Dictionary = c.get_meta(&"curse", {}) if is_instance_valid(c) else {}
+	print("      killcam held %.1f s; executing at its end %s; hand-over at %.2f s; deaths %d, remaining %d" % [held, was_executing_at_end, info.get("handover_at", -1.0), deaths[0], game.remaining])
+	_check(not was_executing_at_end and info.get("handover_at", -1.0) > 0.0, "it holds through the whole execution, to the fall")
+	_check(deaths[0] == 1 and game.remaining == 0, "counted once, floor cleared")
+	_check(cur.charges == 0 and cur.kills == 0, "the charge is spent; the curse kill did not count towards the next")
+	await _frames(30)
+	_check(get_viewport().get_camera_3d() == game.player.camera, "the player gets his own camera back")
 
 
 func _fall() -> void:

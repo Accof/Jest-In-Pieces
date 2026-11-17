@@ -4,6 +4,7 @@ extends CharacterBody3D
 ## R reload, 1 pistol, 2 shotgun, 3 submachine gun, 4 stake gun, F flashlight,
 ## G god mode (no damage; for testing).
 ## L every eligible Zornhauptmann kill is a Last Defiance (for testing).
+## Q Carnival Curse (once charged by ten kills; see CarnivalCurse).
 
 const LAYER_WORLD := 1
 const LAYER_RAGDOLL := 1 << 2
@@ -86,6 +87,9 @@ var _label: Label
 var _hurt: ColorRect
 var _kick := 0.0
 var _shake := 0.0
+var _cross: Control
+## The super kill, charged by kills.
+var curse: CarnivalCurse
 
 
 func _ready() -> void:
@@ -130,12 +134,17 @@ func _ready() -> void:
 	cross.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cross.draw.connect(_draw_crosshair.bind(cross))
 	hud.add_child(cross)
+	_cross = cross
 	_label = Label.new()
 	_label.position = Vector2(16, 12)
 	_label.visible = show_help
 	hud.add_child(_label)
 	_update_label()
 	health = stats.max_health
+	curse = CarnivalCurse.new()
+	curse.name = "CarnivalCurse"
+	add_child(curse)
+	curse.setup(self)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -152,6 +161,19 @@ func _draw_crosshair(c: Control) -> void:
 		var w := (4.0 if pass_i == 0 else 2.0) * u
 		for d: Vector2 in [Vector2.RIGHT, Vector2.LEFT, Vector2.UP, Vector2.DOWN]:
 			c.draw_line(m + d * gap, m + d * (gap + length), col, w)
+	# the Carnival Curse is charged and there is an enemy it can take under
+	# the crosshair: a thin violet diamond round it (red when he shrugs it off)
+	if curse and curse.ready_to_use() and (curse.aim_target != null or curse.aim_block == "immune"):
+		var col2 := Color(0.8, 0.35, 1.0, 0.9) if curse.aim_target else Color(0.9, 0.15, 0.15, 0.8)
+		var r := 20.0 * u
+		var pts := PackedVector2Array([m + Vector2(0, -r), m + Vector2(r, 0), m + Vector2(0, r), m + Vector2(-r, 0), m + Vector2(0, -r)])
+		c.draw_polyline(pts, Color(0, 0, 0, 0.6), 3.0 * u)
+		c.draw_polyline(pts, col2, 1.5 * u)
+
+
+func redraw_crosshair() -> void:
+	if _cross:
+		_cross.queue_redraw()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -189,6 +211,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				Zornhauptmann.always_defiance = not Zornhauptmann.always_defiance
 			KEY_R: reload()
 			KEY_ESCAPE: Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		if curse and event.keycode == curse.key:
+			curse.activate()
 		if event.keycode == reset_key:
 			reset_requested.emit()
 		_update_label()
@@ -518,4 +542,4 @@ func heal(amount: float) -> void:
 
 
 func _update_label() -> void:
-	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]
+	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]

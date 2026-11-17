@@ -292,6 +292,8 @@ func _still_going() -> bool:
 	var dy: Variant = _target.get("dying")
 	if dy is String and dy != "":
 		return true
+	if _target.get("executing") == true:
+		return true                      # the Carnival Curse still has him on its strings
 	if _target.get("bleeding_out") == true:
 		return true                      # shot through the throat, still writhing
 	var rd := _target.ragdoll
