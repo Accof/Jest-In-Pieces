@@ -40,6 +40,10 @@ func _shot(name_: String, at: Vector3, from: Vector3) -> void:
 	own.global_position = from
 	own.look_at(at)
 	own.make_current()
+	var lamp := OmniLight3D.new()
+	own.add_child(lamp)
+	lamp.light_energy = 2.5
+	lamp.omni_range = 6.0
 	await get_tree().process_frame
 	await get_tree().process_frame
 	get_viewport().get_texture().get_image().save_png("/tmp/limbs_%s.png" % name_)
@@ -164,6 +168,9 @@ func _last() -> void:
 		var last_pts: Array[Vector3] = []
 		var jump_at_start := 0.0
 		var jumps: Array = []
+		var worst_leg := 9.0
+		var sit_jump := 0.0
+		var sit_done := false
 		while t < 30.0:
 			await _frames(1)
 			t += 1.0 / 60.0
@@ -177,13 +184,26 @@ func _last() -> void:
 			for bn: String in ["Head", "LeftHand", "RightHand", "LeftFoot", "RightFoot", "Hips"]:
 				var bi := sk.find_bone(bn)
 				pts.append(sk.global_transform * (c.ragdoll.bone_pose(bi).origin if c.ragdoll.active else sk.get_bone_global_pose(bi).origin))
+			# legs below the floor (knee/ankle centres need ~5 cm, the limb's own thickness)
+			if ls and not c.dead:
+				var fy: float = game.maze.floor_height(c.global_position)
+				for bn: String in ["LeftLowerLeg", "RightLowerLeg", "LeftFoot", "RightFoot"]:
+					var gy: float = (sk.global_transform * sk.get_bone_global_pose(sk.find_bone(bn)).origin).y
+					worst_leg = minf(worst_leg, gy - fy)
+			if ls and ls.stage == ClownLastStand.Phase.SIT and not ls.sat and not last_pts.is_empty():
+				for k in pts.size():
+					sit_jump = maxf(sit_jump, pts[k].distance_to(last_pts[k]))
+			if ls and ls.sat and sit_jump >= 0.0 and not sit_done:
+				sit_done = true
+				for k in pts.size():
+					sit_jump = maxf(sit_jump, pts[k].distance_to(last_pts[k]))
 			if not last_pts.is_empty() and (ls_at < 0.0 or t < ls_at + 1.2):
 				var jmp := 0.0
 				for k in pts.size():
 					jmp = maxf(jmp, pts[k].distance_to(last_pts[k]))
 				jumps.append([t, jmp])
 			last_pts = pts
-			if render and kind == "gun" and ls == null and c.downed and c._down_t > c._writhe_for - 0.3 and int(t * 60.0) % 7 == 0:
+			if false:
 				await _shot("switch_%03d" % int(t * 10.0), c.global_position, c.global_position + Vector3(0, 2.0, 0) + Vector3(1.4, 0, 1.0))
 			if ls == null:
 				ls = c.get_node_or_null("LastStand") as ClownLastStand
@@ -193,13 +213,15 @@ func _last() -> void:
 						pass
 			if ls:
 				crawled = maxf(crawled, Vector2(c.global_position.x - start.x, c.global_position.z - start.z).length())
+				if render and kind == "gun" and ls.stage == ClownLastStand.Phase.SIT and not ls.sat and int(t * 60.0) % 8 == 0:
+					await _shot("situp_%05d" % int(t * 100.0), c.global_position + Vector3.UP * 0.3, c.global_position + c.global_basis * Vector3(1.6, 0.9, -0.6))
 				if ls.sat and sat_at < 0.0:
 					sat_at = t
 					await _shot("%s_sat" % kind, c.global_position + Vector3.UP * 0.5, c.global_position + (c.global_basis.z * 2.2) + Vector3.UP * 1.2)
 				if ls.shots > 0 and shots_by < 0.0:
 					shots_by = t
 					await _shot("%s_firing" % kind, c.global_position + Vector3.UP * 0.6, c.global_position + (c.global_basis.z * 1.8 + c.global_basis.x * 0.8) + Vector3.UP * 0.9)
-				if render and kind == "gun" and t < ls_at + 1.4 and int(t * 60.0) % 7 == 0:
+				if false:
 					await _shot("switch_%03d" % int((t - ls_at) * 100.0 + 50), c.global_position, c.global_position + Vector3(0, 2.0, 0) + Vector3(1.4, 0, 1.0))
 				if (kind == "gun" and shots_by > 0.0 and t > shots_by + 2.0) or (kind == "clown" and sat_at > 0.0 and t > sat_at + 2.0):
 					break
@@ -210,6 +232,9 @@ func _last() -> void:
 			if ls_at > 0.0 and float(jv[0]) >= ls_at - 0.1 and float(jv[0]) <= ls_at + 1.2:
 				jump_at_start = maxf(jump_at_start, float(jv[1]))
 		_check(jump_at_start < 0.12, "%s: no snap from the ragdoll into the crawl (largest move in a frame %.2f m)" % [kind, jump_at_start])
+		print("      %s: lowest knee/ankle centre %.3f m above the floor; largest move in a frame while sitting up %.3f m" % [kind, worst_leg, sit_jump])
+		_check(worst_leg > 0.04, "%s: the legs never go into the floor (lowest knee/ankle %.3f m up)" % [kind, worst_leg])
+		_check(render or sit_jump < 0.1, "%s: rolls over and sits up smoothly (largest move in a frame %.3f m)" % [kind, sit_jump])
 		_check(crawled > 0.6, "%s: drags itself away (%.1f m)" % [kind, crawled])
 		_check(sat_at > 0.0, "%s: sits up against something (%.1fs)" % [kind, sat_at])
 		if kind == "gun":
