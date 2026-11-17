@@ -44,10 +44,12 @@ uniform vec3 floor_water_col : source_color = vec3(0.21, 0.18, 0.15);
 
 uniform float mud_tile = 2.2;        // metres per tile, churned / sludge / firm
 uniform float wall_tile = 2.0;
+uniform float wall_normal_strength = 0.6;   // how hard the wall relief bends the light
 uniform float brightness = 1.15;     // the textures are authored dark
 uniform vec3 water_col : source_color = vec3(0.3, 0.27, 0.235);
 uniform float puddles = 0.55;
 uniform bool debug_grey = false;
+uniform int debug_view = 0;               // 1: show the shading normal (world, 0.5 + n/2) instead of the surface
 
 varying vec3 wpos;
 varying vec3 wnrm;
@@ -59,14 +61,21 @@ void vertex() {
 	vcol = COLOR;
 }
 
-vec3 unpack(vec3 t) {
-	return t * 2.0 - 1.0;
+// A tangent-space normal from a normal map: x and y from red and green, z
+// rebuilt (the maps are imported compressed to two channels, so blue reads
+// as 0). The maps are OpenGL-style, like everything Godot uses: red leans
+// toward +u, green toward the TOP of the image, i.e. toward -v (v runs down
+// the image).
+vec3 tangent_n(sampler2D t, vec2 uv) {
+	vec2 xy = texture(t, uv).rg * 2.0 - 1.0;
+	return vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
 }
 
-// a tangent-space normal sampled flat (XZ) to world
+// ...sampled flat on the ground (u along +X, v along +Z) to world: green
+// leans toward -Z.
 vec3 top_n(sampler2D t, vec2 uv) {
-	vec3 n = unpack(texture(t, uv).rgb);
-	return normalize(vec3(n.x, n.z, n.y));
+	vec3 n = tangent_n(t, uv);
+	return normalize(vec3(n.x, n.z, -n.y));
 }
 
 // Parallax occlusion: march the view ray down into the height map (B of
@@ -133,12 +142,16 @@ void fragment() {
 	vec2 uvz = vec2(wpos.x, -wpos.y) / wall_tile;
 	vec3 wa = mix(texture(wall_a, uvz).rgb, texture(wall_a, uvx).rgb, wx);
 	float wr = mix(texture(wall_r, uvz).r, texture(wall_r, uvx).r, wx);
-	vec3 wnx = unpack(texture(wall_n, uvx).rgb);
-	vec3 wnz = unpack(texture(wall_n, uvz).rgb);
-	// tangent-space to world for the two wall projections
-	vec3 wn_x = normalize(vec3(sign(n.x) * 1.0, -wnx.y, wnx.x * sign(n.x)));
-	vec3 wn_z = normalize(vec3(wnz.x, -wnz.y, sign(n.z) * 1.0));
-	vec3 wn = normalize(mix(normalize(mix(wn_z, wn_x, wx)), n, 0.45));
+	vec3 wnx = tangent_n(wall_n, uvx);
+	vec3 wnz = tangent_n(wall_n, uvz);
+	// tangent-space to world for the two wall projections. On a wall facing
+	// X, u runs along +Z and v down the wall (-Y), so red leans toward +Z and
+	// green (toward the top of the image) toward +Y, whichever way the wall
+	// faces; on a wall facing Z, u runs along +X. The lean is added to the
+	// wall's own normal, so the slope of the cut is kept.
+	vec3 lean_x = vec3(0.0, wnx.y, wnx.x);
+	vec3 lean_z = vec3(wnz.x, wnz.y, 0.0);
+	vec3 wn = normalize(n + mix(lean_z, lean_x, wx) * wall_normal_strength);
 	// the foot of the wall is wetter and darker, the top a little drier
 	float foot = 1.0 - smoothstep(0.0, 0.8, sd);
 	wa *= mix(1.0, 0.6, foot * 0.8);
@@ -214,4 +227,17 @@ void fragment() {
 	ROUGHNESS = clamp(rough, 0.05, 1.0);
 	SPECULAR = 0.3;
 	NORMAL = normalize((VIEW_MATRIX * vec4(wn_world, 0.0)).xyz);
+	if (debug_view == 1) {
+		ALBEDO = vec3(0.0);
+		ROUGHNESS = 1.0;
+		SPECULAR = 0.0;
+		AO = 1.0;
+		EMISSION = wn_world * 0.5 + 0.5;
+	}
+	if (debug_view == 3) {                 // the albedo as it is, unlit (parallax tests)
+		EMISSION = alb;
+		ALBEDO = vec3(0.0);
+		ROUGHNESS = 1.0;
+		SPECULAR = 0.0;
+	}
 }
