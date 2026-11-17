@@ -283,11 +283,14 @@ func _bone_pos(b: StringName) -> Variant:
 	return sk.global_transform * sk.get_bone_global_pose(i).origin if i >= 0 else null
 
 
-## Still moving fast, falling, or (a Klappersoldat) still standing in its death.
+## Still moving fast, falling, or (a Klappersoldat, a Rattlejack) still standing in its death.
 func _still_going() -> bool:
 	if not is_instance_valid(_target):
 		return false
-	if _target is Klappersoldat and (_target as Klappersoldat).dying != "":
+	# a body still playing out a staged death on its feet (the
+	# Klappersoldat, the Rattlejack)
+	var dy: Variant = _target.get("dying")
+	if dy is String and dy != "":
 		return true
 	var rd := _target.ragdoll
 	if rd and rd.active:

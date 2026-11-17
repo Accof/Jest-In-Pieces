@@ -32,6 +32,18 @@ const BODIES := {
 			&"Hips": 1.2, &"Spine": 1.15, &"Chest": 1.15, &"Neck": 1.12, &"Foot": 1.15},
 		eyes = [Vector3(0.04738, 1.74246, 0.1074), Vector3(-0.04738, 1.74246, 0.1074)],
 	},
+	# The Rattlejack: British machine gunner, rigged and segmented from the
+	# Tripo model by tools/build_rattlejack.py (rattlejack.json), the Brodie
+	# helmet cut off the head into its own mesh.
+	"rattlejack": {
+		model = "res://art/rattlejack/rattlejack.glb", gibs = "res://art/rattlejack/rattlejack_gibs.glb",
+		rest_min = Vector3(-0.94802, -0.00508, -0.24266), rest_size = Vector3(1.90023, 1.89008, 0.48997),
+		helmet = "res://art/rattlejack/rattlejack_helmet.glb",
+		helmet_center = Vector3(-0.00046, 1.80501, 0.04647), helmet_size = Vector3(0.312, 0.210, 0.325),
+		shapes = {&"UpperLeg": 1.3, &"LowerLeg": 1.12, &"UpperArm": 1.25, &"LowerArm": 1.05,
+			&"Hips": 1.2, &"Spine": 1.2, &"Chest": 1.2, &"Neck": 1.12, &"Foot": 1.15},
+		soldier = true,
+	},
 }
 
 ## Which body this enemy wears (a key of BODIES). Set before adding to the tree.
@@ -1464,6 +1476,9 @@ func _hold_rifle() -> void:
 	# recoil: driven back into the shoulder, muzzle flipping up, pivoting at the butt
 	if kick > 0.001:
 		xf = Transform3D(xf.basis * Basis(Vector3.RIGHT, deg_to_rad(-11.0) * kick), xf.origin - xf.basis.z * 0.075 * kick + Vector3.UP * 0.01 * kick)
+	# a dying grip: the muzzle sags and the gun drops (negative: jerked up)
+	if absf(rifle_droop) > 0.001:
+		xf = Transform3D(xf.basis * Basis(Vector3.RIGHT, rifle_droop), xf.origin + Vector3(0, -0.14, 0.04) * maxf(rifle_droop, 0.0))
 	# lowered off the shoulder while working the bolt: muzzle dipped, stock off the cheek
 	if low > 0.001:
 		xf = Transform3D(xf.basis * Basis(Vector3.RIGHT, deg_to_rad(7.0) * low), xf.origin + Vector3(0, -0.045, 0.02) * low * a)
@@ -1655,7 +1670,7 @@ var _rifle_carried := Transform3D()
 
 ## How far through working the bolt it is (0..1), or -1 when it is not.
 func bolt_phase() -> float:
-	if not has_rifle or _rifle == null:
+	if not has_rifle or _rifle == null or bolt_seconds <= 0.0:
 		return -1.0
 	var u := (_shot_t - 0.3) / bolt_seconds
 	return u if u >= 0.0 and u <= 1.0 else -1.0
@@ -1663,7 +1678,13 @@ func bolt_phase() -> float:
 
 ## True from the shot until the next round is chambered and it is back on aim.
 func cycling() -> bool:
-	return has_rifle and _shot_t < 0.3 + bolt_seconds
+	return has_rifle and (_shot_t < 0.3 + bolt_seconds or reload_t > 0.0)
+
+
+## Seconds left changing the magazine (a machine gunner); the gun is off aim.
+var reload_t := 0.0
+## Muzzle dipped this far (radians) and the gun sagging: a dying man's grip.
+var rifle_droop := 0.0
 
 
 ## The recoil's kick (0..1): instant, then easing back over a quarter second.

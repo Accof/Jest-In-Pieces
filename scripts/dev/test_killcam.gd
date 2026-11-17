@@ -49,7 +49,7 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var secs := ["injuries", "report", "floor", "variety", "double", "interrupt", "klapper", "fall", "event"]
+	var secs := ["injuries", "report", "floor", "variety", "double", "interrupt", "klapper", "rattlejack", "fall", "event"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -304,6 +304,49 @@ func _klapper() -> void:
 	print("      %.2f s real, ragdoll by the end %s" % [w.real, k.ragdoll.active if is_instance_valid(k) else "?"])
 	_check(is_instance_valid(k) and k.ragdoll.active, "it stayed until the Klappersoldat went over")
 	_check(w.real <= kc.max_seconds + kc._held + kc.return_seconds + 0.2, "and no longer than the limit plus the report (%.2f s)" % w.real)
+
+
+## The Rattlejack's staged deaths as the last kill: the camera stays on the
+## delayed headshot until he goes over; the Death Rattle keeps firing (in
+## step with the slow motion) while it watches.
+func _rattlejack() -> void:
+	print("-- rattlejack")
+	for kind: String in ["headshot", "rattle"]:
+		await _new_game(5160)
+		for c: Clown in _living():
+			c.queue_free()
+		game.clowns.clear()
+		await _frames(1)
+		var r: Rattlejack = game.spawn_rattlejack()
+		r.global_position = game.maze.cell_center(game.maze.route[mini(4, game.maze.route.size() - 1)])
+		r.force_death = kind
+		game.remaining = 1
+		await _frames(3)
+		_face(r)
+		await _frames(2)
+		r.health = 1.0
+		var deaths := [0]
+		r.died.connect(func(_c: Clown) -> void: deaths[0] += 1)
+		_kill(r, 30.0)
+		await _frames(1)
+		var kc: KillCam = game.kill_cam
+		_check(kc.active, "a Rattlejack (%s) as the last one: it runs (%s)" % [kind, kc.shot])
+		var slow_rounds := 0
+		var handed_while_on := false
+		var n := 0
+		while kc.active and n < 1200:
+			var before := r.rattle_rounds if is_instance_valid(r) else 0
+			await get_tree().process_frame
+			n += 1
+			if is_instance_valid(r):
+				if Engine.time_scale < 0.9 and r.rattle_rounds > before:
+					slow_rounds += r.rattle_rounds - before
+				handed_while_on = handed_while_on or r.handed_over
+		print("      %s: handed to the ragdoll while the camera was on him %s; %d rounds in slow motion; deaths %d; remaining %d" % [kind, handed_while_on, slow_rounds, deaths[0], game.remaining])
+		_check(handed_while_on, "%s: the camera stayed until he went over" % kind)
+		_check(deaths[0] == 1 and game.remaining == 0, "%s: the kill counted once, the floor cleared" % kind)
+		if kind == "rattle":
+			_check(slow_rounds >= 1, "rattle: the gun fires on through the slow motion (%d)" % slow_rounds)
 
 
 func _fall() -> void:

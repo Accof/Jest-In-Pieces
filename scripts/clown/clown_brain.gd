@@ -95,6 +95,19 @@ var hiding := false
 var hidden := false                  ## crouched in its hiding place
 var _hide_to := Vector3.INF
 var _hide_t := 0.0
+## A machine gunner (the Rattlejack): once on aim it fires in bursts instead
+## of single shots, then pauses; a pan of rounds, then a reload.
+var lmg := false
+@export var fire_rate := 9.0                      ## rounds a second in a burst
+@export var burst_seconds := Vector2(0.8, 1.8)
+@export var burst_pause := Vector2(1.5, 3.0)
+@export var pan_rounds := 47                      ## a Lewis gun's pan
+@export var reload_seconds := 3.5
+var rounds := 47                                  ## left in the pan
+var bursts := 0                                   ## tests
+var shots_fired := 0                              ## tests
+var _lmg_t := 0.0                                 ## > 0 while a burst is going
+var _lmg_acc := 0.0
 var _backoff := -2.0              # > 0 while stepping back from a player too close; < 0 resting from it
 var backing := false              # test hook: stepping back this frame
 
@@ -313,11 +326,19 @@ func _physics_process(delta: float) -> void:
 			clown.aim_amount = move_toward(clown.aim_amount, 0.25, delta * 3.0)    # rifle down to low ready
 		else:
 			clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 4.0)
-		if not backing and _aim_t < 0.0 and _cooldown <= 0.0 and not clown.cycling():
+		if lmg and _lmg_t > 0.0:
+			_burst_step(delta, dist)
+		if not backing and _aim_t < 0.0 and _cooldown <= 0.0 and not clown.cycling() and _lmg_t <= 0.0:
 			_aim_t = 0.0
 		if _aim_t >= 0.0:
 			_aim_t += delta
-			if _aim_t > aim_time and clown.aim_amount > 0.9:
+			if lmg and _aim_t > aim_time and clown.aim_amount > 0.9:
+				_aim_t = -1.0
+				_lmg_t = randf_range(burst_seconds.x, burst_seconds.y)
+				_lmg_acc = 1.0 / fire_rate              # the first round goes at once
+				bursts += 1
+				_burst_step(0.0, dist)
+			elif _aim_t > aim_time and clown.aim_amount > 0.9:
 				_fire(dist)
 				_aim_t = -1.0
 				_cooldown = randf_range(shot_gap.x, shot_gap.y)
@@ -350,6 +371,9 @@ func _physics_process(delta: float) -> void:
 		clown.walk_amount = move_toward(clown.walk_amount, clampf(gvel.length() / move_speed, 0.0, 1.0), delta * 5.0)
 		return
 	_aim_t = -1.0
+	if _lmg_t > 0.0:
+		_lmg_t = 0.0                    # lost sight: the burst stops
+		_cooldown = maxf(_cooldown, 0.6)
 	backing = false
 	clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 4.0)
 
@@ -800,6 +824,44 @@ func rifleman() -> void:
 	accuracy = Vector3(0.85, 0.018, 0.35)
 	keep_distance = 10.0
 	sight_range = 22.0
+
+
+## Settings for a machine gunner: holds its ground at middle range and
+## hoses the corridor in bursts. Poor accuracy per round, so a burst is
+## dangerous but not certain death.
+func gunner() -> void:
+	lmg = true
+	use_cover = false
+	gun_damage = 6.0
+	gun_range = 20.0
+	aim_time = 0.7
+	accuracy = Vector3(0.36, 0.014, 0.08)
+	keep_distance = 9.0
+	sight_range = 20.0
+	rounds = pan_rounds
+
+
+## Rounds out at fire_rate while the burst lasts; an empty pan ends it and
+## starts the reload. Then a pause before the next.
+func _burst_step(delta: float, dist: float) -> void:
+	_lmg_t -= delta
+	_lmg_acc += delta
+	var gap := 1.0 / fire_rate
+	while _lmg_acc >= gap and rounds > 0:
+		_lmg_acc -= gap
+		_fire(dist)
+		rounds -= 1
+		shots_fired += 1
+	if rounds <= 0:
+		_lmg_t = 0.0
+		rounds = pan_rounds
+		clown.reload_t = reload_seconds
+		_cooldown = reload_seconds + 0.3
+		if clown.has_method("start_reload"):
+			clown.start_reload()
+	elif _lmg_t <= 0.0:
+		_lmg_t = 0.0
+		_cooldown = randf_range(burst_pause.x, burst_pause.y)
 
 
 func _fire(dist: float) -> void:
