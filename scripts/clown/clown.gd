@@ -285,6 +285,8 @@ func hit(info: Dictionary) -> void:
 	hurt.emit(self)
 	if not dead and not crawling and not downed and not last_stand:
 		_flinch_from(info.position, dir, raw * (1.8 if severed else 1.0))
+	if not dead and not broken_arms.is_empty():
+		_kick_arms(clampf(raw / 10.0, 1.0, 6.0))
 	if downed and not dead and ragdoll.active:
 		ragdoll.apply_hit(bone, dir * float(info.get("impulse", 12.0)) * 0.5, info.position)
 	if break_leg and not severed:
@@ -640,6 +642,10 @@ func _begin_getup() -> void:
 func _begin_last_stand() -> void:
 	var sk := skeleton
 	var hips: Vector3 = sk.global_transform * ragdoll.bone_pose(sk.find_bone("Hips")).origin
+	# where every bone lies on the floor right now: the crawl blends out of it
+	var lying: Array[Transform3D] = []
+	for i in sk.get_bone_count():
+		lying.append(sk.global_transform * ragdoll.bone_pose(i))
 	ragdoll.stop()
 	downed = false
 	last_stand = true
@@ -661,7 +667,7 @@ func _begin_last_stand() -> void:
 	var player := get_tree().get_first_node_in_group(&"player") as Node3D
 	if player:
 		away = global_position - player.global_position
-	ls.begin_last_stand(self, b.maze if b else null, away, shooter)
+	ls.begin_last_stand(self, b.maze if b else null, away, shooter, lying)
 
 
 ## The pose a function leaves the skeleton in, starting from standing.
@@ -1117,19 +1123,77 @@ func _process(delta: float) -> void:
 
 ## A broken arm hangs from the shoulder and swings with the body: the
 ## elbow bent the wrong way, the forearm twisted, the hand limp.
+## It swings like a dead weight: each arm is a damped double pendulum (the
+## upper arm from the shoulder, the forearm flopping from the broken elbow)
+## pushed about by the body: thrown back when it sets off, forward when it
+## stops, out to the side when it turns, kicked by every footfall and by
+## every hit.
+@export var arm_swing_freq := 0.85           ## the hanging arm's own swing (Hz)
+@export var arm_swing_damping := 0.11        ## 0 swings for ever, 1 hardly swings
+@export var arm_swing_push := 3.2            ## how hard the body's movement throws it
+var _swing := {}                             # side -> [pitch, v, roll, v, fore, v]
+var _swing_frame := -1
+var _swing_prev_vel := Vector3.ZERO
+var _swing_prev_yaw := 0.0
+var _swing_acc := Vector3.ZERO               # body acceleration, in the body's own space
+var _swing_turn := 0.0
+
+
 func dangle_arm(side: String, swing: float = 0.0) -> void:
 	var s := 1.0 if side == "Left" else -1.0
 	for part in ["UpperArm", "LowerArm", "Hand"]:
 		var bi := skeleton.find_bone(side + part)
 		if _base_rot.has(bi):
 			skeleton.set_bone_pose_rotation(bi, _base_rot[bi])
-	var t := Time.get_ticks_msec() / 1000.0
-	var sway := sin(walk_phase + 0.7) * 16.0 * swing + sin(t * 1.3 + s) * 2.0
-	_turn(side + "UpperArm", Vector3.RIGHT, deg_to_rad(sway) - _flinch.x * 0.6)
-	_turn(side + "UpperArm", Vector3.BACK, deg_to_rad(6.0) * s)
+	var dt := clampf(get_process_delta_time(), 0.001, 1.0 / 30.0)
+	# what the body did this frame (worked out once, whichever arm asks first)
+	if _swing_frame != Engine.get_process_frames():
+		_swing_frame = Engine.get_process_frames()
+		var acc := (velocity - _swing_prev_vel) / dt
+		_swing_prev_vel = velocity
+		_swing_acc = _swing_acc.lerp(global_basis.inverse() * acc, 0.5)
+		var yaw := global_rotation.y
+		_swing_turn = lerpf(_swing_turn, angle_difference(_swing_prev_yaw, yaw) / dt, 0.5)
+		_swing_prev_yaw = yaw
+	if not _swing.has(side):
+		_swing[side] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+	var st: Array = _swing[side]
+	var w := TAU * arm_swing_freq
+	var c := 2.0 * arm_swing_damping * w
+	# pitch (+ = back): thrown back as it speeds up, forward as it stops; each
+	# step kicks it, harder at a run
+	var step := cos(walk_phase * 2.0) * swing * (5.0 + 9.0 * run_amount)
+	var stride := sin(walk_phase + (0.0 if side == "Left" else PI)) * swing * 6.0
+	var fp: float = -w * w * st[0] - c * st[1] + _swing_acc.z * arm_swing_push + step + stride
+	# roll (+ = out from the body): flung out to the outside of a turn, and by
+	# sideways moves
+	var fr: float = -w * w * st[2] - c * st[3] - _swing_acc.x * arm_swing_push * s + _swing_turn * absf(_swing_turn) * 0.6 * s * -1.0
+	st[1] += fp * dt
+	st[0] = clampf(st[0] + st[1] * dt, -1.2, 1.3)
+	st[3] += fr * dt
+	st[2] = clampf(st[2] + st[3] * dt, -0.12, 0.7)
+	if st[2] <= -0.12 or st[2] >= 0.7:
+		st[3] *= -0.3                       # it hits the body (or the end of its reach) and bounces
+	# the forearm flops from the broken elbow, lagging the upper arm
+	var w2 := TAU * arm_swing_freq * 1.6
+	var ff: float = -w2 * w2 * (st[4] + st[0] * 0.45) - 2.0 * 0.14 * w2 * st[5]
+	st[5] += ff * dt
+	st[4] = clampf(st[4] + st[5] * dt, -1.0, 1.0)
+	_turn(side + "UpperArm", Vector3.RIGHT, st[0])
+	_turn(side + "UpperArm", Vector3.BACK, (deg_to_rad(6.0) + st[2]) * s)
 	_turn(side + "LowerArm", Vector3.BACK, deg_to_rad(-26.0) * s)
 	_turn(side + "LowerArm", Vector3.UP, deg_to_rad(38.0) * s)
-	_turn(side + "Hand", Vector3.RIGHT, deg_to_rad(48.0))
+	_turn(side + "LowerArm", Vector3.RIGHT, st[4])
+	_turn(side + "Hand", Vector3.RIGHT, deg_to_rad(48.0) + st[4] * 0.5)
+
+
+## A hit jolts a dangling arm.
+func _kick_arms(strength: float) -> void:
+	for side: String in broken_arms:
+		if _swing.has(side):
+			var st: Array = _swing[side]
+			st[1] += randf_range(-1.0, 1.0) * strength
+			st[3] += randf_range(0.0, 1.0) * strength * 0.6
 
 
 # --- a soldier's walk and stance ---------------------------------------------------

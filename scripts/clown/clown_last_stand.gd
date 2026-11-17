@@ -39,7 +39,13 @@ var _leg_rest := {}
 const LEG_BONES := ["LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg", "LeftFoot", "RightFoot"]
 
 
-func begin_last_stand(c: Clown, m: Maze, away: Vector3, gun: bool) -> void:
+## Seconds to ease out of the pose it was lying in into crawling.
+@export var settle_seconds := 0.9
+var _from_pose := {}                 # bone -> [rotation, position] it was lying in (crawl model space)
+var _settle := 1.0                   # 0..1 through the ease from the ragdoll
+
+
+func begin_last_stand(c: Clown, m: Maze, away: Vector3, gun: bool, lying: Array[Transform3D] = []) -> void:
 	clown = c
 	maze = m
 	shooter = gun
@@ -62,9 +68,55 @@ func begin_last_stand(c: Clown, m: Maze, away: Vector3, gun: bool) -> void:
 	_next_pause = randf_range(3.0, 6.0)
 	life = INF
 	c.died.connect(_on_died)
+	# the yaw that keeps its body roughly the way it was lying (head first),
+	# so the ease out of the ragdoll is short, not a spin
+	if not lying.is_empty():
+		var sk2 := c.skeleton
+		var hip: Vector3 = lying[sk2.find_bone("Hips")].origin
+		var head: Vector3 = lying[sk2.find_bone("Neck")].origin
+		var along := Vector3(head.x - hip.x, 0, head.z - hip.z)
+		if along.length() > 0.2:
+			_yaw = atan2(along.x, along.z)
+			c.rotation = Vector3(0, _yaw, 0)
+		_capture(lying)
 	if _arms() == 0:
 		_find_wall()                     # cannot drag itself anywhere: it stays put
 		_start_sitting(false)
+
+
+## Turn the ragdoll's world-space bones into bone poses under the crawl's
+## model transform, to blend from.
+func _capture(lying: Array[Transform3D]) -> void:
+	var sk := clown.skeleton
+	var model: Node3D = clown._model
+	model.rotation = Vector3(PI * 0.5, 0, 0)
+	model.position = Vector3(0, 0.16, -0.32) - model.basis * Vector3(0, WAIST, 0)
+	var inv := sk.global_transform.affine_inverse()
+	var g: Array[Transform3D] = []
+	for i in lying.size():
+		g.append(inv * lying[i])
+	for i in lying.size():
+		var p := sk.get_bone_parent(i)
+		var local: Transform3D = g[p].affine_inverse() * g[i] if p >= 0 else g[i]
+		_from_pose[i] = [local.basis.get_rotation_quaternion(), local.origin]
+		# shown exactly as it lay, from this very frame
+		sk.set_bone_pose_rotation(i, _from_pose[i][0])
+		sk.set_bone_pose_position(i, _from_pose[i][1])
+	_settle = 0.0
+	_pause = settle_seconds                  # lies there a moment before it starts to drag itself
+
+
+## Ease every bone from the pose it was lying in to the one just set.
+func _blend_from_lying(delta: float) -> void:
+	if _settle >= 1.0 or _from_pose.is_empty():
+		return
+	_settle = minf(_settle + delta / settle_seconds, 1.0)
+	var e := _settle * _settle * (3.0 - 2.0 * _settle)
+	var sk := clown.skeleton
+	for i: int in _from_pose:
+		var f: Array = _from_pose[i]
+		sk.set_bone_pose_rotation(i, (f[0] as Quaternion).slerp(sk.get_bone_pose_rotation(i), e))
+		sk.set_bone_pose_position(i, (f[1] as Vector3).lerp(sk.get_bone_pose_position(i), e))
 
 
 ## How many arms it can pull with.
@@ -241,6 +293,12 @@ func _shoot(player: Node3D, dist: float) -> void:
 func _process(_delta: float) -> void:
 	if _dead or clown == null or not is_instance_valid(clown):
 		return
+	if _settle < 1.0:
+		# every bone back to its rest first, so the target pose is complete
+		var sk := clown.skeleton
+		for i: int in _from_pose:
+			sk.set_bone_pose_rotation(i, clown._base_rot.get(i, sk.get_bone_rest(i).basis.get_rotation_quaternion()))
+			sk.set_bone_pose_position(i, sk.get_bone_rest(i).origin)
 	if stage == Phase.SIT:
 		_pose_sitting()
 	else:
@@ -249,6 +307,7 @@ func _process(_delta: float) -> void:
 		for side: String in ["Left", "Right"]:
 			if clown.arm_out(side):
 				clown.dangle_arm(side)        # dragged along limp beside it
+	_blend_from_lying(_delta)
 
 
 ## The legs, broken: lying flat they trail behind; sitting they stick out in

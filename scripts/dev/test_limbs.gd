@@ -161,6 +161,9 @@ func _last() -> void:
 		var shots_by := -1.0
 		var getup := false
 		var ls_at := -1.0
+		var last_pts: Array[Vector3] = []
+		var jump_at_start := 0.0
+		var jumps: Array = []
 		while t < 30.0:
 			await _frames(1)
 			t += 1.0 / 60.0
@@ -168,10 +171,26 @@ func _last() -> void:
 				break
 			if c._down_stage == 1:
 				getup = true
+			# how far any bone moves in one frame around the switch to crawling
+			var pts: Array[Vector3] = []
+			var sk := c.skeleton
+			for bn: String in ["Head", "LeftHand", "RightHand", "LeftFoot", "RightFoot", "Hips"]:
+				var bi := sk.find_bone(bn)
+				pts.append(sk.global_transform * (c.ragdoll.bone_pose(bi).origin if c.ragdoll.active else sk.get_bone_global_pose(bi).origin))
+			if not last_pts.is_empty() and (ls_at < 0.0 or t < ls_at + 1.2):
+				var jmp := 0.0
+				for k in pts.size():
+					jmp = maxf(jmp, pts[k].distance_to(last_pts[k]))
+				jumps.append([t, jmp])
+			last_pts = pts
+			if render and kind == "gun" and ls == null and c.downed and c._down_t > c._writhe_for - 0.3 and int(t * 60.0) % 7 == 0:
+				await _shot("switch_%03d" % int(t * 10.0), c.global_position, c.global_position + Vector3(0, 2.0, 0) + Vector3(1.4, 0, 1.0))
 			if ls == null:
 				ls = c.get_node_or_null("LastStand") as ClownLastStand
 				if ls:
 					ls_at = t
+					if not last_pts.is_empty():
+						pass
 			if ls:
 				crawled = maxf(crawled, Vector2(c.global_position.x - start.x, c.global_position.z - start.z).length())
 				if ls.sat and sat_at < 0.0:
@@ -180,13 +199,17 @@ func _last() -> void:
 				if ls.shots > 0 and shots_by < 0.0:
 					shots_by = t
 					await _shot("%s_firing" % kind, c.global_position + Vector3.UP * 0.6, c.global_position + (c.global_basis.z * 1.8 + c.global_basis.x * 0.8) + Vector3.UP * 0.9)
-				if render and int(t * 60.0) % 90 == 0 and not ls.sat:
-					await _shot("%s_crawl_%02d" % [kind, int(t)], c.global_position, c.global_position + Vector3(0, 2.4, 0) + c.global_basis.x * 1.6)
+				if render and kind == "gun" and t < ls_at + 1.4 and int(t * 60.0) % 7 == 0:
+					await _shot("switch_%03d" % int((t - ls_at) * 100.0 + 50), c.global_position, c.global_position + Vector3(0, 2.0, 0) + Vector3(1.4, 0, 1.0))
 				if (kind == "gun" and shots_by > 0.0 and t > shots_by + 2.0) or (kind == "clown" and sat_at > 0.0 and t > sat_at + 2.0):
 					break
 		print("      %s: timeline: last stand began %.1fs" % [kind, ls_at])
 		print("      %s: last stand %s, crawled %.1f m, wall found %s, sat at %.1fs, first shot at %.1fs" % [kind, ls != null, crawled, ls.wall_found if ls else false, sat_at, shots_by])
 		_check(not getup and c.last_stand and ls != null, "%s: it does not get up; a last stand" % kind)
+		for jv: Array in jumps:
+			if ls_at > 0.0 and float(jv[0]) >= ls_at - 0.1 and float(jv[0]) <= ls_at + 1.2:
+				jump_at_start = maxf(jump_at_start, float(jv[1]))
+		_check(jump_at_start < 0.12, "%s: no snap from the ragdoll into the crawl (largest move in a frame %.2f m)" % [kind, jump_at_start])
 		_check(crawled > 0.6, "%s: drags itself away (%.1f m)" % [kind, crawled])
 		_check(sat_at > 0.0, "%s: sits up against something (%.1fs)" % [kind, sat_at])
 		if kind == "gun":
@@ -237,6 +260,22 @@ func _arms() -> void:
 	_check(c.broken_arms.has("Right"), "an arm breaks from rounds into it")
 	_check(shoulder.y - hand.y > 0.35, "and dangles (hand %.2f m below the shoulder)" % (shoulder.y - hand.y))
 	_check(not c.has_rifle and c.has_gun and c.gun_side == "Left", "the rifleman drops the rifle and draws a pistol left-handed")
+	# it moves about: the dangling arm should swing well
+	var lo := 9.0
+	var hi := -9.0
+	var b0: ClownBrain = c.get_node("Brain")
+	b0.alert(game.player.global_position)
+	for f in 240:
+		await _frames(1)
+		if f % 60 == 30:
+			c.velocity = Vector3.ZERO           # pull up short now and then
+		var hnd: Vector3 = c.global_basis.inverse() * (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("RightHand")).origin - c.global_position)
+		var sh: Vector3 = c.global_basis.inverse() * (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("RightUpperArm")).origin - c.global_position)
+		var ang := atan2(hnd.z - sh.z, sh.y - hnd.y)
+		lo = minf(lo, ang)
+		hi = maxf(hi, ang)
+	print("      dangling arm swung through %.0f deg while it moved about" % rad_to_deg(hi - lo))
+	_check(rad_to_deg(hi - lo) > 30.0, "the broken arm swings with its movement (%.0f deg)" % rad_to_deg(hi - lo))
 	await _shot("arm_dangle", c.global_position + Vector3.UP * 1.1, c.global_position + c.global_basis.z * 1.6 - c.global_basis.x * 0.9 + Vector3.UP * 1.3)
 	for i in 8:
 		if c.broken_arms.has("Left"):
