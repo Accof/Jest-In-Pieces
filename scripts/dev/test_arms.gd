@@ -40,6 +40,14 @@ func _run() -> void:
 		_dump(v)
 		get_tree().quit()
 		return
+	if "--pinch-search" in OS.get_cmdline_user_args():
+		_pinch_search(v._arms[ViewModel.REVOLVER]["R"])
+		get_tree().quit()
+		return
+	if "--lh" in OS.get_cmdline_user_args():
+		await _lh_frames(p, v)
+		get_tree().quit()
+		return
 	if "--measure" in OS.get_cmdline_user_args():
 		p.select_weapon(ViewModel.REVOLVER)
 		await get_tree().create_timer(0.6).timeout
@@ -107,16 +115,55 @@ func _run() -> void:
 	v._arm_pull_last = -1.0
 	v._arm_trigger(ViewModel.REVOLVER, 0.0)
 	_check(rad_to_deg(pulled) > 10.0, "the trigger finger curls with the pull (%.0f deg)" % rad_to_deg(pulled))
-	# reload: the support hand lets go and comes back; the gun still works
+	# reload: the left hand opens the gun and holds it by the barrel, the right
+	# hand pinches the rounds in, both end back on their grips
 	await get_tree().create_timer(0.6).timeout
 	var l: FPArm = arms["L"]
-	var home: Vector3 = l.position
+	var hand_in := func(arm: FPArm, ref: Node3D) -> Transform3D:
+		return ref.global_transform.affine_inverse() * (arm.skeleton.global_transform * arm.skeleton.get_bone_global_pose(arm._hand))
+	var l_home: Transform3D = hand_in.call(l, v._rev_model)
+	var r_home: Transform3D = hand_in.call(r, v._rev_model)
 	p.reload()
-	await get_tree().create_timer(1.2).timeout
-	await _shot("fp_reload")
-	_check(l.position.distance_to(home) > 0.1 or not l.visible, "the left hand lets go for the reload")
-	await get_tree().create_timer(2.2).timeout
-	_check(l.visible and l.position.distance_to(home) < 0.005, "and takes hold again when it is shut")
+	var on_barrel: Array[Transform3D] = []
+	var pinch_worst := 0.0
+	var pinch_n := 0
+	var r_left_grip := 0.0
+	var tk := 0.0
+	var shot_load := false
+	while tk < 2.9:
+		await get_tree().process_frame
+		tk = v._reload_t if v._reload_t >= 0.0 else 9.0
+		if tk > 0.8 and tk < 2.0:
+			on_barrel.append(hand_in.call(l, v._rv_barrel))
+			r_left_grip = maxf(r_left_grip, (hand_in.call(r, v._rev_model) as Transform3D).origin.distance_to(r_home.origin))
+			# mid-push on a round: the pinch on its base
+			var step := (ViewModel.V_T_LOAD.y - ViewModel.V_T_LOAD.x) / 6.0
+			var order := int((tk - ViewModel.V_T_LOAD.x) / step)
+			var into := fposmod(tk - ViewModel.V_T_LOAD.x, step) / step
+			if order >= 0 and order < 6 and into > 0.15 and into < 0.6:
+				var rd := v._rv_rounds[(order + v.rv_index % 6) % 6] as MeshInstance3D
+				var aabb := rd.mesh.get_aabb()
+				var base := rd.global_transform * Vector3(aabb.position.x, aabb.get_center().y, aabb.get_center().z)
+				var sk := r.skeleton
+				var tipf := func(bn: String) -> Vector3:
+					var i := sk.find_bone(bn)
+					return sk.global_transform * sk.get_bone_global_pose(i) * Vector3(0, sk.get_bone_rest(i).origin.length() * 0.85, 0)
+				var mid: Vector3 = ((tipf.call("index_03.R") as Vector3) + (tipf.call("thumb_03.R") as Vector3)) * 0.5
+				pinch_worst = maxf(pinch_worst, mid.distance_to(base) * 100.0 / ViewModel.SHRINK)
+				pinch_n += 1
+			if render and not shot_load and tk > 1.25:
+				shot_load = true
+				await _shot("fp_reload")
+	var drift := 0.0
+	for x in on_barrel:
+		drift = maxf(drift, x.origin.distance_to(on_barrel[0].origin))
+	_check(on_barrel.size() > 5 and drift < 0.002, "the left hand holds the open gun by the barrel while it is loaded (moved %.4f)" % drift)
+	_check(r_left_grip > 0.1, "the right hand leaves the grip to load")
+	_check(pinch_n > 3 and pinch_worst < 1.5, "the right hand pinches each round by its base as it goes in (worst %.1f cm, %d frames)" % [pinch_worst, pinch_n])
+	await get_tree().create_timer(0.3).timeout
+	var l_back: Transform3D = hand_in.call(l, v._rev_model)
+	var r_back: Transform3D = hand_in.call(r, v._rev_model)
+	_check(l_back.origin.distance_to(l_home.origin) < 0.001 and r_back.origin.distance_to(r_home.origin) < 0.001, "both hands end exactly back on their grips")
 	_check(p.ammo[FpsPlayer.REVOLVER] == 6, "the revolver reloaded (6)")
 	# switching away and back
 	p.select_weapon(FpsPlayer.PISTOL)
@@ -279,4 +326,98 @@ func _dump(v: ViewModel) -> void:
 			var_to_str(gb.x).replace(" ", ""), var_to_str(gb.y).replace(" ", ""), var_to_str(gb.z).replace(" ", ""), var_to_str(g.origin).replace(" ", "")])
 	j.close()
 	print("DUMP done")
+
+
+## The left hand through the reload, frozen at moments of it: first person, and
+## from the left (outside, orthographic). /tmp/lh_<t>_fp.png, /tmp/lh_<t>_out.png
+func _lh_frames(p: FpsPlayer, v: ViewModel) -> void:
+	p.camera.rotation.x = 0.0
+	await get_tree().create_timer(0.3).timeout
+	p.set_process(false); p.set_physics_process(false); v.set_process(false)
+	v.start_reload()
+	var oc := Camera3D.new()
+	add_child(oc)
+	oc.projection = Camera3D.PROJECTION_ORTHOGONAL
+	oc.size = 0.5 * ViewModel.SHRINK
+	oc.near = 0.005
+	var times: Array = [0.1, 0.35, 0.56, 0.72, 0.95, 1.4, 2.0, 2.15, 2.3, 2.55]
+	var args := OS.get_cmdline_user_args()
+	for a in args:
+		if a.begins_with("--times="):
+			times = Array(a.trim_prefix("--times=").split(",")).map(func(x: String) -> float: return float(x))
+	for t: float in times:
+		v._reload_t = t
+		v.animate(0.0, 0.0, Vector2.ZERO)
+		_lh_report(v, t)
+		if not render:
+			continue
+		p.camera.make_current()
+		await _shot("lh_%04d_fp" % int(t * 1000))
+		if "--fp-only" in OS.get_cmdline_user_args():
+			continue
+		var g := v._rev_model.global_transform
+		var centre := g * Vector3(-0.05, 0.45, 0.0)
+		for k: Array in [["left", Vector3(0.15, 0.25, -1)], ["top", Vector3(-0.3, 1, -0.3)]]:
+			var d: Vector3 = (g.basis * k[1]).normalized()
+			oc.global_position = centre + d * 0.6
+			oc.look_at(centre, g.basis.y.normalized() if k[0] == "left" else g.basis.x.normalized())
+			oc.make_current()
+			await _shot("lh_%04d_%s" % [int(t * 1000), k[0]])
+	print("LH frames done")
+
+
+## Where the left index and thumb tips are against the round going in (cm, real size).
+func _lh_report(v: ViewModel, t: float) -> void:
+	var l: FPArm = v._arms[ViewModel.REVOLVER]["R"]
+	var sk := l.skeleton
+	var tip := func(b: String) -> Vector3:
+		var i := sk.find_bone(b)
+		var x := sk.global_transform * sk.get_bone_global_pose(i)
+		return x * Vector3(0, sk.get_bone_rest(i).origin.length() * 0.85, 0)
+	var first := v.rv_index % 6
+	var step := (ViewModel.V_T_LOAD.y - ViewModel.V_T_LOAD.x) / 6.0
+	var order := clampi(int((t - ViewModel.V_T_LOAD.x) / step), 0, 5)
+	var rd := v._rv_rounds[(order + first) % 6] as MeshInstance3D
+	var aabb := rd.mesh.get_aabb()
+	var base := rd.global_transform * Vector3(aabb.position.x, aabb.get_center().y, aabb.get_center().z)
+	var k := 100.0 / ViewModel.SHRINK                        # world (shrunk view) -> real cm
+	print("RH t=%.2f index tip %.1f cm, thumb tip %.1f cm from the round's base; tips %.1f cm apart" % [t,
+		(tip.call("index_03.R") as Vector3).distance_to(base) * k, (tip.call("thumb_03.R") as Vector3).distance_to(base) * k,
+		(tip.call("index_03.R") as Vector3).distance_to(tip.call("thumb_03.R")) * k])
+
+
+## Thumb and index angles that bring the tips together about a round's width
+## apart (1.4 cm), with the other fingers tucked; prints the best few.
+func _pinch_search(arm: FPArm) -> void:
+	var sk := arm.skeleton
+	var tip := func(b: String) -> Vector3:
+		var i := sk.find_bone(b + ".R")
+		return sk.get_bone_global_pose(i) * Vector3(0, sk.get_bone_rest(i).origin.length() * 0.85, 0)
+	var k := 100.0 * FPArm.SIZE                     # skeleton units -> real cm
+	var tucked := {"middle_01": Vector3(80, 0, 0), "middle_02": Vector3(95, 0, 0), "middle_03": Vector3(55, 0, 0),
+		"ring_01": Vector3(82, 0, 0), "ring_02": Vector3(95, 0, 0), "ring_03": Vector3(55, 0, 0),
+		"little_01": Vector3(84, 0, 0), "little_02": Vector3(92, 0, 0), "little_03": Vector3(55, 0, 0)}
+	var res := []
+	for tx in range(0, 91, 10):
+		for tz in range(-60, 31, 10):
+			for t2 in range(0, 61, 15):
+				for i1 in range(10, 81, 10):
+					for i2 in range(10, 81, 14):
+						var pose := tucked.duplicate()
+						pose["thumb_01"] = Vector3(tx, 0, tz)
+						pose["thumb_02"] = Vector3(t2, 0, 0)
+						pose["thumb_03"] = Vector3(t2 * 0.6, 0, 0)
+						pose["index_01"] = Vector3(i1, 0, 0)
+						pose["index_02"] = Vector3(i2, 0, 0)
+						pose["index_03"] = Vector3(i2 * 0.6, 0, 0)
+						arm.set_pose(pose)
+						var d: float = (tip.call("index_03") as Vector3).distance_to(tip.call("thumb_03")) * k
+						# the pinch a little way out from the palm, fingers not crushed into it
+						var mid: Vector3 = ((tip.call("index_03") as Vector3) + (tip.call("thumb_03") as Vector3)) * 0.5
+						var hb := sk.get_bone_global_pose(sk.find_bone("hand.R"))
+						var out_of_palm := (hb.affine_inverse() * mid).y * k
+						res.append([absf(d - 1.4) + maxf(0.0, 7.0 - out_of_palm) * 0.3, d, out_of_palm, [tx, tz, t2, i1, i2]])
+	res.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
+	for r in res.slice(0, 5):
+		print("PINCH tips %.1f cm apart, %.1f cm out along the hand: thumb_01 (%d,0,%d) thumb_02 %d index_01 %d index_02 %d" % [r[1], r[2], r[3][0], r[3][1], r[3][2], r[3][3], r[3][4]])
 

@@ -1050,10 +1050,7 @@ func _animate_revolver_parts() -> void:
 	_rv_trigger.rotation.z = deg_to_rad(V_PULL) * pull
 	_arm_trigger(REVOLVER, pull)
 	# the support hand lets go for the reload and takes hold again after the snap shut
-	var hold := 1.0
-	if t >= 0.0:
-		hold = 1.0 - smoothstep(0.0, 0.25, t) * (1.0 - smoothstep(2.35, 2.75, t))
-	_arm_support(REVOLVER, hold)
+	_rv_left_hand(t)
 	# rounds and cases
 	for c in 6:
 		var live := rv_live[c]
@@ -1074,6 +1071,207 @@ func _animate_revolver_parts() -> void:
 		_rv_rounds[c].visible = shown_round
 		_rv_cases[c].visible = shown_case
 		_rv_rounds[c].position.x = _rv_round_x[c] - 0.09 * slide     # from behind the cylinder, along its axis
+
+
+# --- the hands through the top-break reload -----------------------------------------
+# The way a Webley is reloaded: the left hand comes over, thumbs the latch and
+# rides the barrel open, then holds the open gun by the frame; the right hand
+# lets go of the grip, fetches rounds and pinches them into the chambers one by
+# one (from the right, so the cylinder face stays in view); it takes the grip
+# again, and the left hand goes under the barrel and pushes it shut.
+# Each key is a hand frame, an elbow and a finger pose in the pose node's space,
+# worked out every frame from the part it holds (the barrel keys ride the hinge,
+# the pinch follows the round as it slides home). Knuckle points are in the gun
+# model's units with the barrel shut; elbows are in the pose node's space
+# (metres, low and to the side so the forearms leave the bottom of the screen).
+const V_HINGE := Vector3(0.092, 0.425, 0.0)
+const LH_LATCH := {"index_k": Vector3(0.0, 0.70, -0.06), "little_k": Vector3(0.28, 0.70, -0.04), "palm": Vector3(0.0, -1.0, 0.15), "elbow": Vector3(-0.42, -0.62, 0.08),
+	"pose": {"index_01": Vector3(30, 0, 0), "index_02": Vector3(35, 0, 0), "index_03": Vector3(20, 0, 0),
+		"middle_01": Vector3(35, 0, 0), "middle_02": Vector3(40, 0, 0), "middle_03": Vector3(20, 0, 0),
+		"ring_01": Vector3(38, 0, 0), "ring_02": Vector3(40, 0, 0), "ring_03": Vector3(20, 0, 0),
+		"little_01": Vector3(40, 0, 0), "little_02": Vector3(40, 0, 0), "little_03": Vector3(20, 0, 0),
+		"thumb_01": Vector3(-10, 0, 0), "thumb_02": Vector3(0, 0, 0), "thumb_03": Vector3(5, 0, 0)}}
+## The open gun held in the left hand by its barrel (hanging muzzle down), from
+## below and to the left, so the cylinder face on top stays in view for loading.
+## Barrel space (it rides the hinge).
+const LH_HOLD := {"index_k": Vector3(0.20, 0.57, -0.11), "little_k": Vector3(0.44, 0.57, -0.11), "palm": Vector3(0.0, 0.0, 1.0), "elbow": Vector3(-0.30, -0.70, 0.10),
+	"pose": {"index_01": Vector3(55, 0, 0), "index_02": Vector3(60, 0, 0), "index_03": Vector3(35, 0, 0),
+		"middle_01": Vector3(58, 0, 0), "middle_02": Vector3(62, 0, 0), "middle_03": Vector3(35, 0, 0),
+		"ring_01": Vector3(60, 0, 0), "ring_02": Vector3(62, 0, 0), "ring_03": Vector3(35, 0, 0),
+		"little_01": Vector3(62, 0, 0), "little_02": Vector3(60, 0, 0), "little_03": Vector3(35, 0, 0),
+		"thumb_01": Vector3(20, 0, 0), "thumb_02": Vector3(10, 0, 0), "thumb_03": Vector3(10, 0, 0)}}
+const LH_CLOSE := {"index_k": Vector3(0.34, 0.45, -0.04), "little_k": Vector3(0.06, 0.45, -0.04), "palm": Vector3(0.0, 1.0, 0.1), "elbow": Vector3(-0.32, -0.66, 0.02),
+	"pose": {"index_01": Vector3(45, 0, 0), "index_02": Vector3(45, 0, 0), "index_03": Vector3(25, 0, 0),
+		"middle_01": Vector3(48, 0, 0), "middle_02": Vector3(45, 0, 0), "middle_03": Vector3(25, 0, 0),
+		"ring_01": Vector3(50, 0, 0), "ring_02": Vector3(45, 0, 0), "ring_03": Vector3(25, 0, 0),
+		"little_01": Vector3(52, 0, 0), "little_02": Vector3(45, 0, 0), "little_03": Vector3(25, 0, 0),
+		"thumb_01": Vector3(10, 0, 0), "thumb_02": Vector3(10, 0, 0), "thumb_03": Vector3(10, 0, 0)}}
+## Thumb and index tips about a round's width apart (searched: test_arms --pinch-search),
+## the other fingers tucked.
+const PINCH_POSE := {"index_01": Vector3(50, 0, 0), "index_02": Vector3(24, 0, 0), "index_03": Vector3(14, 0, 0),
+	"middle_01": Vector3(80, 0, 0), "middle_02": Vector3(95, 0, 0), "middle_03": Vector3(55, 0, 0),
+	"ring_01": Vector3(82, 0, 0), "ring_02": Vector3(95, 0, 0), "ring_03": Vector3(55, 0, 0),
+	"little_01": Vector3(84, 0, 0), "little_02": Vector3(92, 0, 0), "little_03": Vector3(55, 0, 0),
+	"thumb_01": Vector3(20, 0, -20), "thumb_02": Vector3(0, 0, 0), "thumb_03": Vector3(0, 0, 0)}
+## The right hand's pinch: it comes in from the gun's right, `lean` of its line
+## across the gun (the rest down the chamber); the pinch point on the round's base.
+const RH_PINCH := {"lean": 0.7, "elbow": Vector3(0.36, -0.55, 0.42), "fetch": Vector3(0.10, -0.30, 0.16)}
+## Reload clock (s).
+const RL_T := {"l_latch": Vector2(0.0, 0.15), "l_hold": Vector2(0.5, 0.62), "r_fetch": Vector2(0.56, 0.64), "r_pinch": Vector2(0.64, 0.75),
+	"r_grip": Vector2(2.08, 2.2), "l_close": Vector2(2.08, 2.2), "l_support": Vector2(2.36, 2.75)}
+var _rl_active := false
+var _rl_round: Node3D                       # the round in the right hand on the way from the pouch
+var _pinch_off := {}                        # FPArm -> pinch point in its hand frame
+
+
+func _rl_from_knuckles(arm: FPArm, key: Dictionary, barrel: bool) -> Transform3D:
+	var m := _rev_model.transform
+	var f := func(p: Vector3) -> Vector3:
+		return m * (_rv_barrel.transform * (p - V_HINGE)) if barrel else m * p
+	var b := (m.basis * (_rv_barrel.transform.basis if barrel else Basis())).orthonormalized()
+	return arm.frame_from_knuckles(f.call(key.index_k), f.call(key.little_k), b * key.palm)
+
+
+## A side's grip from ARM_GRIPS, as a key.
+func _rl_grip(arm: FPArm, side: String) -> Array:
+	var m := _rev_model.transform
+	var g: Dictionary = ARM_GRIPS[REVOLVER][side]
+	var hand: Transform3D
+	if g.has("index_k"):
+		hand = arm.frame_from_knuckles(m * g.index_k, m * g.little_k, m.basis * g.palm)
+	else:
+		hand = FPArm.frame(m * g.wrist, m.basis * g.along, m.basis * g.palm)
+	return [hand, m * g.get("elbow", Vector3(-1.5, -1.0, -0.8)), g.pose]
+
+
+## The right hand pinching chamber `c`'s round by its base (wherever it is now).
+func _rl_pinch(arm: FPArm, c: int) -> Array:
+	var m := _rev_model.transform
+	var rd := _rv_rounds[c] as MeshInstance3D
+	var rx := (_pose[REVOLVER] as Node3D).global_transform.affine_inverse() * rd.global_transform
+	var aabb := rd.mesh.get_aabb()
+	var base := rx * Vector3(aabb.position.x, aabb.get_center().y, aabb.get_center().z)
+	var a := rx.basis.x.normalized()                          # into the chamber
+	var side := (m.basis * Vector3(0, 0, 1)).normalized()     # the gun's right
+	side = (side - a * side.dot(a)).normalized()
+	var along := (a * (1.0 - RH_PINCH.lean) - side * RH_PINCH.lean).normalized()
+	var palm := (a - along * a.dot(along)).normalized()        # fingers curl toward the chamber
+	var hand := FPArm.frame(Vector3.ZERO, along, palm)
+	if not _pinch_off.has(arm):
+		arm.set_pose(PINCH_POSE)
+		_pinch_off[arm] = arm.pinch_offset()
+	hand.origin = base - hand.basis * (_pinch_off[arm] as Vector3)
+	return [hand, RH_PINCH.elbow, PINCH_POSE]
+
+
+func _rl_blend(a: Array, b: Array, k: float) -> Array:
+	k = clampf(k, 0.0, 1.0)
+	var ha: Transform3D = a[0]
+	var hb: Transform3D = b[0]
+	var q := ha.basis.get_rotation_quaternion().slerp(hb.basis.get_rotation_quaternion(), k)
+	var pose := {}
+	var pa: Dictionary = a[2]
+	var pb: Dictionary = b[2]
+	for bn in pa.keys() + pb.keys():
+		pose[bn] = (pa.get(bn, Vector3.ZERO) as Vector3).lerp(pb.get(bn, Vector3.ZERO), k)
+	return [Transform3D(Basis(q), ha.origin.lerp(hb.origin, k)), (a[1] as Vector3).lerp(b[1], k), pose]
+
+
+func _rl_apply(arm: FPArm, key: Array) -> void:
+	arm.set_pose(key[2])
+	arm.place(key[0], key[1])
+
+
+## Both hands at reload time `t` (< 0: not reloading).
+func _rv_left_hand(t: float) -> void:
+	if not _arms.has(REVOLVER) or not _arms[REVOLVER].has("L"):
+		return
+	var la: FPArm = _arms[REVOLVER]["L"]
+	var ra: FPArm = _arms[REVOLVER]["R"]
+	la.visible = true
+	if t < 0.0 or t >= RL_T.l_support.y:
+		if _rl_active:
+			_rl_active = false
+			apply_grip(REVOLVER, _grips_live[REVOLVER], _rev_model)   # both hands exactly back on their grips
+			_arm_pull_last = -1.0
+		if _rl_round:
+			_rl_round.visible = false
+		return
+	_rl_active = true
+	var e := func(r: Vector2) -> float: return smoothstep(r.x, r.y, t)
+	var m := _rev_model.transform
+	var latch := [_rl_from_knuckles(la, LH_LATCH, true), LH_LATCH.elbow, LH_LATCH.pose]
+	var hold := [_rl_from_knuckles(la, LH_HOLD, true), LH_HOLD.elbow, LH_HOLD.pose]
+	var close := [_rl_from_knuckles(la, LH_CLOSE, true), LH_CLOSE.elbow, LH_CLOSE.pose]
+	# left: latch, ride it open, hold the gun, under the barrel, ride it shut, back
+	var lk: Array
+	if t < RL_T.l_latch.y:
+		lk = _rl_blend(_rl_grip(la, "L"), latch, e.call(RL_T.l_latch))
+	elif t < RL_T.l_hold.x:
+		lk = latch
+	elif t < RL_T.l_close.x:
+		lk = _rl_blend(latch, hold, e.call(RL_T.l_hold))
+	elif t < RL_T.l_support.x:
+		lk = _rl_blend(hold, close, e.call(RL_T.l_close))
+	else:
+		lk = _rl_blend(close, _rl_grip(la, "L"), e.call(RL_T.l_support))
+	_rl_apply(la, lk)
+	# right: on the grip until the gun is held, to the pouch, round after round, back
+	var first := rv_index % 6
+	var step := (V_T_LOAD.y - V_T_LOAD.x) / 6.0
+	var grip := _rl_grip(ra, "R")
+	var rk: Array
+	if t < RL_T.r_fetch.x:
+		rk = grip
+	elif t < RL_T.r_pinch.x:
+		var fetch := grip.duplicate()
+		fetch[0] = Transform3D((grip[0] as Transform3D).basis, (grip[0] as Transform3D).origin + RH_PINCH.fetch)
+		fetch[2] = PINCH_POSE
+		rk = _rl_blend(grip, fetch, e.call(RL_T.r_fetch))
+	elif t < V_T_LOAD.x + 0.001:
+		var fetch := grip.duplicate()
+		fetch[0] = Transform3D((grip[0] as Transform3D).basis, (grip[0] as Transform3D).origin + RH_PINCH.fetch)
+		fetch[2] = PINCH_POSE
+		rk = _rl_blend(fetch, _rl_pinch(ra, first), e.call(RL_T.r_pinch))
+	elif t < RL_T.r_grip.x:
+		var order := clampi(int((t - V_T_LOAD.x) / step), 0, 5)
+		var c := (order + first) % 6
+		var t0 := V_T_LOAD.x + order * step
+		var into := step * 0.75
+		if t < t0 + into or order == 5:
+			rk = _rl_pinch(ra, c)
+		else:
+			rk = _rl_blend(_rl_pinch(ra, c), _rl_pinch(ra, (order + 1 + first) % 6), smoothstep(t0 + into, t0 + step, t))
+	elif t < RL_T.r_grip.y:
+		rk = _rl_blend(_rl_pinch(ra, (5 + first) % 6), grip, e.call(RL_T.r_grip))
+	else:
+		rk = grip
+	_rl_apply(ra, rk)
+	# a round in the right fingers on the way back from the pouch
+	if _rl_round == null:
+		_rl_round = _make_hand_round(ra)
+	if _rl_round:
+		_rl_round.visible = t > RL_T.r_fetch.y - 0.02 and t < V_T_LOAD.x
+
+
+## A copy of one of the gun's rounds, held at the tip of the index finger.
+func _make_hand_round(arm: FPArm) -> Node3D:
+	var src := _rv_rounds[0] as MeshInstance3D
+	if src == null:
+		return null
+	var att := BoneAttachment3D.new()
+	arm.skeleton.add_child(att)
+	att.bone_name = "index_03." + arm.side
+	var mi := MeshInstance3D.new()
+	mi.mesh = src.mesh
+	mi.layers = 2
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.scale = Vector3.ONE * V_SCALE / FPArm.SIZE             # real size in the arm's units
+	mi.position = Vector3(0.0, 0.022, 0.012) / FPArm.SIZE
+	mi.rotation_degrees = Vector3(0, 0, 90)
+	att.add_child(mi)
+	att.visible = false
+	return att
 
 
 ## The reload has put six live rounds in (called at REVOLVER_SEAT by the player's

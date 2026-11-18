@@ -155,6 +155,20 @@ func frame_from_knuckles(index_k: Vector3, little_k: Vector3, palm: Vector3) -> 
 	return Transform3D(r, (index_k + little_k) * 0.5 - r * mid_local)
 
 
+## The point between the index and thumb tips (a pinch), in the hand bone's own
+## frame scaled to this node's units: where to put the hand so the pinch lands on
+## something is `target - hand.basis * pinch_offset()`.
+func pinch_offset() -> Vector3:
+	var hb := skeleton.get_bone_global_pose(_hand)
+	var tip := func(b: String) -> Vector3:
+		var i := skeleton.find_bone(b + "." + side)
+		var x := skeleton.get_bone_global_pose(i)
+		return x * Vector3(0, skeleton.get_bone_rest(i).origin.length() * 0.85, 0)
+	var mid: Vector3 = ((tip.call("index_03") as Vector3) + (tip.call("thumb_03") as Vector3)) * 0.5
+	var local := hb.affine_inverse() * mid
+	return local * (model.transform * skeleton.transform).basis.get_scale().x
+
+
 ## A hand frame from where the wrist is, which way the hand points and which way the palm faces.
 static func frame(wrist: Vector3, along: Vector3, palm: Vector3) -> Transform3D:
 	var y := along.normalized()
