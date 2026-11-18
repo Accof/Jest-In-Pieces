@@ -1272,20 +1272,20 @@ const ARM_GRIPS := {
 			"thumb_01": Vector3(10, 0, 0), "thumb_02": Vector3(10, 0, 0), "thumb_03": Vector3(10, 0, 0)},
 			"away": Vector3(-0.12, -0.28, 0.12)}
 	},
-	TRENCH: {
-		"R": {"index_k": Vector3(-0.194, 0.140, 0.045), "little_k": Vector3(-0.236, 0.084, 0.047), "palm": Vector3(0.0, -0.2, -1.0), "elbow": Vector3(-0.45, -0.10, 0.34),
-			"pose": {"index_01": Vector3(10, 0, 15), "index_02": Vector3(15, 0, 0), "index_03": Vector3(40, 0, 0),
-			"middle_01": Vector3(15, 0, 0), "middle_02": Vector3(25, 0, 0), "middle_03": Vector3(12, 0, 0),
-			"ring_01": Vector3(55, 0, 0), "ring_02": Vector3(5, 0, 0), "ring_03": Vector3(4, 0, 0),
-			"little_01": Vector3(50, 0, 0), "little_02": Vector3(60, 0, 0), "little_03": Vector3(30, 0, 0),
-			"thumb_01": Vector3(6, 0, -24), "thumb_02": Vector3(10, 0, 0), "thumb_03": Vector3(0, 0, 0)},
+	TRENCH: {                   # fitted with the hands at ARM_SIZE 0.8
+		"R": {"index_k": Vector3(-0.194, 0.140, 0.039), "little_k": Vector3(-0.236, 0.084, 0.041), "palm": Vector3(0.0, -0.2, -1.0), "elbow": Vector3(-0.45, -0.10, 0.34),
+			"pose": {"index_01": Vector3(5, 0, 10), "index_02": Vector3(10, 0, 0), "index_03": Vector3(40, 0, 0),
+			"middle_01": Vector3(15, 0, 0), "middle_02": Vector3(20, 0, 0), "middle_03": Vector3(10, 0, 0),
+			"ring_01": Vector3(55, 0, 0), "ring_02": Vector3(0, 0, 0), "ring_03": Vector3(0, 0, 0),
+			"little_01": Vector3(50, 0, 0), "little_02": Vector3(75, 0, 0), "little_03": Vector3(38, 0, 0),
+			"thumb_01": Vector3(0, 0, -40), "thumb_02": Vector3(30, 0, 0), "thumb_03": Vector3(0, 0, 0)},
 			"pull": {"index_01": Vector3(6, 0, 0), "index_02": Vector3(14, 0, 0), "index_03": Vector3(10, 0, 0)}},
-		"L": {"index_k": Vector3(0.24, 0.086, 0.012), "little_k": Vector3(0.17, 0.088, 0.016), "palm": Vector3(0.0, 0.92, -0.38), "elbow": Vector3(-0.12, -0.14, -0.25),
-			"pose": {"index_01": Vector3(-10, 0, 0), "index_02": Vector3(80, 0, 0), "index_03": Vector3(40, 0, 0),
-			"middle_01": Vector3(5, 0, 0), "middle_02": Vector3(65, 0, 0), "middle_03": Vector3(32, 0, 0),
-			"ring_01": Vector3(10, 0, 0), "ring_02": Vector3(55, 0, 0), "ring_03": Vector3(28, 0, 0),
-			"little_01": Vector3(5, 0, 0), "little_02": Vector3(110, 0, 0), "little_03": Vector3(55, 0, 0),
-			"thumb_01": Vector3(-18, 0, 8), "thumb_02": Vector3(0, 0, 0), "thumb_03": Vector3(15, 0, 0)}}
+		"L": {"index_k": Vector3(0.236, 0.090, 0.016), "little_k": Vector3(0.166, 0.092, 0.020), "palm": Vector3(0.0, 0.92, -0.38), "elbow": Vector3(-0.12, -0.14, -0.25),
+			"pose": {"index_01": Vector3(-5, 0, 0), "index_02": Vector3(75, 0, 0), "index_03": Vector3(38, 0, 0),
+			"middle_01": Vector3(10, 0, 0), "middle_02": Vector3(55, 0, 0), "middle_03": Vector3(28, 0, 0),
+			"ring_01": Vector3(15, 0, 0), "ring_02": Vector3(45, 0, 0), "ring_03": Vector3(22, 0, 0),
+			"little_01": Vector3(10, 0, 0), "little_02": Vector3(95, 0, 0), "little_03": Vector3(48, 0, 0),
+			"thumb_01": Vector3(-30, 0, 0), "thumb_02": Vector3(-10, 0, 0), "thumb_03": Vector3(0, 0, 0)}}
 	},
 	RIFLE: {                    # fitted with the hands at ARM_SIZE 0.8
 		"R": {"index_k": Vector3(-0.283, 0.146, 0.041), "little_k": Vector3(-0.320, 0.099, 0.041), "palm": Vector3(0.0, -0.05, -1.0), "elbow": Vector3(-0.60, -0.10, 0.24),
@@ -1326,10 +1326,10 @@ var _arm_home := {}
 
 ## Build and place the arms a gun asks for (ARM_GRIPS), under its pose node, so
 ## they follow everything the gun does. `model` is the node the grip numbers are in.
-## Hand size per weapon (times the shared rig's). The SMLE is modelled at true size, and the
-## shared glove (8.7 cm across the knuckles there) read as too big on it: 0.8 gives about 7 cm,
-## a man's hand in a leather glove.
-const ARM_SIZE := {RIFLE: 0.8}
+## Hand size per weapon (times the shared rig's). The SMLE and the trench gun are modelled at
+## true size, and the shared glove (8.4-8.7 cm across the knuckles there) read as too big on
+## them: 0.8 gives about 7 cm, a man's hand in a leather glove.
+const ARM_SIZE := {RIFLE: 0.8, TRENCH: 0.8}
 
 
 func _build_arms(gun: int, pose: Node3D, model: Node3D) -> void:
