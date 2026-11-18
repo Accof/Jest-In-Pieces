@@ -105,10 +105,23 @@ func _run() -> void:
 	_check(shown == 1 and p.view._guns[ViewModel.REVOLVER].visible, "only the revolver is shown")
 	var meshes := p.view._guns[ViewModel.REVOLVER].find_children("*", "MeshInstance3D", true, false)
 	var tex_ok := false
+	var names := {}
 	for mi: MeshInstance3D in meshes:
+		names[String(mi.name)] = true
 		var m := mi.mesh.surface_get_material(0) as StandardMaterial3D
-		tex_ok = m != null and m.albedo_texture != null and m.normal_texture != null and m.roughness_texture != null and m.metallic_texture != null
-	_check(meshes.size() == 1 and tex_ok, "the revolver is the Tripo mesh with its colour, normal and metal/rough textures (no procedural hands)")
+		if String(mi.name) == "Frame":
+			tex_ok = m != null and m.albedo_texture != null and m.normal_texture != null and m.roughness_texture != null and m.metallic_texture != null
+	var parts_ok := true
+	for n in ["Frame", "BarrelAssembly", "Cylinder", "Extractor", "Hammer", "Trigger", "Round_1", "Round_6", "Case_1", "Case_6"]:
+		parts_ok = parts_ok and names.has(n)
+	_check(p.view._rv_parts and parts_ok, "the revolver is the parts model: frame, barrel, cylinder, extractor, hammer, trigger, six rounds and six cases")
+	_check(tex_ok, "the frame keeps the Tripo colour, normal and metal/rough textures (no procedural hands)")
+	var vis_rounds := 0
+	var vis_cases := 0
+	for c in 6:
+		vis_rounds += int(p.view._rv_rounds[c].visible)
+		vis_cases += int(p.view._rv_cases[c].visible)
+	_check(vis_rounds == 6 and vis_cases == 0, "six live rounds in the cylinder, no fired cases")
 	# placement: lower right, ahead of the eye, barrel along the view
 	var cam := p.camera
 	var muzzle_cam := cam.to_local(p.view._rev_muzzle.global_position)
@@ -138,6 +151,9 @@ func _run() -> void:
 	await _frames(10)
 	var rev_dmg := hb - b.health if not b.dead else hb
 	_check(p.ammo[FpsPlayer.REVOLVER] == 5 and p.ammo[FpsPlayer.PISTOL] == 16, "a revolver shot uses a revolver round only")
+	_check(p.view.rv_index == 1 and p.view._rv_cases[0].visible and not p.view._rv_rounds[0].visible, "the fired chamber now holds a fired case")
+	_check(absf(p.view._rv_cyl.rotation.x - PI / 3.0) < 0.02, "the cylinder turned one chamber (%.1f deg)" % rad_to_deg(p.view._rv_cyl.rotation.x))
+	_timed(absf(p.view._rv_barrel.rotation.z) < 0.001 and absf(p.view._rv_hammer.rotation.z) < 0.01, "barrel shut, hammer down after the shot")
 	_check(rev_dmg > pistol_dmg, "the revolver hits harder than the pistol (%.0f vs %.0f)" % [rev_dmg, pistol_dmg])
 	_timed(climbed > deg_to_rad(1.0), "the view kicks up (%.1f deg)" % rad_to_deg(climbed))
 	_timed(kicked > 0.9, "the gun recoils in the hand")
@@ -166,13 +182,46 @@ func _run() -> void:
 	await _wait(0.6)
 	var pistol_before := p.ammo[FpsPlayer.PISTOL]
 	p.camera.rotation.x = 0.0
+	var spent_before := get_tree().get_nodes_in_group("spent_brass").size()
 	p.reload()
 	_check(p.view.reloading(), "the revolver reloads")
-	await _wait(1.0)
-	await _shot("2_reload")
-	_check(p.ammo[FpsPlayer.REVOLVER] == 1, "not loaded yet a second in")
-	await _wait(2.2)
+	await _wait(0.56)
+	await _shot("2_open")
+	var open_deg := rad_to_deg(p.view._rv_barrel.rotation.z)
+	_check(open_deg < -55.0, "the barrel has broken open on its hinge (%.0f deg)" % open_deg)
+	var frame_still := p.view._rev_model.find_child("Frame", true, false) as Node3D
+	_check(frame_still.position.is_zero_approx() and frame_still.rotation.is_zero_approx(), "the frame does not move: the barrel turns on the pin")
+	var spent := p.view.rv_spent
+	var in_gun := 0
+	for c in 6:
+		in_gun += int(p.view._rv_rounds[c].visible) + int(p.view._rv_cases[c].visible)
+	_check(spent.size() == 6 and get_tree().get_nodes_in_group("spent_brass").size() == spent_before + 6, "the extractor threw all six out of the cylinder (%d bodies)" % spent.size())
+	_timed(in_gun == 0, "nothing left in the cylinder just after the throw")
+	var near := 9.0
+	for sb in spent:
+		if is_instance_valid(sb):
+			near = minf(near, sb.global_position.distance_to(p.camera.global_position))
+	_check(near > 0.25 and near < 1.2, "the brass is out in the world at full size, in front of the player (%.2f m)" % near)
+	await _wait(0.9)
+	await _shot("4_loading")
+	_check(p.ammo[FpsPlayer.REVOLVER] == 1, "not loaded yet a second and a half in")
+	var going_in := 0
+	for c in 6:
+		going_in += int(p.view._rv_rounds[c].visible)
+	_check(going_in > 0 and going_in < 6, "the new rounds are going in one at a time (%d in)" % going_in)
+	await _wait(0.72)
+	await _shot("5_closing")
+	await _wait(1.1)
 	_check(p.ammo[FpsPlayer.REVOLVER] == 6 and not p.view.reloading(), "six in after about three seconds")
+	var all_live := true
+	for c in 6:
+		all_live = all_live and p.view.rv_live[c] and p.view._rv_rounds[c].visible and not p.view._rv_cases[c].visible
+	_check(all_live and absf(p.view._rv_barrel.rotation.z) < 0.001 and absf(p.view._rv_ext.position.x) < 0.0001, "shut again with six live rounds, extractor home")
+	var landed := 0
+	for sb in spent:
+		if is_instance_valid(sb) and sb.global_position.y < 0.6 and sb.global_position.y > -0.2:
+			landed += 1
+	_check(landed >= 4, "the brass fell to the floor (%d of 6)" % landed)
 	_check(p.ammo[FpsPlayer.PISTOL] == pistol_before, "the pistol's magazine is untouched by the revolver's reload")
 	# fire one, then swap away mid-reload: the reload is abandoned, nothing changes
 	p.fire()
@@ -182,6 +231,10 @@ func _run() -> void:
 	_key(KEY_1)
 	await _wait(ViewModel.SWAP_TIME + 0.1)
 	_check(p.weapon == FpsPlayer.PISTOL and p.ammo[FpsPlayer.REVOLVER] == 5, "1 goes back to the pistol; the half-done revolver reload is abandoned")
+	var live_n := 0
+	for c in 6:
+		live_n += int(p.view.rv_live[c])
+	_check(live_n == 5 and absf(p.view._rv_barrel.rotation.z) < 0.001, "the revolver's chambers still say five live, one fired, and it is shut")
 	# the pistol empties and reloads on its own count
 	while p.ammo[FpsPlayer.PISTOL] > 0:
 		p.fire()

@@ -347,6 +347,7 @@ func _tick_reload(delta: float) -> void:
 				ammo[weapon] = WEAPONS[weapon].mag
 				if weapon == REVOLVER:
 					SfxSynth.play(self, "revolver_close", camera.global_position, -6.0, 1.0)
+					view.revolver_loaded()
 				ammo_changed.emit()
 				_update_label()
 		var total: float = {PISTOL: ViewModel.PISTOL_RELOAD, SMG: ViewModel.SMG_RELOAD, STAKE: ViewModel.STAKE_RELOAD, RIFLE: ViewModel.RIFLE_RELOAD, REVOLVER: ViewModel.REVOLVER_RELOAD}.get(weapon, ViewModel.STAKE_RELOAD)

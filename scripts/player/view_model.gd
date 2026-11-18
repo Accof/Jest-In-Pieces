@@ -29,7 +29,7 @@ const STAKE_SEAT := 1.5         # the new stake is on the rail
 const RIFLE_CYCLE := 0.95       # working the bolt after a shot
 const RIFLE_RELOAD := 2.5       # bolt open, a stripper clip of five thumbed in, bolt shut
 const RIFLE_SEAT := 1.55        # the rounds are in the magazine
-const REVOLVER_RELOAD := 3.0    # temporary: tipped down and away, six rounds in, snapped shut
+const REVOLVER_RELOAD := 3.0    # broken open, the extractor throws everything out, six in, snapped shut
 const REVOLVER_SEAT := 2.35     # the rounds are in (the frame snaps shut)
 
 var weapon := PISTOL
@@ -123,6 +123,8 @@ func fire() -> void:
 	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9, 2.4, 2.2, 2.0, 1.9][weapon] * randf_range(0.7, 1.25)
 	if weapon == RIFLE:
 		_cycle_t = 0.0
+	if weapon == REVOLVER:
+		_revolver_fired()
 	_flash_mesh.rotation.z = randf() * TAU
 	if weapon == SMG or weapon == MAXIM:
 		_jitter = Vector2(randf_range(-1, 1), randf_range(-0.3, 1))
@@ -131,10 +133,13 @@ func fire() -> void:
 
 func start_reload() -> void:
 	_reload_t = 0.0
+	if weapon == REVOLVER:
+		_revolver_reset_reload()
 
 
 func stop_reload() -> void:
 	_reload_t = -1.0
+	_revolver_reset_reload()
 
 
 func reloading() -> bool:
@@ -147,6 +152,7 @@ func swap_to(w: int) -> void:
 	_swap_to = w
 	_swap_t = 0.0
 	_reload_t = -1.0
+	_revolver_reset_reload()
 
 
 func swapping() -> bool:
@@ -764,13 +770,15 @@ func _muzzle() -> Vector3:
 	return to_local(_pose[weapon].to_global(local))
 
 
-# --- the revolver (Tripo model) ------------------------------------------------------
-# A WW1 top-break service revolver from `art/weapons/revolver/revolver.glb`:
-# one fused mesh (frame, cylinder, hammer, trigger, barrel and grips are all a
-# single piece, so nothing on it can move yet). Held one-handed low on the
-# right, with no hands for now (rigged arms come later). All the motion is
-# the whole gun: a hard upward kick, and a temporary reload that tips it down
-# and in toward the body, as if broken open, then snaps it back up.
+# --- the revolver (Tripo model, split into parts) ------------------------------------
+# A WW1 top-break service revolver. `revolver_parts.glb` is the Tripo model cut
+# into its working parts in Blender (see claude/revolver-breakdown.md): the frame,
+# the barrel assembly on its hinge pin, a rebuilt six-chamber cylinder riding
+# with the barrel, the extractor star, six rounds and six fired cases, and the
+# hammer and trigger on their own pivots. All in the original model's space, so
+# placement, scale and the bore are unchanged. If the parts file is missing the
+# fused `revolver.glb` is used and only the whole gun moves (the old reload).
+# Held one-handed low on the right, no hands yet.
 const V_HOME := Vector3(0.2, -0.165, -0.45)
 ## Canted in a little (top toward the middle of the screen) and turned in a
 ## touch so the left flank, cylinder and frame show, the bore converging on
@@ -780,9 +788,51 @@ const V_TILT := Vector3(2.0, 6.0, 9.0)
 const V_SCALE := 0.29
 ## The bore at the muzzle, in the model's own units (it points down +X).
 const V_BORE := Vector3(0.49, 0.572, 0.0)
+const V_PARTS := "res://art/weapons/revolver/revolver_parts.glb"
+const V_FUSED := "res://art/weapons/revolver/revolver.glb"
+## How the parts move (model space, Y up, X along the barrel):
+const V_OPEN := -68.0          # barrel on the hinge, degrees about Z (negative: muzzle down)
+const V_EJECT := -0.032        # extractor stroke along the cylinder axis
+const V_COCK := 35.0           # hammer, degrees about Z (positive: spur back)
+const V_PULL := -12.0          # trigger, degrees about Z (negative: blade back)
+# The reload, seconds (REVOLVER_RELOAD 3.0; the rounds count at REVOLVER_SEAT 2.35):
+const V_T_OPEN := Vector2(0.15, 0.5)      # barrel falls open
+const V_T_EJECT := Vector2(0.42, 0.5)     # extractor throws everything out at the end of the opening
+const V_T_BACK := Vector2(0.52, 0.62)     # and snaps back
+const V_T_LOAD := Vector2(0.75, 2.1)      # six rounds in, one after another
+const V_T_CLOSE := Vector2(2.2, 2.34)     # snapped shut (the rounds count at 2.35)
 
 var _rev_muzzle: Node3D
 var _rev_model: Node3D
+var _rv_parts := false
+var _rv_barrel: Node3D
+var _rv_cyl: Node3D
+var _rv_ext: Node3D
+var _rv_hammer: Node3D
+var _rv_trigger: Node3D
+var _rv_rounds: Array[Node3D] = []
+var _rv_cases: Array[Node3D] = []
+var _rv_round_x: Array[float] = []
+## Which chambers hold a live round (the rest hold a fired case).
+var rv_live: Array[bool] = [true, true, true, true, true, true]
+## Shots since the cylinder was at 0: the chamber under the hammer is rv_index % 6.
+var rv_index := 0
+var _rv_cyl_from := 0.0
+var _rv_cyl_t := 9.0
+var _rv_thrown := false
+var _rv_clicked := 0
+## Brass thrown out by the last reload (for the tests).
+var rv_spent: Array[RigidBody3D] = []
+
+func _revolver_fired() -> void:
+	if not _rv_parts:
+		return
+	rv_live[rv_index % 6] = false
+	# double action: the pull turns the cylinder a chamber and lets the hammer go
+	_rv_cyl_from = _rv_cyl.rotation.x
+	rv_index += 1
+	_rv_cyl_t = 0.0
+
 
 func _animate_revolver() -> void:
 	var pose := _pose[REVOLVER]
@@ -790,26 +840,165 @@ func _animate_revolver() -> void:
 	# the kick: up and back hard, a little twist
 	var pos := V_HOME + Vector3(0.0, 0.02 * k, 0.05 * k)
 	var rot := V_TILT * (PI / 180.0) + Vector3(deg_to_rad(16.0) * k, deg_to_rad(-1.5) * k, deg_to_rad(randf_range(-0.8, 0.8)) * k)
+	if _reload_t >= 0.0 and not _rv_parts:
+		_animate_revolver_fused(_reload_t, pos, rot, pose)
+		return
 	if _reload_t >= 0.0:
 		var t := _reload_t
-		# 0.00-0.40  muzzle drops, gun turns in toward the body (broken open)
-		# 0.55-0.75  a sharp flick: the empties out
-		# 0.80-2.20  held low while six go in one at a time (small nudges)
-		# 2.20-2.40  muzzle comes up hard: snapped shut
-		# 2.40-3.00  back on target
-		var down := smoothstep(0.0, 0.4, t) * (1.0 - smoothstep(2.2, 2.45, t))
-		pos += Vector3(-0.07, -0.06, 0.07) * down
-		rot += Vector3(deg_to_rad(-55.0), deg_to_rad(28.0), deg_to_rad(-20.0)) * down
-		var flick := smoothstep(0.55, 0.62, t) * (1.0 - smoothstep(0.62, 0.78, t))
-		rot += Vector3(deg_to_rad(-18.0), 0, 0) * flick
-		pos += Vector3(0, 0.02, 0) * flick
-		if t > 0.8 and t < 2.2:
-			var each := fmod(t - 0.8, (2.2 - 0.8) / 6.0) / ((2.2 - 0.8) / 6.0)
-			pos += Vector3(0, -0.006, 0) * (1.0 - absf(each * 2.0 - 1.0))
-		var snap := smoothstep(2.25, 2.32, t) * (1.0 - smoothstep(2.32, 2.6, t))
-		rot += Vector3(deg_to_rad(9.0), 0, 0) * snap
-		var settle := smoothstep(2.4, REVOLVER_RELOAD, t)
-		pos += Vector3(0, -0.015, 0) * (1.0 - settle) * smoothstep(2.3, 2.4, t)
+		# the wrist turns the gun over a little to watch the breech (the mechanism does the work)
+		var present := smoothstep(0.0, 0.3, t) * (1.0 - smoothstep(2.25, 2.7, t))
+		pos += Vector3(-0.05, 0.015, 0.05) * present
+		rot += Vector3(deg_to_rad(12.0), deg_to_rad(22.0), deg_to_rad(-30.0)) * present
+		# closing: the snap jolts the hand
+		var snap := smoothstep(2.28, 2.31, t) * (1.0 - smoothstep(2.31, 2.5, t))
+		rot += Vector3(deg_to_rad(5.0), 0, 0) * snap
+	pose.position = pos
+	pose.rotation = rot
+	if _rv_parts:
+		_animate_revolver_parts()
+
+
+func _animate_revolver_parts() -> void:
+	var dt := get_process_delta_time()
+	var t := _reload_t
+	# barrel on its hinge
+	var open := 0.0
+	if t >= 0.0:
+		var o := smoothstep(V_T_OPEN.x, V_T_OPEN.y, t)
+		var c := smoothstep(V_T_CLOSE.x, V_T_CLOSE.y, t)
+		open = o * (1.0 - c * c)                 # opens easy, shuts fast
+	_rv_barrel.rotation.z = deg_to_rad(V_OPEN) * open
+	# extractor: out at the end of the opening, snaps back
+	var ex := 0.0
+	if t >= 0.0:
+		ex = smoothstep(V_T_EJECT.x, V_T_EJECT.y, t) * (1.0 - smoothstep(V_T_BACK.x, V_T_BACK.y, t))
+		if t >= V_T_EJECT.y - 0.02 and not _rv_thrown:
+			_rv_thrown = true
+			_throw_brass()
+	_rv_ext.position.x = V_EJECT * ex
+	# cylinder: a quick turn of one chamber per shot
+	_rv_cyl_t += dt
+	var target := float(rv_index % 6) * PI / 3.0
+	var from := _rv_cyl_from
+	if target < from - 0.01:
+		from -= TAU                              # always turn the same way
+	_rv_cyl.rotation.x = lerpf(from, target, smoothstep(0.0, 0.07, _rv_cyl_t))
+	# hammer falls on the shot (back to full cock at the end of the pull), trigger comes back
+	var h := 0.0
+	var pull := 0.0
+	if _since_shot < 0.25 and _reload_t < 0.0:
+		h = 1.0 - smoothstep(0.0, 0.035, _since_shot)
+		pull = 1.0 - smoothstep(0.03, 0.22, _since_shot)
+	_rv_hammer.rotation.z = deg_to_rad(V_COCK) * h
+	_rv_trigger.rotation.z = deg_to_rad(V_PULL) * pull
+	# rounds and cases
+	for c in 6:
+		var live := rv_live[c]
+		var shown_round := live
+		var shown_case := not live
+		var slide := 0.0
+		if t >= 0.0 and _rv_thrown:
+			# out and gone; then the new ones go in, one after another, from the top chamber round
+			var order := (c - rv_index % 6 + 6) % 6
+			var step := (V_T_LOAD.y - V_T_LOAD.x) / 6.0
+			var t0 := V_T_LOAD.x + order * step
+			shown_case = false
+			shown_round = t >= t0
+			slide = 1.0 - smoothstep(t0, t0 + step * 0.75, t)
+			if t >= t0 + step * 0.75 and _rv_clicked <= order:
+				_rv_clicked = order + 1
+				SfxSynth.play(self, "dry_click", _rv_rounds[c].global_position, -20.0, randf_range(1.3, 1.6))
+		_rv_rounds[c].visible = shown_round
+		_rv_cases[c].visible = shown_case
+		_rv_rounds[c].position.x = _rv_round_x[c] - 0.09 * slide     # from behind the cylinder, along its axis
+
+
+## The reload has put six live rounds in (called at REVOLVER_SEAT by the player's
+## timing, and here when the view's own clock passes it).
+func revolver_loaded() -> void:
+	for c in 6:
+		rv_live[c] = true
+
+
+func _revolver_reset_reload() -> void:
+	_rv_thrown = false
+	_rv_clicked = 0
+
+
+## Everything in the cylinder goes: fired cases and any live rounds left, out of
+## the gun as real bodies, at full size where they would be in the world (the
+## view model is drawn shrunk toward the camera).
+func _throw_brass() -> void:
+	SfxSynth.play(self, "brass", global_position, -10.0, randf_range(0.95, 1.05))
+	var cam := get_parent() as Node3D
+	var scene := get_tree().current_scene
+	if cam == null or scene == null:
+		return
+	var eye := cam.global_position
+	rv_spent.clear()
+	for c in 6:
+		var src := _rv_cases[c] if not rv_live[c] else _rv_rounds[c]
+		var mi := src as MeshInstance3D
+		if mi == null:
+			continue
+		var g := mi.global_transform
+		var aabb := mi.mesh.get_aabb()
+		var centre_local := aabb.get_center()
+		var at := eye + (g * centre_local - eye) / SHRINK
+		var body := RigidBody3D.new()
+		body.collision_layer = 1 << 3
+		body.collision_mask = 1 | (1 << 3)
+		body.mass = 0.012
+		body.continuous_cd = true
+		body.angular_damp = 0.8
+		var pm := PhysicsMaterial.new()
+		pm.bounce = 0.45
+		pm.friction = 0.5
+		body.physics_material_override = pm
+		var len_real := aabb.size.x * V_SCALE
+		var r_real := maxf(aabb.size.y, aabb.size.z) * 0.5 * V_SCALE
+		var shape := CylinderShape3D.new()
+		shape.radius = r_real
+		shape.height = len_real
+		var cs := CollisionShape3D.new()
+		cs.shape = shape
+		cs.rotation.z = PI * 0.5                  # the cylinder shape stands on Y; the case lies along its X
+		body.add_child(cs)
+		var copy := MeshInstance3D.new()
+		copy.mesh = mi.mesh
+		copy.scale = Vector3.ONE * V_SCALE
+		copy.position = -centre_local * V_SCALE
+		copy.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		body.add_child(copy)
+		body.add_to_group("spent_brass")
+		scene.add_child(body)
+		body.global_transform = Transform3D(g.basis.orthonormalized(), at)
+		# out along the cylinder axis (back toward the shooter, up off the tipped barrel), spread, down
+		var out := -g.basis.x.normalized()
+		body.linear_velocity = out * randf_range(0.9, 1.4) + cam.global_basis.x * randf_range(0.2, 0.6) + Vector3(0, randf_range(-0.3, 0.3), 0)
+		body.angular_velocity = Vector3(randf_range(-12, 12), randf_range(-12, 12), randf_range(-12, 12))
+		rv_spent.append(body)
+		body.contact_monitor = true
+		body.max_contacts_reported = 1
+		var hits := [0]
+		body.body_entered.connect(func(_b: Node) -> void:
+			if hits[0] < 3 and body.linear_velocity.length() > 0.4:
+				hits[0] += 1
+				SfxSynth.play(body, "brass_tink", body.global_position, -14.0 - hits[0] * 4.0, randf_range(0.85, 1.25)))
+		get_tree().create_timer(25.0).timeout.connect(body.queue_free)
+	# keep the floor from filling up
+	var all := get_tree().get_nodes_in_group("spent_brass")
+	for i in maxi(all.size() - 72, 0):
+		all[i].queue_free()
+
+
+## The fused model has no moving parts: the whole gun tips down and in instead.
+func _animate_revolver_fused(t: float, pos: Vector3, rot: Vector3, pose: Node3D) -> void:
+	var down := smoothstep(0.0, 0.4, t) * (1.0 - smoothstep(2.2, 2.45, t))
+	pos += Vector3(-0.07, -0.06, 0.07) * down
+	rot += Vector3(deg_to_rad(-55.0), deg_to_rad(28.0), deg_to_rad(-20.0)) * down
+	var snap := smoothstep(2.25, 2.32, t) * (1.0 - smoothstep(2.32, 2.6, t))
+	rot += Vector3(deg_to_rad(9.0), 0, 0) * snap
 	pose.position = pos
 	pose.rotation = rot
 
@@ -824,7 +1013,8 @@ func _build_revolver() -> void:
 	_pose.append(pose)
 	# Model +X is the muzzle: turn it to point down -Z, and place it so the
 	# bore runs at the height the other guns' sights do, the grip under the hand.
-	_rev_model = (load("res://art/weapons/revolver/revolver.glb") as PackedScene).instantiate() as Node3D
+	var path := V_PARTS if ResourceLoader.exists(V_PARTS) else V_FUSED
+	_rev_model = (load(path) as PackedScene).instantiate() as Node3D
 	_rev_model.name = "Model"
 	_rev_model.basis = Basis(Vector3.UP, PI * 0.5).scaled(Vector3.ONE * V_SCALE)
 	_rev_model.position = Vector3(0, 0.02, -0.21) - _rev_model.basis * V_BORE
@@ -836,6 +1026,18 @@ func _build_revolver() -> void:
 	_rev_muzzle.name = "Muzzle"
 	_rev_muzzle.position = V_BORE + Vector3(0.02, 0, 0)    # just out of the bore
 	_rev_model.add_child(_rev_muzzle)
+	_rv_barrel = _rev_model.find_child("BarrelAssembly", true, false)
+	_rv_parts = _rv_barrel != null
+	if _rv_parts:
+		_rv_cyl = _rev_model.find_child("Cylinder", true, false)
+		_rv_ext = _rev_model.find_child("Extractor", true, false)
+		_rv_hammer = _rev_model.find_child("Hammer", true, false)
+		_rv_trigger = _rev_model.find_child("Trigger", true, false)
+		for c in 6:
+			_rv_rounds.append(_rev_model.find_child("Round_%d" % (c + 1), true, false))
+			_rv_cases.append(_rev_model.find_child("Case_%d" % (c + 1), true, false))
+			_rv_round_x.append(_rv_rounds[c].position.x)
+			_rv_cases[c].visible = false
 	# no hands yet: an empty left-arm node keeps the per-gun arrays in step
 	var left := Node3D.new()
 	pose.add_child(left)

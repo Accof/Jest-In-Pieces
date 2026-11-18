@@ -126,6 +126,10 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _gunshot(rng)
 		"revolver_open":
 			data = _mix(_crack(0.08, rng, 0.7), _ratchet(0.25, 20.0, rng))
+		"brass":
+			data = _brass_fall(rng)
+		"brass_tink":
+			data = _tink(rng)
 		"revolver_close":
 			data = _mix(_thump(0.09, 300.0, 180.0, 0.02, 0.6, rng, 0.01, 0.8), _crack(0.06, rng, 0.9))
 		"metal_rattle":
@@ -664,5 +668,34 @@ static func _gunshot(rng: RandomNumberGenerator) -> PackedFloat32Array:
 		var boom := sin(ph) * exp(-t * 9.0) * 0.75
 		var tail := lp2 * exp(-t * 3.5) * 2.2
 		out[i] = clampf((crack + body + boom + tail) * minf(t / 0.0007, 1.0), -1.0, 1.0)
+	return out
+
+
+
+
+## A spent case landing: a bright little ping, a second one as it bounces.
+static func _tink(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(0.4 * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var f := rng.randf_range(3800.0, 5200.0)
+	for i in n:
+		var t := float(i) / RATE
+		var ring := sin(TAU * f * t) + 0.5 * sin(TAU * f * 2.76 * t) + 0.3 * sin(TAU * f * 5.4 * t)
+		out[i] = ring * exp(-t * 22.0) * 0.25 + rng.randf_range(-1.0, 1.0) * exp(-t * 600.0) * 0.3
+	return out
+
+
+## Six cases thrown out of the cylinder together: a short brassy jangle.
+static func _brass_fall(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(0.5 * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for k in 6:
+		var t0 := int(rng.randf_range(0.0, 0.06) * RATE)
+		var f := rng.randf_range(2600.0, 4200.0)
+		for i in range(t0, n):
+			var t := float(i - t0) / RATE
+			out[i] += (sin(TAU * f * t) + 0.4 * sin(TAU * f * 2.3 * t)) * exp(-t * 30.0) * 0.12
 	return out
 
