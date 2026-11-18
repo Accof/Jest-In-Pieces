@@ -1435,9 +1435,9 @@ const T_BORE := Vector3(0.492, 0.1508, 0.0)  # the bore at the muzzle (model spa
 const T_PUMP_TRAVEL := 0.066                  # the pump's full stroke: its rear stops just short of the receiver
 const T_PUMP := Vector4(0.28, 0.20, 0.07, 0.17)   # after a shot: wait (the kick settles first), back, hold, forward (s)
 ## The gun gives with the stroke (most of the pump's travel is toward the eye, so
-## this is what sells it): dips, cants to the left hand, comes back into the shoulder.
-const T_RACK_POS := Vector3(-0.012, -0.022, 0.03)
-const T_RACK_ROT := Vector3(-4.0, 3.0, -9.0)
+## this is what sells it): dips and comes back into the shoulder, straight back (no pull to the side).
+const T_RACK_POS := Vector3(0.0, -0.022, 0.03)
+const T_RACK_ROT := Vector3(-4.0, 0.0, -3.0)
 ## Loading: rolled over to the right (the loading port under the
 ## receiver turns toward the eye), brought up and in front, muzzle off to the left.
 const T_LOAD_POS := Vector3(-0.08, 0.0, -0.06)
