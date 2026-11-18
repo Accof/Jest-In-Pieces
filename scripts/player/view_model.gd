@@ -805,7 +805,7 @@ const V_FUSED := "res://art/weapons/revolver/revolver.glb"
 ## How the parts move (model space, Y up, X along the barrel):
 const V_OPEN := -68.0          # barrel on the hinge, degrees about Z (negative: muzzle down)
 const V_EJECT := -0.032        # extractor stroke along the cylinder axis
-const V_COCK := 35.0           # hammer, degrees about Z (positive: spur back)
+const V_COCK := 45.0           # hammer, degrees about Z (positive: spur back)
 const V_PULL := -12.0          # trigger, degrees about Z (negative: blade back)
 # The reload, seconds (REVOLVER_RELOAD 3.0; the rounds count at REVOLVER_SEAT 2.35):
 const V_T_OPEN := Vector2(0.15, 0.5)      # barrel falls open

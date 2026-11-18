@@ -124,6 +124,8 @@ static func _make(name: String) -> AudioStreamWAV:
 		# --- the revolver
 		"revolver_shot":
 			data = _gunshot(rng)
+		"revolver_cock":
+			data = _cock(rng)
 		"revolver_open":
 			data = _mix(_crack(0.08, rng, 0.7), _ratchet(0.25, 20.0, rng))
 		"brass":
@@ -697,5 +699,30 @@ static func _brass_fall(rng: RandomNumberGenerator) -> PackedFloat32Array:
 		for i in range(t0, n):
 			var t := float(i - t0) / RATE
 			out[i] += (sin(TAU * f * t) + 0.4 * sin(TAU * f * 2.3 * t)) * exp(-t * 30.0) * 0.12
+	return out
+
+
+## A double-action pull: the cylinder stop dropping and the cylinder turning
+## (a softer ratchety tick), then the hammer coming back hard against its
+## spring (a sharper, heavier click), about 70 ms apart.
+static func _cock(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(0.22 * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for spec: Array in [[0.006, 2100.0, 0.45, 260.0], [0.024, 1700.0, 0.3, 300.0], [0.078, 3100.0, 0.9, 180.0]]:
+		var t0 := int((spec[0] + rng.randf_range(-0.003, 0.003)) * RATE)
+		var f: float = spec[1] * rng.randf_range(0.95, 1.05)
+		var amp: float = spec[2]
+		var decay: float = spec[3]
+		for i in range(t0, n):
+			var t := float(i - t0) / RATE
+			var ring := sin(TAU * f * t) + 0.55 * sin(TAU * f * 1.73 * t) + 0.3 * sin(TAU * f * 2.9 * t)
+			out[i] += (ring * 0.35 + rng.randf_range(-1.0, 1.0) * exp(-t * 900.0)) * exp(-t * decay) * amp
+	# a little low body: the gun's weight
+	var lp := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		lp += (rng.randf_range(-1.0, 1.0) - lp) * 0.08
+		out[i] = clampf(out[i] + lp * exp(-maxf(t - 0.078, 0.0) * 60.0) * 0.25 * float(t > 0.075), -1.0, 1.0)
 	return out
 

@@ -28,7 +28,7 @@ const WEAPONS := [
 	# `pull`: double action. The click starts a pull that turns the cylinder and
 	# raises the hammer; the shot goes when it falls, this many seconds later
 	# (0 fires on the click). The cooldown runs from the shot.
-	{name = "Revolver", damage = 80.0, pellets = 1, spread = 0.0, impulse = 18.0, heavy = true, can_dismember = false, cooldown = 0.42, falloff = 70.0, mag = 6, semi = true, punch = 2.4, pull = 0.08},
+	{name = "Revolver", damage = 80.0, pellets = 1, spread = 0.0, impulse = 18.0, heavy = true, can_dismember = false, cooldown = 0.38, falloff = 70.0, mag = 6, semi = true, punch = 2.4, pull = 0.12},
 ]
 ## The machine gun on its mount in the nest: same rounds, steadier.
 const MOUNTED_MG := {name = "Maxim", damage = 60.0, pellets = 1, spread = 1.1, impulse = 22.0, heavy = true, can_dismember = true, cooldown = 0.11, falloff = 120.0, mag = 0}
@@ -406,6 +406,8 @@ func fire() -> void:
 		# double action: the trigger comes back, the cylinder turns, the hammer rises
 		_pull_left = pull
 		view.start_pull(pull)
+		# the click-click of the cylinder stop and the hammer coming back: what sells the pull
+		SfxSynth.play(self, "revolver_cock", camera.global_position + camera.global_basis * Vector3(0.15, -0.15, -0.35), -4.0, randf_range(0.96, 1.04))
 		return
 	_discharge()
 

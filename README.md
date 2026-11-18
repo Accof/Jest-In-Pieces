@@ -182,10 +182,10 @@ Key 7. A WW1 top-break service revolver, separate from the procedural pistol (ke
 
 The model is `art/weapons/revolver/revolver_parts.glb`: the Tripo model split in Blender into its working parts (how it was done: `claude/revolver-breakdown.md`). The frame, the barrel assembly on its hinge pin, a rebuilt six-chamber cylinder riding with the barrel, the extractor star, six live rounds and six fired cases, and the hammer and trigger on their own pivots.
 - **Firing (double action, like the real Webley):**
-  - the click starts an 80 ms trigger pull (`pull` in the Revolver's `WEAPONS` entry; 0 fires on the click);
-  - during the pull the trigger comes back, the cylinder turns one chamber and the hammer rises to full cock;
+  - the click starts a 120 ms trigger pull (`pull` in the Revolver's `WEAPONS` entry; 0 fires on the click);
+  - during the pull the trigger comes back, the cylinder turns one chamber and the hammer rises 45 degrees to full cock, with a click-click (`revolver_cock`: the cylinder stop, then the hammer). From behind the gun the hammer only ducks a little, so the sound does most of the work;
   - the shot goes as the hammer falls, and the chamber that fired now shows a fired case;
-  - the 0.42 s cooldown runs from the shot, so it is still about two shots a second.
+  - the 0.38 s cooldown runs from the shot, so it is still about two shots a second.
 - **Reload (3 s; the rounds count at 2.35 s):** the wrist turns the gun over to watch the breech. The barrel falls open on the hinge, and at the end of the opening the extractor throws everything in the cylinder (fired cases and any live rounds left) out as real brass in the world. The brass is full size, bounces, tinks and lies on the floor for 25 s, with at most 72 pieces around. The extractor snaps back, six rounds slide in one after another, and the barrel snaps shut.
 - **Swapping away before the rounds are in** abandons the reload: the chambers keep what they had.
 - **No hands yet:** the rounds go in by themselves.
