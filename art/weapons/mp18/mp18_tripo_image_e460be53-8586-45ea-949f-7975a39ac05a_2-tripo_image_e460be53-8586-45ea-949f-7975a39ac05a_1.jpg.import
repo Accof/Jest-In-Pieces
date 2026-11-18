@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://4ghhd5r6k8jx"
-path="res://.godot/imported/mp18_tripo_image_e460be53-8586-45ea-949f-7975a39ac05a_2-tripo_image_e460be53-8586-45ea-949f-7975a39ac05a_1.jpg-d7c5b919ba9f8d23e12c19d38a73673e.ctex"
+path.s3tc="res://.godot/imported/mp18_tripo_image_e460be53-8586-45ea-949f-7975a39ac05a_2-tripo_image_e460be53-8586-45ea-949f-7975a39ac05a_1.jpg-d7c5b919ba9f8d23e12c19d38a73673e.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "2ec7d0a4feae8089068e884c51e21e13"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/weapons/mp18/mp18_tripo_image_e460be53-8586-45ea-949f-7975a39ac05a_2-tripo_image_e460be53-8586-45ea-949f-7975a39ac05a_1.jpg"
-dest_files=["res://.godot/imported/mp18_tripo_image_e460be53-8586-45ea-949f-7975a39ac05a_2-tripo_image_e460be53-8586-45ea-949f-7975a39ac05a_1.jpg-d7c5b919ba9f8d23e12c19d38a73673e.ctex"]
+dest_files=["res://.godot/imported/mp18_tripo_image_e460be53-8586-45ea-949f-7975a39ac05a_2-tripo_image_e460be53-8586-45ea-949f-7975a39ac05a_1.jpg-d7c5b919ba9f8d23e12c19d38a73673e.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0
