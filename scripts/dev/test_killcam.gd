@@ -166,6 +166,8 @@ func _floor() -> void:
 	_face(last)
 	await _frames(2)
 	var p: FpsPlayer = game.player
+	for i in 8:                           # _face drops the player 5 cm above the floor: let him land first
+		await get_tree().physics_frame
 	var pos := p.global_position
 	var rot := p.global_rotation
 	var cam_rot := p.camera.rotation
@@ -514,11 +516,13 @@ func _fall() -> void:
 	c.global_position = Vector3(0, 5.0, -0.3)       # right on the edge (the platform ends at z = 0)
 	c.rotation.y = PI
 	c.force_variant = "blown_back"                  # backwards, off the edge (it faces the player)
-	await _frames(5)
+	await _frames(1)
+	for i in 5:                                     # physics steps, not frames: a slow first frame (loading) would add catch-up steps
+		await get_tree().physics_frame
 	p.look_at(Vector3(c.global_position.x, p.global_position.y, c.global_position.z))
 	var chest: PhysicalBone3D = c.ragdoll.bones[&"Chest"]
 	c.hit({collider = chest, position = chest.global_position, direction = Vector3(0, -0.1, 1).normalized(), damage = 500.0, impulse = 30.0, shot_id = 1})
-	await _frames(1)
+	await get_tree().physics_frame
 	_check(kc.play(c), "started")
 	print("   shot: %s (tracking %s)" % [kc.shot, kc.tracking])
 	_check(kc.shot in ["tracking", "elevated"], "a body going off a 5 m drop gets a tracking or elevated shot (%s)" % kc.shot)

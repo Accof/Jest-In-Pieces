@@ -11,6 +11,10 @@ extends Node3D
 
 const PATHS := {"L": "res://art/arms/arm_L.gltf", "R": "res://art/arms/arm_R.gltf"}
 
+## Scale on the imported arm. Tripo has no real units: at 1.0 the gloved hand is
+## 25 cm wrist to fingertip; 0.78 makes it about 19.5 cm with an 8.5 cm knuckle span.
+const SIZE := 0.78
+
 ## Named hand shapes any weapon can start from.
 const POSES := {
 	"open": {},
@@ -41,6 +45,7 @@ func _init(s: String = "R") -> void:
 	if not exists(s):
 		return
 	model = (load(PATHS[s]) as PackedScene).instantiate() as Node3D
+	model.scale *= SIZE
 	add_child(model)
 	skeleton = model.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
 	_hand = skeleton.find_bone("hand." + side)
@@ -108,7 +113,8 @@ func place(hand: Transform3D, elbow: Vector3) -> void:
 	var f := skeleton.find_bone("forearm." + side)
 	var fr := skeleton.get_bone_global_rest(f)
 	var hr := skeleton.get_bone_rest(_hand)
-	var length := hr.origin.length()                  # forearm head to wrist
+	var sc := s0.basis.get_scale().x                   # skeleton units -> this node's units
+	var length := hr.origin.length() * sc             # forearm head to wrist
 	# the forearm: along elbow -> wrist, rolled so its palm side matches the hand's
 	var y := (hand.origin - elbow).normalized()
 	var z := hand.basis.z - y * hand.basis.z.dot(y)
@@ -117,7 +123,7 @@ func place(hand: Transform3D, elbow: Vector3) -> void:
 	var head := hand.origin - y * length
 	# the forearm bone's own frame, from its rest axes (Y along the bone)
 	var rest_axes := Basis(fr.basis.x.normalized(), fr.basis.y.normalized(), fr.basis.z.normalized())
-	var bone_world := Transform3D(fb, head)
+	var bone_world := Transform3D(fb.scaled_local(Vector3.ONE * sc), head)   # scale cancels: the node stays unscaled
 	var bone_in_arm := s0 * Transform3D(rest_axes, fr.origin)
 	transform = bone_world * bone_in_arm.affine_inverse()
 	skeleton.set_bone_pose_rotation(f, fr.basis.get_rotation_quaternion())
@@ -145,7 +151,7 @@ func frame_from_knuckles(index_k: Vector3, little_k: Vector3, palm: Vector3) -> 
 	var f3 := (palm - f1 * palm.dot(f1)).normalized()
 	var world := Basis(f1, f3.cross(f1), f3)
 	var r := world * local.inverse()
-	var mid_local := (pi + pl) * 0.5
+	var mid_local := (pi + pl) * 0.5 * (model.transform * skeleton.transform).basis.get_scale().x
 	return Transform3D(r, (index_k + little_k) * 0.5 - r * mid_local)
 
 

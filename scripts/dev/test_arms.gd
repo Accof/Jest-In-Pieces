@@ -32,6 +32,12 @@ func _run() -> void:
 	p.select_weapon(FpsPlayer.REVOLVER)
 	await get_tree().create_timer(ViewModel.SWAP_TIME + 0.3).timeout
 	var v := p.view
+	if "--measure" in OS.get_cmdline_user_args():
+		p.select_weapon(ViewModel.REVOLVER)
+		await get_tree().create_timer(0.6).timeout
+		_measure(v)
+		get_tree().quit()
+		return
 	if "--tune" in OS.get_cmdline_user_args() and FileAccess.file_exists("/tmp/grip.txt"):
 		await _tune_index(v)
 		get_tree().quit()
@@ -159,4 +165,45 @@ func _tune_index(v: ViewModel) -> void:
 	print("TUNE best %.3f model units (%.1f cm): index_01 %s index_02 %d index_03 %.0f, tip at %s" % [best[0], best[0] * 29.0, best[1], best[2], best[3], best[4]])
 	var x1 := r.skeleton.global_transform * r.skeleton.get_bone_global_pose(r.skeleton.find_bone("index_01.R"))
 	print("TUNE index knuckle at model %s" % (v._rev_model.global_transform.affine_inverse() * x1.origin))
+
+
+func _aabb_in(n: Node, ref: Node3D) -> AABB:
+	var out := AABB()
+	var first := true
+	for m in n.find_children("*", "MeshInstance3D", true, false):
+		var mi := m as MeshInstance3D
+		var a: AABB = (ref.global_transform.affine_inverse() * mi.global_transform) * mi.get_aabb()
+		out = a if first else out.merge(a)
+		first = false
+	return out
+
+
+## Sizes in metres as the player sees them (undoing the view model's SHRINK).
+func _measure(v: ViewModel) -> void:
+	var ref: Node3D = v._rev_model.get_parent()
+	var k := ref.global_transform.basis.get_scale().x / ViewModel.SHRINK     # pose-space units -> eye-scale metres
+	var g := _aabb_in(v._rev_model, ref)
+	print("MEASURE pose scale %.3f, SHRINK %.2f" % [ref.global_transform.basis.get_scale().x, ViewModel.SHRINK])
+	print("MEASURE gun box (pose space) %s -> length %.3f m, height %.3f m" % [g.size, maxf(g.size.x, g.size.z) * k, g.size.y * k])
+	var r: FPArm = v._arms[ViewModel.REVOLVER]["R"]
+	var sk := r.skeleton
+	var inv := ref.global_transform.affine_inverse()
+	var at := func(b: String) -> Vector3: return inv * (sk.global_transform * sk.get_bone_global_pose(sk.find_bone(b))).origin
+	var seg := 0.0
+	for b in ["middle_02.R", "middle_03.R"]:
+		seg += sk.get_bone_rest(sk.find_bone(b)).origin.length()
+	seg += sk.get_bone_rest(sk.find_bone("middle_03.R")).origin.length() * 0.8
+	var sks := (inv.basis * sk.global_transform.basis).get_scale().x
+	var hand_len: float = at.call("hand.R").distance_to(at.call("middle_01.R")) + seg * sks
+	print("MEASURE palm width (index-little knuckles) %.3f m" % (at.call("index_01.R").distance_to(at.call("little_01.R")) * k))
+	print("MEASURE hand length wrist->middle tip %.3f m" % (hand_len * k))
+	print("MEASURE arm box (pose space) %s" % _aabb_in(r, ref).size)
+	var gm := _aabb_in(v._rev_model, v._rev_model)
+	print("MEASURE gun box in model space: from %s to %s" % [gm.position, gm.end])
+	var li := r.skeleton.find_bone("little_01.R")
+	print("MEASURE little knuckle at model %s, index knuckle %s" % [v._rev_model.global_transform.affine_inverse() * (r.skeleton.global_transform * r.skeleton.get_bone_global_pose(li)).origin, v._rev_model.global_transform.affine_inverse() * (r.skeleton.global_transform * r.skeleton.get_bone_global_pose(r.skeleton.find_bone("index_01.R"))).origin])
+	for m in v._rev_model.find_children("*", "MeshInstance3D", true, false):
+		var a := _aabb_in(m, v._rev_model)
+		if a.position.y < 0.0:
+			print("MEASURE low part %s: y %.3f..%.3f x %.3f..%.3f" % [m.name, a.position.y, a.end.y, a.position.x, a.end.x])
 

@@ -796,14 +796,14 @@ func _muzzle() -> Vector3:
 # Guns not listed keep their own procedural hands; the procedural pistol is one.
 const ARM_GRIPS := {
 	REVOLVER: {
-		"R": {"index_k": Vector3(-0.25, 0.37, 0.10), "little_k": Vector3(-0.39, 0.08, 0.11), "palm": Vector3(0.0, 0.0, -1.0), "elbow": Vector3(-1.9, -0.6, 0.55),
-			"pose": {"index_01": Vector3(-30, 0, 0), "index_02": Vector3(60, 0, 0), "index_03": Vector3(60, 0, 0),
+		"R": {"index_k": Vector3(-0.255, 0.36, 0.10), "little_k": Vector3(-0.40, 0.06, 0.11), "palm": Vector3(0.0, 0.0, -1.0), "elbow": Vector3(-1.9, -0.6, 0.55),
+			"pose": {"index_01": Vector3(-26, 0, -20), "index_02": Vector3(50, 0, 0), "index_03": Vector3(40, 0, 0),
 			"middle_01": Vector3(80, 0, 0), "middle_02": Vector3(95, 0, 0), "middle_03": Vector3(55, 0, 0),
 			"ring_01": Vector3(82, 0, 0), "ring_02": Vector3(95, 0, 0), "ring_03": Vector3(55, 0, 0),
 			"little_01": Vector3(84, 0, 0), "little_02": Vector3(92, 0, 0), "little_03": Vector3(55, 0, 0),
 			"thumb_01": Vector3(20, 0, 0), "thumb_02": Vector3(5, 0, 0), "thumb_03": Vector3(10, 0, 0)},
 			"pull": {"index_01": Vector3(8, 0, 0), "index_02": Vector3(15, 0, 0), "index_03": Vector3(10, 0, 0)}},
-		"L": {"wrist": Vector3(-0.56, -0.10, -0.20), "along": Vector3(0.25, 0.15, 0.95), "palm": Vector3(0.0, 1.0, 0.0), "elbow": Vector3(-1.5, -1.0, -0.8),
+		"L": {"wrist": Vector3(-0.50, -0.02, -0.17), "along": Vector3(0.25, 0.15, 0.95), "palm": Vector3(0.0, 1.0, 0.0), "elbow": Vector3(-1.5, -1.0, -0.8),
 			"pose": {"index_01": Vector3(60, 0, 0), "index_02": Vector3(70, 0, 0), "index_03": Vector3(40, 0, 0),
 			"middle_01": Vector3(62, 0, 0), "middle_02": Vector3(70, 0, 0), "middle_03": Vector3(40, 0, 0),
 			"ring_01": Vector3(64, 0, 0), "ring_02": Vector3(70, 0, 0), "ring_03": Vector3(40, 0, 0),
