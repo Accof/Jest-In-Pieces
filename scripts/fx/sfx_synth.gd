@@ -131,6 +131,10 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _mix(_crack(0.04, rng, 0.8), _ratchet(0.18, 30.0, rng))
 		"drum_in":
 			data = _mix(_thump(0.1, 220.0, 140.0, 0.02, 0.8, rng, 0.015, 0.9), _crack(0.05, rng, 1.0))
+		"mag_out":                                # the stick magazine: catch pressed, drawn out
+			data = _mix(_crack(0.03, rng, 0.7), _ratchet(0.07, 70.0, rng))
+		"mag_in":                                 # pushed home and slapped
+			data = _mix(_thump(0.07, 320.0, 180.0, 0.01, 0.8, rng, 0.012, 0.8), _crack(0.04, rng, 1.0))
 		"mp18_charge":
 			data = _mix(_ratchet(0.12, 55.0, rng), _thump(0.06, 400.0, 250.0, 0.01, 0.5, rng, 0.01, 0.6))
 		# --- the trench shotgun

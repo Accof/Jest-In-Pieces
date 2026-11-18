@@ -38,14 +38,15 @@ const WEAPONS := [
 	# for it). Six in the tube, loaded one at a time; firing breaks off loading.
 	# `shells`: loads shell by shell (like the Shotgun). `pump`: a pump to work.
 	{name = "Trench Shotgun", damage = 18.0, pellets = 9, spread = 4.0, impulse = 17.0, heavy = true, can_dismember = true, cooldown = 0.85, falloff = 8.5, mag = 6, shells = true, pump = true, semi = true, punch = 4.5, shot_sfx = "shotgun_shot"},
-	# A Bergmann MP 18 (the Tripo model) with its 32-round snail drum: fully
+	# A Bergmann MP 18 (the Tripo model) with a 20-round stick magazine (`mag`; the
+	# Snail Drum upgrade swaps in the 32-round drum, `drum_mag`, see mag_of): fully
 	# automatic at 500 rounds a minute (`rpm`: the interval is carried from shot to
 	# shot so the rate is exact whatever the frame rate, and never exceeded), less
 	# per round than the revolver, good up close and falling off with distance.
 	# Recoil builds through a burst (`climb` degrees a shot, `climb_grow` more per
 	# shot, `lateral` degrees either way); the spread opens by `spread_grow` a shot
 	# (both up to `burst_cap` shots) and the view springs back when it stops.
-	{name = "MP 18", damage = 26.0, pellets = 1, spread = 1.1, impulse = 9.0, heavy = false, can_dismember = false, cooldown = 0.12, rpm = 500.0, falloff = 24.0, mag = 32,
+	{name = "MP 18", damage = 26.0, pellets = 1, spread = 1.1, impulse = 9.0, heavy = false, can_dismember = false, cooldown = 0.12, rpm = 500.0, falloff = 24.0, mag = 20, drum_mag = 32,
 		climb = 0.55, climb_grow = 0.07, lateral = 0.25, spread_grow = 0.09, burst_cap = 12, shot_sfx = "mp18_shot", dry = true},
 ]
 ## The machine gun on its mount in the nest: same rounds, steadier.
@@ -81,13 +82,14 @@ signal ammo_changed
 var stats := {
 	damage = 1.0, fire_rate = 1.0, pellets = 0, speed = 1.0, max_health = 100.0,
 	lifesteal = 0.0, pistol_dismember = false, slowmo = false, blood = 1.0, spread = 1.0,
+	mp18_drum = false,
 }
 
 var health := 100.0
 var dead := false
 var weapon := 0
 ## Rounds loaded in each gun. Spare ammunition is unlimited for now.
-var ammo: Array[int] = [17, 6, 32, 1, 0, 5, 6, 6, 32]
+var ammo: Array[int] = [17, 6, 32, 1, 0, 5, 6, 6, 20]
 ## Inside an event room (gunshots are not heard in the level).
 var in_event := false
 ## The final-kill camera has the view: no moving, looking or shooting, and the
@@ -339,11 +341,29 @@ func select_weapon(w: int) -> void:
 	_update_label()
 
 
+## Rounds a gun holds: the MP 18 takes a 20-round stick magazine until the Snail
+## Drum upgrade gives it the 32-round drum.
+func mag_of(w: int) -> int:
+	if w == MP18 and stats.get("mp18_drum", false):
+		return int(WEAPONS[w].drum_mag)
+	return int(WEAPONS[w].mag)
+
+
+## The MP 18 gets the snail drum (an upgrade): the view swaps the magazine and the
+## gun comes up full.
+func give_mp18_drum() -> void:
+	stats.mp18_drum = true
+	view.set_mp_drum(true)
+	ammo[MP18] = mag_of(MP18)
+	ammo_changed.emit()
+	_update_label()
+
+
 ## Start reloading the gun in hand, if it has room.
 func reload() -> void:
 	if WEAPONS[weapon].get("belt", false):
 		return                                   # a belt: what you have is what you get
-	if dead or view.swapping() or view.reloading() or ammo[weapon] >= WEAPONS[weapon].mag:
+	if dead or view.swapping() or view.reloading() or ammo[weapon] >= mag_of(weapon):
 		return
 	if WEAPONS[weapon].get("pump", false) and _cooldown > 0.0:
 		return                                   # still working the pump
@@ -360,7 +380,7 @@ func reload() -> void:
 		_reload_left = ViewModel.REVOLVER_SEAT
 		SfxSynth.play(self, "revolver_open", camera.global_position, -8.0, 1.0)
 	elif weapon == MP18:
-		_reload_left = ViewModel.MP18_SEAT
+		_reload_left = view.mp_seat_time()
 	else:
 		_shell_left = view.shell_intro() + view.shell_time() * 0.85
 
@@ -391,13 +411,13 @@ func _tick_reload(delta: float) -> void:
 		if _reload_left >= 0.0:
 			_reload_left -= delta
 			if _reload_left < 0.0:
-				ammo[weapon] = WEAPONS[weapon].mag
+				ammo[weapon] = mag_of(weapon)
 				if weapon == REVOLVER:
 					SfxSynth.play(self, "revolver_close", camera.global_position, -6.0, 1.0)
 					view.revolver_loaded()
 				ammo_changed.emit()
 				_update_label()
-		var total: float = {PISTOL: ViewModel.PISTOL_RELOAD, SMG: ViewModel.SMG_RELOAD, STAKE: ViewModel.STAKE_RELOAD, RIFLE: ViewModel.RIFLE_RELOAD, REVOLVER: ViewModel.REVOLVER_RELOAD, MP18: ViewModel.MP18_RELOAD}.get(weapon, ViewModel.STAKE_RELOAD)
+		var total: float = {PISTOL: ViewModel.PISTOL_RELOAD, SMG: ViewModel.SMG_RELOAD, STAKE: ViewModel.STAKE_RELOAD, RIFLE: ViewModel.RIFLE_RELOAD, REVOLVER: ViewModel.REVOLVER_RELOAD, MP18: view.mp_reload_time()}.get(weapon, ViewModel.STAKE_RELOAD)
 		if view.reloading() and view._reload_t >= total:
 			view.stop_reload()
 			view.slide_locked = false
@@ -409,7 +429,7 @@ func _tick_reload(delta: float) -> void:
 			view.shell_loaded()
 			ammo_changed.emit()
 			_update_label()
-			if ammo[weapon] >= WEAPONS[weapon].mag:
+			if ammo[weapon] >= mag_of(weapon):
 				_shell_left = -1.0
 				view.stop_reload()
 			else:
@@ -437,6 +457,8 @@ func fire() -> void:
 			SfxSynth.play(self, "dry_click", camera.global_position, -10.0, 1.1)   # the trigger on an empty drum
 		reload()
 		return
+	if weapon == MP18 and view.mp_bolt_forward and not view.reloading():
+		view.mp_bolt_forward = false             # a full drum went on but the handle was never pulled (a swap mid-change): cocked now
 	if _shells() and view.reloading():
 		_shell_left = -1.0                      # break off loading to shoot
 		view.stop_reload()
@@ -478,6 +500,8 @@ func _discharge() -> void:
 	ammo[weapon] -= 1
 	if weapon == 0 and ammo[0] == 0:
 		view.slide_locked = true
+	if weapon == MP18 and ammo[MP18] == 0:
+		view.mp_bolt_forward = true              # the last round: the bolt runs home on an empty drum
 	view.fire()
 	var from := camera.global_position
 	var aim := -camera.global_basis.z
@@ -688,4 +712,4 @@ func heal(amount: float) -> void:
 
 
 func _update_label() -> void:
-	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [7] revolver  [8] trench gun  [9] MP 18  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]
+	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [7] revolver  [8] trench gun  [9] MP 18  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], mag_of(weapon), " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]

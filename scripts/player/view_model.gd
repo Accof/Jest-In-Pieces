@@ -33,8 +33,10 @@ const RIFLE_RELOAD := 2.5       # bolt open, a stripper clip of five thumbed in,
 const RIFLE_SEAT := 1.55        # the rounds are in the magazine
 const REVOLVER_RELOAD := 3.0    # broken open, the extractor throws everything out, six in, snapped shut
 const REVOLVER_SEAT := 2.35     # the rounds are in (the frame snaps shut)
-const MP18_RELOAD := 3.4        # empty drum out sideways, a full one fetched and seated
+const MP18_RELOAD := 3.4        # (the Snail Drum upgrade) empty drum out sideways, a full one fetched and seated
 const MP18_SEAT := 2.45         # the new drum is home
+const MP18_STICK_RELOAD := 2.85 # the 20-round stick: drawn out, dropped, a fresh one pushed in and slapped
+const MP18_STICK_SEAT := 1.95
 
 var weapon := PISTOL
 var slide_locked := false       # pistol ran dry: slide stays back until reloaded
@@ -155,6 +157,7 @@ func cancel_pull() -> void:
 
 func start_reload() -> void:
 	_reload_t = 0.0
+	_mp_charge = mp_bolt_forward
 	if weapon == REVOLVER:
 		_revolver_reset_reload()
 
@@ -1774,30 +1777,61 @@ func _throw_hull() -> void:
 
 # --- the MP 18 (Tripo Bergmann MP 18/I, refined in Blender) -------------------------------
 # art/weapons/mp18/mp18.glb, built from the untouched Tripo GLB by
-# art/weapons/mp18/source/build_mp18.py: Body and Drum (the snail drum and its neck,
-# cut where the neck leaves the magazine housing on the left; the node sits on the
-# cut and the drum comes out along the housing's axis). Metres, +X the muzzle, +Y
-# up, +Z the right side (the drum is on the left, -Z). Shouldered, real size.
+# art/weapons/mp18/source/build_mp18.py: Body, StickMag (the 20-round box magazine the
+# gun starts with), Drum (the snail drum and its neck; the Snail Drum upgrade) and
+# Handle. Both magazines sit on the cut where they leave the magazine housing on
+# the left and come out along the housing's axis. Metres, +X the muzzle, +Y up, +Z
+# the right side (the magazine is on the left, -Z). Shouldered, real size.
 const M_PATH := "res://art/weapons/mp18/mp18.glb"
 const M_HOME := Vector3(0.12, -0.15, -0.30)
 const M_TILT := Vector3(0.0, 2.5, 3.0)
 const M_BORE := Vector3(0.423, 0.1256, 0.0)
 const M_DRUM_OUT := Vector3(-0.491, 0.0, -0.871)   # out of the housing (model space)
 const M_DRUM_TRAVEL := 0.12
+const M_STICK_TRAVEL := 0.07                       # the stick's top end is 3 cm up the housing; this clears it
 const M_PORT := Vector3(-0.07, 0.15, 0.022)        # where the empty cases come out (right of the receiver)
 ## The reload (s): the hand to the drum, unlatch, draw it out, let it drop, back
 ## from the belt with a full one, slide it home, seat it, back to the wood.
-const M_T := {"to_drum": Vector2(0.15, 0.5), "unlatch": Vector2(0.5, 0.62), "out": Vector2(0.62, 0.95), "to_pouch": Vector2(0.95, 1.35),
+const M_T_DRUM := {"to_drum": Vector2(0.15, 0.5), "unlatch": Vector2(0.5, 0.62), "out": Vector2(0.62, 0.95), "to_pouch": Vector2(0.95, 1.35),
 	"fetch": Vector2(1.35, 1.55), "up": Vector2(1.55, 2.05), "in": Vector2(2.05, 2.4), "seat": Vector2(2.4, 2.5), "back": Vector2(2.5, 2.95), "present": Vector2(0.0, 0.3), "settle": Vector2(2.95, 3.35)}
+## The stick: the hand closes round it, thumbs the catch, draws it straight out and
+## lets it fall, takes a fresh one from the belt, pushes it up the housing and slaps
+## it home (the same keys as the drum, quicker, and a slap for the seat).
+const M_T_STICK := {"to_drum": Vector2(0.12, 0.4), "unlatch": Vector2(0.4, 0.48), "out": Vector2(0.48, 0.72), "to_pouch": Vector2(0.72, 1.05),
+	"fetch": Vector2(1.05, 1.2), "up": Vector2(1.2, 1.6), "in": Vector2(1.6, 1.85), "seat": Vector2(1.9, 2.0), "back": Vector2(2.0, 2.4), "present": Vector2(0.0, 0.25), "settle": Vector2(2.4, 2.8)}
+var _mt: Dictionary = M_T_STICK
 const M_POUCH := Vector3(-0.24, -0.50, 0.16)
 ## While the drum is changed: rolled so the left side (and the drum) tips up toward
 ## the eye, the muzzle turned a touch right and the gun pushed out a little, so the
 ## drum rises into view instead of swinging back at the camera.
 const M_PRESENT_POS := Vector3(0.0, -0.01, -0.05)
 const M_PRESENT_ROT := Vector3(6.0, -8.0, -24.0)
-## The hand on the drum, in the drum's own space: palm on its outer face, fingers
-## over the top edge (filled in from the drum's size when the gun is built).
+## The hand on the magazine, in the magazine's own space (filled in from its size
+## when the gun is built): on the drum, palm on its outer face and fingers over the
+## top edge; on the stick, from below, palm up, fingers round its far side.
 var _mp_drum_hand := Transform3D()
+## Which magazine: false the stick (the gun as found), true the snail drum. While
+## in use, _mp_drum / _mp_drum_rest / _mp_drum_hand / _mp_travel are the magazine
+## in the gun (the names are from when the drum was the only one).
+var mp_drum := false
+var _mp_mags := {}                               # kind -> [node, rest, hand]
+var _mp_travel := M_STICK_TRAVEL
+
+## The charging handle (rides the bolt): at rest at the back of its slot (cocked);
+## it flicks forward and back with each round, and runs forward and stays there
+## when the drum runs dry, until the right hand pulls it back after a drum change.
+## The handle is the MP 18's own: a flat bar out of a long slot in the right of the
+## receiver, bent down into a hook beside the wood (it runs the slot's length).
+const M_HANDLE_TRAVEL := 0.113
+const M_KNOB := Vector3(0.003, -0.0126, 0.0544)     # the hook's bend, where it is pinched, from the handle's origin (model space)
+const M_CHARGE_DRUM := {"reach": Vector2(2.5, 2.7), "pull": Vector2(2.72, 2.86), "back": Vector2(2.9, 3.25)}
+const M_CHARGE_STICK := {"reach": Vector2(2.02, 2.2), "pull": Vector2(2.22, 2.36), "back": Vector2(2.4, 2.75)}
+var _mc: Dictionary = M_CHARGE_STICK
+var mp_bolt_forward := false
+var _mp_charge := false                          # this drum change ends with a pull of the handle
+var _mp_handle: Node3D
+var _mp_handle_rest := Vector3.ZERO
+var _rl_active_mp_r := false
 
 var _mp_model: Node3D
 var _mp_muzzle: Node3D
@@ -1836,17 +1870,59 @@ func _build_mp18() -> void:
 	_mp_muzzle.name = "Muzzle"
 	_mp_muzzle.position = M_BORE + Vector3(0.012, 0, 0)
 	_mp_model.add_child(_mp_muzzle)
-	_mp_drum = _mp_model.find_child("Drum", true, false)
-	if _mp_drum:
-		_mp_drum_rest = _mp_drum.transform
-		var mi := (_mp_drum if _mp_drum is MeshInstance3D else _mp_drum.find_children("*", "MeshInstance3D", true, false)[0]) as MeshInstance3D
+	_mp_handle = _mp_model.find_child("Handle", true, false)
+	if _mp_handle:
+		_mp_handle_rest = _mp_handle.position
+	for kind: String in ["Drum", "StickMag"]:
+		var node := _mp_model.find_child(kind, true, false) as Node3D
+		if node == null:
+			continue
+		var mi := (node if node is MeshInstance3D else node.find_children("*", "MeshInstance3D", true, false)[0]) as MeshInstance3D
 		var ab := mi.get_aabb()
-		# palm on the outer (left) face of the drum, a little below its middle; fingers up over the edge
-		var face := Vector3(ab.get_center().x, ab.position.y + ab.size.y * 0.45, ab.position.z)
-		var along := Vector3.UP
-		var palm := Vector3(0, 0, 1)
-		_mp_drum_hand = FPArm.frame(face - along * 0.07 + Vector3(0, 0, -0.022), along, palm)
+		var hand: Transform3D
+		if kind == "Drum":
+			# palm on the outer (left) face of the drum, a little below its middle; fingers up over the edge
+			var face := Vector3(ab.get_center().x, ab.position.y + ab.size.y * 0.45, ab.position.z)
+			hand = FPArm.frame(face - Vector3.UP * 0.07 + Vector3(0, 0, -0.022), Vector3.UP, Vector3(0, 0, 1))
+		else:
+			# round the stick from below, 9 cm out from the housing: palm up, fingers
+			# across it toward the muzzle side, the wrist back under the gun
+			var out := M_DRUM_OUT
+			var across := Vector3(-out.z, 0, out.x)          # level, square to the stick, toward the muzzle
+			var at := out * 0.09 + Vector3(0, ab.position.y - 0.016, 0)
+			hand = FPArm.frame(at - across * 0.05, across, Vector3.UP)
+		_mp_mags[kind] = [node, node.transform, hand]
+	set_mp_drum(mp_drum)
 	_build_arms(MP18, pose, _mp_model)
+
+
+## Fit the stick (false) or the snail drum (true): only that one is shown, and the
+## reload (its keys and length) is that magazine's.
+func set_mp_drum(on: bool) -> void:
+	mp_drum = on
+	_mt = M_T_DRUM if on else M_T_STICK
+	_mc = M_CHARGE_DRUM if on else M_CHARGE_STICK
+	_mp_travel = M_DRUM_TRAVEL if on else M_STICK_TRAVEL
+	for kind: String in _mp_mags:
+		var e: Array = _mp_mags[kind]
+		(e[0] as Node3D).transform = e[1]
+		(e[0] as Node3D).visible = (kind == "Drum") == on
+	var cur: String = "Drum" if on else "StickMag"
+	if _mp_mags.has(cur):
+		_mp_drum = _mp_mags[cur][0]
+		_mp_drum_rest = _mp_mags[cur][1]
+		_mp_drum_hand = _mp_mags[cur][2]
+	_mp_dropped = false
+	_mp_sounds = 0
+
+
+## The MP 18's reload, for the magazine in it.
+func mp_reload_time() -> float:
+	return MP18_RELOAD if mp_drum else MP18_STICK_RELOAD
+
+
+func mp_seat_time() -> float:
+	return MP18_SEAT if mp_drum else MP18_STICK_SEAT
 
 
 func _mp_fired() -> void:
@@ -1898,15 +1974,17 @@ func _animate_mp18() -> void:
 	var t := _reload_t
 	if t >= 0.0:
 		# lowered a little and turned so the drum on the left faces the eye
-		var present := smoothstep(M_T.present.x, M_T.present.y, t) * (1.0 - smoothstep(M_T.settle.x, M_T.settle.y, t))
+		var present := smoothstep(_mt.present.x, _mt.present.y, t) * (1.0 - smoothstep(_mt.settle.x, _mt.settle.y, t))
 		pos += M_PRESENT_POS * present
 		rot += M_PRESENT_ROT * (PI / 180.0) * present
-		var seat := smoothstep(M_T.seat.x, M_T.seat.x + 0.04, t) * (1.0 - smoothstep(M_T.seat.x + 0.04, M_T.seat.y + 0.1, t))
+		var seat := smoothstep(_mt.seat.x, _mt.seat.x + 0.04, t) * (1.0 - smoothstep(_mt.seat.x + 0.04, _mt.seat.y + 0.1, t))
 		rot += Vector3(0, deg_to_rad(-2.5), 0) * seat
 	pose.position = pos
 	pose.rotation = rot
-	_arm_trigger(MP18, 1.0 if _since_shot < 0.14 else 0.0)
+	if not _mp_charge or t < 0.0:
+		_arm_trigger(MP18, 1.0 if _since_shot < 0.14 else 0.0)
 	_mp_hands(t)
+	_mp_bolt(t)
 
 
 ## The left hand and the drum through the reload (t < 0: on the wood).
@@ -1927,68 +2005,140 @@ func _mp_hands(t: float) -> void:
 		return
 	_rl_active_mp = true
 	var drum_pose := PINCH_POSE.duplicate()
+	# round the drum's face; closed tighter round the slim stick
+	var curl: Array = [55, 50, 30] if mp_drum else [72, 68, 45]
 	for f in ["index", "middle", "ring", "little"]:
-		drum_pose[f + "_01"] = Vector3(55, 0, 0)
-		drum_pose[f + "_02"] = Vector3(50, 0, 0)
-		drum_pose[f + "_03"] = Vector3(30, 0, 0)
-	drum_pose["thumb_01"] = Vector3(10, 0, 0)
-	drum_pose["thumb_02"] = Vector3(10, 0, 0)
-	var elbow_d := Vector3(-0.30, -0.60, 0.10)
+		drum_pose[f + "_01"] = Vector3(curl[0], 0, 0)
+		drum_pose[f + "_02"] = Vector3(curl[1], 0, 0)
+		drum_pose[f + "_03"] = Vector3(curl[2], 0, 0)
+	drum_pose["thumb_01"] = Vector3(10 if mp_drum else 25, 0, 0)
+	drum_pose["thumb_02"] = Vector3(10 if mp_drum else 20, 0, 0)
+	var elbow_d := Vector3(-0.30, -0.60, 0.10) if mp_drum else Vector3(-0.28, -0.62, 0.06)
 	var e := func(r: Vector2) -> float: return smoothstep(r.x, r.y, t)
 	# where the drum is along its way out (0 home .. 1 drawn out)
 	var out := 0.0
-	if t < M_T.out.x:
-		out = 0.12 * e.call(M_T.unlatch)
-	elif t < M_T.to_pouch.x:
-		out = 0.12 + 0.88 * e.call(M_T.out)
-	elif t < M_T.in.x:
+	if t < _mt.out.x:
+		out = 0.12 * e.call(_mt.unlatch)
+	elif t < _mt.to_pouch.x:
+		out = 0.12 + 0.88 * e.call(_mt.out)
+	elif t < _mt.in.x:
 		out = 1.0
 	else:
-		out = 1.0 - e.call(M_T.in)
-	var drum_at := Transform3D(_mp_drum_rest.basis, _mp_drum_rest.origin + M_DRUM_OUT * M_DRUM_TRAVEL * out)
+		out = 1.0 - e.call(_mt.in)
+	var drum_at := Transform3D(_mp_drum_rest.basis, _mp_drum_rest.origin + M_DRUM_OUT * _mp_travel * out)
 	var on_drum := func(d: Transform3D) -> Array: return [m * d * _mp_drum_hand, elbow_d, drum_pose]
 	var pouch := [Transform3D((m * drum_at * _mp_drum_hand).basis.rotated(Vector3.RIGHT, -0.4).orthonormalized(), M_POUCH), Vector3(-0.30, -0.85, 0.20), drum_pose]
 	var key: Array
 	var carried := false
-	if t < M_T.to_drum.x:
+	if t < _mt.to_drum.x:
 		key = grip
-	elif t < M_T.to_drum.y:
-		key = _rl_blend(grip, on_drum.call(drum_at), e.call(M_T.to_drum))
-	elif t < M_T.to_pouch.x:
+	elif t < _mt.to_drum.y:
+		key = _rl_blend(grip, on_drum.call(drum_at), e.call(_mt.to_drum))
+	elif t < _mt.to_pouch.x:
 		key = on_drum.call(drum_at)
-	elif t < M_T.fetch.x:
-		key = _rl_blend(on_drum.call(drum_at), pouch, e.call(M_T.to_pouch))
-	elif t < M_T.up.x:
+	elif t < _mt.fetch.x:
+		key = _rl_blend(on_drum.call(drum_at), pouch, e.call(_mt.to_pouch))
+	elif t < _mt.up.x:
 		key = pouch
-		carried = t > M_T.fetch.x + 0.1
-	elif t < M_T.in.x:
-		key = _rl_blend(pouch, on_drum.call(drum_at), e.call(M_T.up))
+		carried = t > _mt.fetch.x + 0.1
+	elif t < _mt.in.x:
+		key = _rl_blend(pouch, on_drum.call(drum_at), e.call(_mt.up))
 		carried = true
-	elif t < M_T.back.x:
+	elif t < _mt.back.x:
 		key = on_drum.call(drum_at)
+		if not mp_drum and t < _mt.seat.y:
+			# the slap: the hand drops off a couple of centimetres and comes back hard
+			var sl := sin(clampf((t - _mt.in.y) / (_mt.seat.y - _mt.in.y), 0.0, 1.0) * PI)
+			var h: Transform3D = key[0]
+			key = [Transform3D(h.basis, h.origin + Vector3.DOWN * 0.025 * sl), key[1], key[2]]
 	else:
-		key = _rl_blend(on_drum.call(drum_at), grip, e.call(M_T.back))
+		key = _rl_blend(on_drum.call(drum_at), grip, e.call(_mt.back))
 	_rl_apply(arm, key)
 	# the drum: on its housing, drawn out by the hand, dropped, carried back
-	if t >= M_T.to_pouch.x and not _mp_dropped:
+	if t >= _mt.to_pouch.x and not _mp_dropped:
 		_mp_dropped = true
 		_drop_drum()
 	if carried:
 		# in the hand: wherever the hand is, the drum is where it sits in it
 		_mp_drum.transform = m.affine_inverse() * (key[0] as Transform3D) * _mp_drum_hand.affine_inverse()
 		_mp_drum.visible = true
-	elif t >= M_T.to_pouch.x and t < M_T.up.x:
+	elif t >= _mt.to_pouch.x and t < _mt.up.x:
 		_mp_drum.visible = false
 	else:
 		_mp_drum.transform = drum_at
 		_mp_drum.visible = true
-	if _mp_sounds == 0 and t >= M_T.unlatch.x:
+	if _mp_sounds == 0 and t >= _mt.unlatch.x:
 		_mp_sounds = 1
-		SfxSynth.play(self, "drum_out", global_position, -6.0, randf_range(0.95, 1.05))
-	if _mp_sounds == 1 and t >= M_T.seat.x:
+		SfxSynth.play(self, "drum_out" if mp_drum else "mag_out", global_position, -6.0, randf_range(0.95, 1.05))
+	if _mp_sounds == 1 and t >= _mt.seat.x:
 		_mp_sounds = 2
-		SfxSynth.play(self, "drum_in", global_position, -4.0, randf_range(0.95, 1.05))
+		SfxSynth.play(self, "drum_in" if mp_drum else "mag_in", global_position, -4.0, randf_range(0.95, 1.05))
 var _rl_active_mp := false
+
+
+## The handle: with each round (and forward when empty), and the right hand's pull.
+func _mp_bolt(t: float) -> void:
+	if _mp_handle == null:
+		return
+	var f := 0.0
+	if mp_bolt_forward:
+		f = 1.0
+	elif _since_shot < 0.07:
+		f = smoothstep(0.0, 0.012, _since_shot) * (1.0 - smoothstep(0.02, 0.06, _since_shot))
+	var ra: FPArm = _arms[MP18]["R"] if _arms.has(MP18) else null
+	if t >= 0.0 and _mp_charge and ra:
+		var e := func(r: Vector2) -> float: return smoothstep(r.x, r.y, t)
+		if t >= _mc.pull.x:
+			f = 1.0 - e.call(_mc.pull)
+			if _mp_sounds < 3 and t >= _mc.pull.x + 0.03:
+				_mp_sounds = 3
+				SfxSynth.play(self, "mp18_charge", global_position, -5.0, randf_range(0.95, 1.05))
+			if t >= _mc.pull.y:
+				mp_bolt_forward = false
+		_mp_handle.position = _mp_handle_rest + Vector3(M_HANDLE_TRAVEL * f, 0, 0)
+		var grip := _rl_grip_for(MP18, ra, "R")
+		var knob := _mp_knob_key(ra)
+		var key: Array
+		if t < _mc.reach.x:
+			key = grip
+		elif t < _mc.reach.y:
+			key = _rl_blend(grip, knob, e.call(_mc.reach))
+		elif t < _mc.back.x:
+			key = knob
+		else:
+			key = _rl_blend(knob, grip, e.call(_mc.back))
+		_rl_apply(ra, key)
+		_rl_active_mp_r = true
+		return
+	_mp_handle.position = _mp_handle_rest + Vector3(M_HANDLE_TRAVEL * f, 0, 0)
+	if _rl_active_mp_r:
+		_rl_active_mp_r = false
+		apply_grip(MP18, _grips_live[MP18], _mp_model)
+		_arm_pull_last = -1.0
+
+
+## A side's grip on gun `gun` (ARM_GRIPS), as a key.
+func _rl_grip_for(gun: int, arm: FPArm, side: String) -> Array:
+	var model: Node3D = _mp_model if gun == MP18 else (_sg_model if gun == TRENCH else _rev_model)
+	var m := model.transform
+	var g: Dictionary = ARM_GRIPS[gun][side]
+	var hand := arm.frame_from_knuckles(m * g.index_k, m * g.little_k, m.basis * g.palm) if g.has("index_k") else FPArm.frame(m * g.wrist, m.basis * g.along, m.basis * g.palm)
+	return [hand, m * g.elbow, g.pose]
+
+
+## The right hand pinching the handle's knob, coming from behind and to the right.
+func _mp_knob_key(arm: FPArm) -> Array:
+	var m := _mp_model.transform
+	var knob := m * (_mp_handle.position + M_KNOB)
+	var along := (m.basis * Vector3(0.62, -0.15, -0.55)).normalized()
+	var toward := m.basis * Vector3(0, 0, -1)
+	var palm := (toward - along * toward.dot(along)).normalized()
+	var hand := FPArm.frame(Vector3.ZERO, along, palm)
+	if not _pinch_off.has(arm):
+		arm.set_pose(PINCH_POSE)
+		_pinch_off[arm] = arm.pinch_offset()
+	hand.origin = knob - hand.basis * (_pinch_off[arm] as Vector3)
+	return [hand, Vector3(0.32, -0.60, 0.38), PINCH_POSE]
 
 
 ## The empty drum off the gun and down, a real body at full size.
@@ -2004,7 +2154,7 @@ func _drop_drum() -> void:
 	var body := RigidBody3D.new()
 	body.collision_layer = 1 << 3
 	body.collision_mask = 1 | (1 << 3)
-	body.mass = 1.2
+	body.mass = 1.2 if mp_drum else 0.35
 	body.angular_damp = 1.0
 	var shape := BoxShape3D.new()
 	shape.size = ab.size

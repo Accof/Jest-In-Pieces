@@ -22,6 +22,7 @@ const UPGRADES := [
 	{id = "saw", name = "Bone Saw Rounds", desc = "Pistol shots can blow limbs and heads off."},
 	{id = "rush", name = "Adrenaline", desc = "Headshot kills slow time for a moment."},
 	{id = "bath", name = "Bloodbath", desc = "Twice the blood. Purely for show."},
+	{id = "drum", name = "Snail Drum", desc = "The MP 18 takes the 32-round snail drum instead of the 20-round stick."},
 ]
 
 ## Bought with tickets on the menu; kept between runs.
@@ -580,7 +581,7 @@ func _offer_upgrades() -> void:
 	if not _event_upgrade:
 		Records.add(save, "floors")
 		_save()
-	var pool := UPGRADES.filter(func(u: Dictionary) -> bool: return not (u.id in ["saw", "rush", "bath"] and u.id in taken))
+	var pool := UPGRADES.filter(func(u: Dictionary) -> bool: return not (u.id in ["saw", "rush", "bath", "drum"] and u.id in taken))
 	pool.shuffle()
 	_offer = pool.slice(0, 3)
 	_set_state(State.UPGRADE)
@@ -644,6 +645,7 @@ func _apply_upgrade(id: String) -> void:
 		"saw": s.pistol_dismember = true
 		"rush": s.slowmo = true
 		"bath": s.blood *= 2.0
+		"drum": player.give_mp18_drum()
 
 
 func _buy_perk(i: int) -> void:
@@ -926,7 +928,7 @@ func _refresh_hud() -> void:
 		_health_bar.value = player.health
 		return
 	var w: Dictionary = FpsPlayer.WEAPONS[player.weapon]
-	_hud.text = "Floor %d     Clowns left: %d     Tickets: %d     %s %d/%d%s" % [floor_number, maxi(remaining, 0), run_tickets, w.name, player.ammo[player.weapon], w.mag,
+	_hud.text = "Floor %d     Clowns left: %d     Tickets: %d     %s %d/%d%s" % [floor_number, maxi(remaining, 0), run_tickets, w.name, player.ammo[player.weapon], player.mag_of(player.weapon),
 		("     EXIT OPEN - find the green door" if exit_open else "") + ("     GOD MODE" if FpsPlayer.god_mode else "")]
 	_health_bar.max_value = player.stats.max_health
 	_health_bar.value = player.health

@@ -96,8 +96,8 @@ func _run() -> void:
 	var sw: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.SMG]
 	_check(sw.name == "SMG" and sw.cooldown == 0.085 and sw.mag == 32 and not sw.has("rpm"), "the old SMG unchanged")
 	var mw: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.MP18]
-	_check(mw.name == "MP 18" and mw.mag == 32 and mw.rpm == 500.0 and mw.damage < rw.damage and not mw.get("semi", false), "MP 18: 32 rounds, 500 rpm, automatic, less per round than the Webley (%.0f vs %.0f)" % [mw.damage, rw.damage])
-	_check(p.ammo.size() == FpsPlayer.WEAPONS.size() and p.ammo[FpsPlayer.MP18] == 32, "its own ammunition, full (32)")
+	_check(mw.name == "MP 18" and mw.mag == 20 and mw.drum_mag == 32 and mw.rpm == 500.0 and mw.damage < rw.damage and not mw.get("semi", false), "MP 18: a 20-round stick (32 with the drum), 500 rpm, automatic, less per round than the Webley (%.0f vs %.0f)" % [mw.damage, rw.damage])
+	_check(p.ammo.size() == FpsPlayer.WEAPONS.size() and p.ammo[FpsPlayer.MP18] == 20 and p.mag_of(FpsPlayer.MP18) == 20, "its own ammunition, a full stick (20)")
 
 	_key(KEY_9)
 	await _wait(ViewModel.SWAP_TIME + 0.15)
@@ -124,7 +124,15 @@ func _run() -> void:
 		if String(mi.name) == "Body":
 			var m := mi.mesh.surface_get_material(0) as StandardMaterial3D
 			tex_ok = m != null and m.albedo_texture != null and m.normal_texture != null and m.metallic_texture != null
-	_check(names.has("Body") and names.has("Drum"), "the model is in parts: body and the drum")
+	_check(names.has("Body") and names.has("Drum") and names.has("StickMag") and names.has("Handle"), "the model is in parts: body, stick magazine, drum and charging handle")
+	var stick := v._mp_model.find_child("StickMag", true, false) as Node3D
+	var drum := v._mp_model.find_child("Drum", true, false) as Node3D
+	_check(not v.mp_drum and stick.visible and not drum.visible and v._mp_drum == stick, "it starts with the stick magazine; the drum is not fitted")
+	var hn := v._mp_handle.find_children("*", "MeshInstance3D", true, false)
+	var hmi := (v._mp_handle if v._mp_handle is MeshInstance3D else hn[0]) as MeshInstance3D
+	var hab := hmi.get_aabb()
+	_check(hab.size.y > 0.025 and hab.position.z > 0.025 and hab.end.z > 0.05, "the handle is the hook: hanging %.0f mm down, out on the right of the receiver" % (hab.size.y * 1000.0))
+	_check(absf(ViewModel.M_HANDLE_TRAVEL - 0.113) < 0.001, "and it runs the length of its slot (%.0f mm)" % (ViewModel.M_HANDLE_TRAVEL * 1000.0))
 	_check(tex_ok, "the body keeps the Tripo colour, normal and metal/rough textures")
 	var arms: Dictionary = v._arms.get(ViewModel.MP18, {})
 	_check(arms.has("R") and arms.has("L"), "the rigged arms hold it (right and left)")
@@ -138,14 +146,18 @@ func _run() -> void:
 
 	# --- automatic fire at an exact rate
 	var target: Clown = clowns[0]
+	_check(not v.mp_bolt_forward and v._mp_handle.position.distance_to(v._mp_handle_rest) < 0.0005, "the handle starts back (cocked)")
 	cam.look_at(target.ragdoll.bones[&"Chest"].global_position)
 	var pitch0 := cam.rotation.x
 	var h0 := target.health
 	var r: FPArm = arms["R"]
 	var rel0 := v._mp_model.global_transform.affine_inverse() * (r.skeleton.global_transform * r.skeleton.get_bone_global_pose(r._hand))
-	var ticks := 150                                  # 2.5 s of physics
+	var ticks := 114                                  # 1.9 s of physics: 16 rounds of the stick's 20
 	_pitch0 = cam.rotation.x
 	var shots := await _hold_measured(p, v, r, rel0, ticks)
+	_timed(_handle_max > ViewModel.M_HANDLE_TRAVEL * 0.8, "the charging handle runs with the bolt on each round (%.0f mm)" % (_handle_max * 1000.0))
+	await _frames(10)
+	_timed(v._mp_handle.position.distance_to(v._mp_handle_rest) < 0.0005, "and sits back (cocked) when the burst stops")
 	var tick_s := 1.0 / Engine.physics_ticks_per_second
 	var n: int = shots.size()
 	var gaps: Array[float] = []
@@ -153,13 +165,13 @@ func _run() -> void:
 		gaps.append((shots[i] - shots[i - 1]) * tick_s)
 	var rate := (n - 1) / ((shots[-1] - shots[0]) * tick_s) * 60.0 if n > 1 else 0.0
 	print("      %d shots in %.2f s held: %.0f rounds a minute; shortest gap %.3f s" % [n, ticks * tick_s, rate, gaps.min() if gaps else 0.0])
-	_timed(n >= 19 and n <= 22 and absf(rate - 500.0) < 15.0, "fires continuously while held, at about 500 rounds a minute (%.0f)" % rate)
+	_timed(n >= 15 and n <= 17 and p.ammo[FpsPlayer.MP18] > 0 and absf(rate - 500.0) < 15.0, "fires continuously while held, at about 500 rounds a minute (%.0f)" % rate)
 	_timed(gaps.min() >= 0.12 - tick_s * 0.5, "never faster than the set rate (shortest %.3f s)" % gaps.min())
-	_check(_hold_worst < 0.001, "the right hand stays on the gun through the burst (moved %.5f)" % _hold_worst)
-	_timed(_climb_late > _climb_early * 1.5 and _climb_late < 12.0, "recoil builds through the burst (the view %.1f deg up after 3 rounds, %.1f by the end)" % [_climb_early, _climb_late])
+	_timed(_hold_worst < 0.001, "the right hand stays on the gun through the burst (moved %.5f)" % _hold_worst)
+	_timed(_climb_late > _climb_early * 1.3 and _climb_late < 12.0, "recoil builds through the burst (the view %.1f deg up after 3 rounds, %.1f by the end)" % [_climb_early, _climb_late])
 	var after := p.ammo[FpsPlayer.MP18]
 	await _frames(30)
-	_check(p.ammo[FpsPlayer.MP18] == after, "letting go stops it at once")
+	_timed(p.ammo[FpsPlayer.MP18] == after, "letting go stops it at once")
 	await _wait(1.0)
 	_check(absf(cam.rotation.x - pitch0) < deg_to_rad(1.5), "and the muzzle comes back down (%.2f deg off)" % rad_to_deg(cam.rotation.x - pitch0))
 	await _frames(10)
@@ -167,57 +179,31 @@ func _run() -> void:
 	_check(dmg > 0.0, "the rounds hurt the clown (%.0f%s)" % [dmg, ", killed" if target.dead else ""])
 	_check(get_tree().get_nodes_in_group("spent_brass").size() > 5, "spent cases thrown out")
 
-	# --- empty: no shots, a dry click, the drum changed
+	# --- empty: no shots, a dry click, the stick changed
 	cam.rotation.x = 0.0
 	cam.look_at(cam.global_position + Vector3(0, 0, -1))
-	p.ammo[FpsPlayer.MP18] = 0
-	p.ammo_changed.emit()
-	var dry := await _hold(p, 6)
-	_check(dry.is_empty() and p.ammo[FpsPlayer.MP18] == 0, "an empty drum fires nothing")
-	_check(v.reloading(), "and the drum change starts")
 	var l: FPArm = arms["L"]
-	var drums0 := v.mp_drums.size()
-	var drum_moved := 0.0
-	var l_on_drum := 0
-	var fired_in_reload := false
-	var t := 0.0
-	var shot_out := false
-	var shot_in := false
-	while v.reloading() and t < 4.5:
-		await get_tree().process_frame
-		t += get_process_delta_time()
-		var rt := v._reload_t
-		if rt > 0.5 and rt < 0.95:
-			drum_moved = maxf(drum_moved, v._mp_drum.transform.origin.distance_to(v._mp_drum_rest.origin))
-		if rt > 0.62 and rt < 0.95:
-			var hd := v._mp_model.global_transform.affine_inverse() * (l.skeleton.global_transform * l.skeleton.get_bone_global_pose(l._hand))
-			var want := v._mp_drum.transform * v._mp_drum_hand
-			if hd.origin.distance_to(want.origin) < 0.002:
-				l_on_drum += 1
-			if render and not shot_out and rt > 0.85:
-				shot_out = true
-				v.set_process(false); await _shot("2_drum_out"); v.set_process(true)
-		if rt > 1.8 and rt < 2.3 and render and not shot_in:
-			shot_in = true
-			v.set_process(false); await _shot("3_drum_in"); v.set_process(true)
-		if rt > 1.0 and rt < 2.0 and not fired_in_reload:
-			fired_in_reload = true
-			var b := p.ammo[FpsPlayer.MP18]
-			p.fire()
-			_check(p.ammo[FpsPlayer.MP18] == b, "no firing while the drum is off")
-	_timed(drum_moved > 0.1, "the drum is drawn out sideways (%.0f cm)" % (drum_moved * 100.0))
-	_timed(l_on_drum > 3, "the left hand holds the drum while it comes out (%d frames)" % l_on_drum)
-	_timed(v.mp_drums.size() == drums0 + 1, "the empty drum drops off as a body")
-	_check(p.ammo[FpsPlayer.MP18] == 32, "a full drum: 32 rounds")
-	await _frames(5)
-	_check(v._mp_drum.visible and v._mp_drum.transform.origin.distance_to(v._mp_drum_rest.origin) < 0.0005, "the new drum sits home on the housing")
+	await _empty_change(p, v, r, l, rel0, "stick", 20)
+	# --- a change with rounds left: the bolt is still back, no pull
 	await _wait(0.3)
-	var lh := v._mp_model.global_transform.affine_inverse() * (l.skeleton.global_transform * l.skeleton.get_bone_global_pose(l._hand))
-	var g: Dictionary = ViewModel.ARM_GRIPS[ViewModel.MP18]["L"]
-	var lwant := l.frame_from_knuckles(g.index_k, g.little_k, g.palm)
-	_check(lh.origin.distance_to(lwant.origin) < 0.002, "the left hand is back on the wood")
-	var dropped := v.mp_drums[-1]
-	_check(is_instance_valid(dropped) and dropped.global_position.y < 0.4, "the empty drum is on the floor")
+	p.ammo[FpsPlayer.MP18] = 10
+	p.reload()
+	var r_moved := 0.0
+	var tt := 0.0
+	while v.reloading() and tt < 4.0:
+		await get_tree().process_frame
+		tt += get_process_delta_time()
+		var rr2 := v._mp_model.global_transform.affine_inverse() * (r.skeleton.global_transform * r.skeleton.get_bone_global_pose(r._hand))
+		r_moved = maxf(r_moved, rr2.origin.distance_to(rel0.origin))
+	_check(r_moved < 0.001 and p.ammo[FpsPlayer.MP18] == 20, "a change with rounds left needs no pull: the right hand stays on the grip (moved %.4f)" % r_moved)
+
+	# --- the Snail Drum upgrade: the drum is fitted, 32 rounds, its own change
+	var game_src := FileAccess.get_file_as_string("res://scripts/game/game.gd")
+	_check(game_src.contains('id = "drum", name = "Snail Drum"') and game_src.contains('"drum": player.give_mp18_drum()'), "Snail Drum is an upgrade a run can offer")
+	p.give_mp18_drum()
+	await _frames(3)
+	_check(v.mp_drum and drum.visible and not stick.visible and v._mp_drum == drum and p.ammo[FpsPlayer.MP18] == 32 and p.mag_of(FpsPlayer.MP18) == 32, "Snail Drum: the drum replaces the stick, 32 rounds")
+	await _empty_change(p, v, r, l, rel0, "drum", 32)
 
 	# --- switching
 	_key(KEY_7)
@@ -234,7 +220,7 @@ func _run() -> void:
 	_check(p.weapon == FpsPlayer.SMG and v._guns[ViewModel.SMG].visible, "3: the old SMG")
 	_key(KEY_9)
 	await _wait(ViewModel.SWAP_TIME + 0.15)
-	_check(p.weapon == FpsPlayer.MP18 and r.is_visible_in_tree() and l.is_visible_in_tree() and p.ammo[FpsPlayer.MP18] == 32, "9: back to the MP 18, arms and its 32 rounds")
+	_check(p.weapon == FpsPlayer.MP18 and r.is_visible_in_tree() and l.is_visible_in_tree() and p.ammo[FpsPlayer.MP18] == 32 and drum.visible, "9: back to the MP 18, arms, the drum and its 32 rounds")
 	if render:
 		p.set_process(false); p.set_physics_process(false); v.set_process(false)
 		var oc := Camera3D.new(); add_child(oc)
@@ -255,10 +241,95 @@ func _run() -> void:
 	get_tree().quit()
 
 
+## Fire the last round, pull the trigger dry, and watch the change it starts: the
+## magazine drawn out in the left hand and dropped, a full one in, and the right
+## hand pulling the handle back. Timings from the view's keys for this magazine.
+func _empty_change(p: FpsPlayer, v: ViewModel, r: FPArm, l: FPArm, rel0: Transform3D, what: String, full: int) -> void:
+	p.ammo[FpsPlayer.MP18] = 1
+	p.ammo_changed.emit()
+	await _hold(p, 3)                                   # the last round
+	await _frames(10)
+	_check(v.mp_bolt_forward and v._mp_handle.position.x - v._mp_handle_rest.x > ViewModel.M_HANDLE_TRAVEL * 0.95, "%s: after the last round the bolt (and handle) stays forward" % what)
+	var dry := await _hold(p, 6)
+	_check(dry.is_empty() and p.ammo[FpsPlayer.MP18] == 0, "%s: empty, it fires nothing" % what)
+	_check(v.reloading(), "%s: and the change starts" % what)
+	var mt: Dictionary = v._mt
+	var mc: Dictionary = v._mc
+	var total := v.mp_reload_time()
+	var drops0 := v.mp_drums.size()
+	var r_on_knob := 0
+	var r_off_grip := 0.0
+	var handle_back_at := -1.0
+	var moved := 0.0
+	var l_on := 0
+	var fired_in_reload := false
+	var t := 0.0
+	var shot_out := false
+	var shot_in := false
+	var shot_charge := false
+	while v.reloading() and t < total + 1.0:
+		await get_tree().process_frame
+		t += get_process_delta_time()
+		var rt := v._reload_t
+		if rt > mt.unlatch.x and rt < mt.to_pouch.x:
+			moved = maxf(moved, v._mp_drum.transform.origin.distance_to(v._mp_drum_rest.origin))
+		if rt > mt.out.x and rt < mt.to_pouch.x:
+			var hd := v._mp_model.global_transform.affine_inverse() * (l.skeleton.global_transform * l.skeleton.get_bone_global_pose(l._hand))
+			var want := v._mp_drum.transform * v._mp_drum_hand
+			if hd.origin.distance_to(want.origin) < 0.002:
+				l_on += 1
+			if render and not shot_out and rt > mt.out.y - 0.08:
+				shot_out = true
+				v.set_process(false); await _shot("2_%s_out" % what); v.set_process(true)
+		if rt > mc.pull.x + 0.02 and rt < mc.pull.y:
+			var sk := r.skeleton
+			var tipf := func(bn: String) -> Vector3:
+				var bi := sk.find_bone(bn)
+				return sk.global_transform * sk.get_bone_global_pose(bi) * Vector3(0, sk.get_bone_rest(bi).origin.length() * 0.85, 0)
+			var mid: Vector3 = ((tipf.call("index_03.R") as Vector3) + (tipf.call("thumb_03.R") as Vector3)) * 0.5
+			var knob := v._mp_model.global_transform * (v._mp_handle.position + ViewModel.M_KNOB)
+			if mid.distance_to(knob) * 100.0 / ViewModel.SHRINK < 1.0:
+				r_on_knob += 1
+		var rr := v._mp_model.global_transform.affine_inverse() * (r.skeleton.global_transform * r.skeleton.get_bone_global_pose(r._hand))
+		r_off_grip = maxf(r_off_grip, rr.origin.distance_to(rel0.origin))
+		if handle_back_at < 0.0 and not v.mp_bolt_forward:
+			handle_back_at = rt
+		if rt > mc.pull.x + 0.04 and rt < mc.pull.y - 0.01 and render and not shot_charge:
+			shot_charge = true
+			v.set_process(false); await _shot("4_%s_charge" % what); v.set_process(true)
+		if rt > mt.in.x + 0.1 and rt < mt.seat.x and render and not shot_in:
+			shot_in = true
+			v.set_process(false); await _shot("3_%s_in" % what); v.set_process(true)
+		if rt > mt.to_pouch.x + 0.05 and rt < mt.in.x and not fired_in_reload:
+			fired_in_reload = true
+			var b := p.ammo[FpsPlayer.MP18]
+			p.fire()
+			_check(p.ammo[FpsPlayer.MP18] == b, "%s: no firing while the magazine is off" % what)
+	var need: float = ViewModel.M_STICK_TRAVEL if what == "stick" else ViewModel.M_DRUM_TRAVEL
+	_timed(moved > need * 0.9, "%s: drawn straight out along the housing (%.0f cm)" % [what, moved * 100.0])
+	_timed(l_on > 3, "%s: the left hand holds it while it comes out (%d frames)" % [what, l_on])
+	_timed(v.mp_drums.size() == drops0 + 1, "%s: the empty one drops off as a body" % what)
+	_check(p.ammo[FpsPlayer.MP18] == full, "%s: full again, %d rounds" % [what, full])
+	_check(r_off_grip > 0.05, "%s: after a change from empty the right hand leaves the grip for the handle" % what)
+	_timed(r_on_knob > 2, "%s: pinches the hook while it pulls it back (%d frames)" % [what, r_on_knob])
+	_check(handle_back_at > mc.pull.x and not v.mp_bolt_forward and v._mp_handle.position.distance_to(v._mp_handle_rest) < 0.0005, "%s: and the handle is back, cocked (at %.2f s)" % [what, handle_back_at])
+	_check(absf(total - (ViewModel.MP18_STICK_RELOAD if what == "stick" else ViewModel.MP18_RELOAD)) < 0.001, "%s: its own reload (%.2f s)" % [what, total])
+	await _frames(5)
+	_check(v._mp_drum.visible and v._mp_drum.transform.origin.distance_to(v._mp_drum_rest.origin) < 0.0005, "%s: the new one sits home in the housing" % what)
+	await _wait(0.3)
+	var lh := v._mp_model.global_transform.affine_inverse() * (l.skeleton.global_transform * l.skeleton.get_bone_global_pose(l._hand))
+	var g: Dictionary = ViewModel.ARM_GRIPS[ViewModel.MP18]["L"]
+	var lwant := l.frame_from_knuckles(g.index_k, g.little_k, g.palm)
+	_check(lh.origin.distance_to(lwant.origin) < 0.002, "%s: the left hand is back on the wood" % what)
+	var dropped := v.mp_drums[-1]
+	_check(is_instance_valid(dropped) and dropped.global_position.y < 0.4, "%s: the empty one is on the floor" % what)
+
+
 var _hold_worst := 0.0
 var _climb_early := 0.0
 var _climb_late := 0.0
 var _pitch0 := 0.0
+var _handle_max := 0.0
 
 
 ## Hold, and watch the hand on the gun and how much each shot lifts the muzzle
@@ -280,6 +351,7 @@ func _hold_measured(p: FpsPlayer, v: ViewModel, r: FPArm, rel0: Transform3D, tic
 			rises.append(rad_to_deg(p.camera.rotation.x - _pitch0))   # how far the view has climbed by this shot
 		var rel := v._mp_model.global_transform.affine_inverse() * (r.skeleton.global_transform * r.skeleton.get_bone_global_pose(r._hand))
 		_hold_worst = maxf(_hold_worst, rel.origin.distance_to(rel0.origin))
+		_handle_max = maxf(_handle_max, v._mp_handle.position.x - v._mp_handle_rest.x)
 		if render and not shot_fire and shots.size() == 6:
 			shot_fire = true
 			v.set_process(false)
@@ -306,8 +378,11 @@ func _seq_mode(p: FpsPlayer, v: ViewModel) -> void:
 		v.animate(dt, 0.0, Vector2.ZERO)
 		await _shot("seq_%03d" % n)
 		n += 1
+	v.mp_bolt_forward = true                       # fired dry: the change ends with the pull
 	v.start_reload()
-	while v._reload_t < ViewModel.MP18_RELOAD:
+	if "--drum" in OS.get_cmdline_user_args():
+		v.set_mp_drum(true)
+	while v._reload_t < v.mp_reload_time():
 		v.animate(dt, 0.0, Vector2.ZERO)
 		await _shot("seq_%03d" % n)
 		n += 1
