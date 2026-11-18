@@ -705,7 +705,7 @@ const L_PATH := "res://art/weapons/smle/smle.glb"
 const L_HOME := Vector3(0.105, -0.150, -0.46)
 const L_TILT := Vector3(0.0, 2.0, 2.5)
 const L_BORE_Y := 0.1917
-const L_TRAVEL := 0.0832                 # the bolt's stroke
+const L_TRAVEL := 0.088                  # the bolt's stroke (Sketchfab model: clears the charger bridge)
 const L_LIFT := 60.0                     # the handle turned up to unlock (degrees about the bore)
 const L_EYE := 0.52                      # aiming: the eye behind the rear notch (view space, before the shrink): just behind the cocking piece
 ## Working the bolt after a shot (s): the right hand off the wrist to the knob, up,
@@ -766,6 +766,10 @@ func _build_rifle() -> void:
 	for n in ["Muzzle", "SightRear", "SightFront", "Ejection", "ChargerGuide", "MagMouth"]:
 		var node := _le_model.find_child(n, true, false) as Node3D
 		_le_mark[n] = node.position if node else Vector3.ZERO
+	# the blade's tip sits a little below the notch (the barrel points up a hair to zero it at
+	# range): pitch the whole rifle by that so the notch and the blade share the eye's line
+	var sl: Vector3 = (_le_mark.SightFront as Vector3) - (_le_mark.SightRear as Vector3)
+	_le_model.basis = Basis(Vector3.UP, PI * 0.5) * Basis(Vector3.BACK, atan2(-sl.y, sl.x))
 	_le_muzzle = _le_model.find_child("Muzzle", true, false) as Node3D
 	_le_bolt = _le_model.find_child("Bolt", true, false) as Node3D
 	_le_turn = _le_model.find_child("BoltTurn", true, false) as Node3D
@@ -1284,19 +1288,19 @@ const ARM_GRIPS := {
 			"thumb_01": Vector3(-18, 0, 8), "thumb_02": Vector3(0, 0, 0), "thumb_03": Vector3(15, 0, 0)}}
 	},
 	RIFLE: {
-		"R": {"index_k": Vector3(-0.283, 0.146, 0.054), "little_k": Vector3(-0.320, 0.099, 0.054), "palm": Vector3(0.0, -0.05, -1.0), "elbow": Vector3(-0.60, -0.10, 0.24),
-			"pose": {"index_01": Vector3(20, 0, 0), "index_02": Vector3(15, 0, 0), "index_03": Vector3(10, 0, 0),
-			"middle_01": Vector3(60, 0, 0), "middle_02": Vector3(10, 0, 0), "middle_03": Vector3(5, 0, 0),
-			"ring_01": Vector3(85, 0, 0), "ring_02": Vector3(70, 0, 0), "ring_03": Vector3(40, 0, 0),
-			"little_01": Vector3(80, 0, 0), "little_02": Vector3(0, 0, 0), "little_03": Vector3(0, 0, 0),
-			"thumb_01": Vector3(-30, 0, -40), "thumb_02": Vector3(40, 0, 0), "thumb_03": Vector3(30, 0, 0)},
+		"R": {"index_k": Vector3(-0.283, 0.146, 0.041), "little_k": Vector3(-0.320, 0.099, 0.041), "palm": Vector3(0.0, -0.05, -1.0), "elbow": Vector3(-0.60, -0.10, 0.24),
+			"pose": {"index_01": Vector3(-20, 0, -20), "index_02": Vector3(75, 0, 0), "index_03": Vector3(10, 0, 0),
+			"middle_01": Vector3(45, 0, 0), "middle_02": Vector3(35, 0, 0), "middle_03": Vector3(32, 0, 0),
+			"ring_01": Vector3(75, 0, 0), "ring_02": Vector3(0, 0, 0), "ring_03": Vector3(0, 0, 0),
+			"little_01": Vector3(90, 0, 0), "little_02": Vector3(0, 0, 0), "little_03": Vector3(0, 0, 0),
+			"thumb_01": Vector3(-30, 0, -32), "thumb_02": Vector3(60, 0, 0), "thumb_03": Vector3(15, 0, 0)},
 			"pull": {"index_01": Vector3(6, 0, 0), "index_02": Vector3(14, 0, 0), "index_03": Vector3(10, 0, 0)}},
-		"L": {"index_k": Vector3(0.118, 0.147, 0.018), "little_k": Vector3(0.053, 0.144, 0.018), "palm": Vector3(0.0, 0.92, -0.38), "elbow": Vector3(-0.15, -0.10, -0.28),
-			"pose": {"index_01": Vector3(-10, 0, 0), "index_02": Vector3(70, 0, 0), "index_03": Vector3(35, 0, 0),
-			"middle_01": Vector3(-10, 0, 0), "middle_02": Vector3(70, 0, 0), "middle_03": Vector3(35, 0, 0),
-			"ring_01": Vector3(0, 0, 0), "ring_02": Vector3(45, 0, 0), "ring_03": Vector3(22, 0, 0),
-			"little_01": Vector3(-10, 0, 0), "little_02": Vector3(105, 0, 0), "little_03": Vector3(52, 0, 0),
-			"thumb_01": Vector3(-30, 0, 8), "thumb_02": Vector3(-10, 0, 0), "thumb_03": Vector3(0, 0, 0)}}
+		"L": {"index_k": Vector3(0.122, 0.147, 0.018), "little_k": Vector3(0.057, 0.144, 0.018), "palm": Vector3(0.0, 0.92, -0.38), "elbow": Vector3(-0.15, -0.10, -0.28),
+			"pose": {"index_01": Vector3(20, 0, 0), "index_02": Vector3(55, 0, 0), "index_03": Vector3(28, 0, 0),
+			"middle_01": Vector3(30, 0, 0), "middle_02": Vector3(30, 0, 0), "middle_03": Vector3(15, 0, 0),
+			"ring_01": Vector3(30, 0, 0), "ring_02": Vector3(20, 0, 0), "ring_03": Vector3(10, 0, 0),
+			"little_01": Vector3(20, 0, 0), "little_02": Vector3(100, 0, 0), "little_03": Vector3(50, 0, 0),
+			"thumb_01": Vector3(-30, 0, -24), "thumb_02": Vector3(-10, 0, 0), "thumb_03": Vector3(0, 0, 0)}}
 	},
 	MP18: {
 		"R": {"index_k": Vector3(-0.170, 0.092, 0.053), "little_k": Vector3(-0.215, 0.039, 0.055), "palm": Vector3(0.0, -0.2, -1.0), "elbow": Vector3(-0.45, -0.18, 0.34),

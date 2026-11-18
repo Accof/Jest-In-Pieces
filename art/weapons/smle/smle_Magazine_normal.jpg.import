@@ -2,19 +2,19 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bv0crus77y440"
-path="res://.godot/imported/smle_Color.jpg-befb88ed861e1a101d70b7af4a4f1cf0.ctex"
+uid="uid://cxwev7jbcqsvo"
+path="res://.godot/imported/smle_Magazine_normal.jpg-e20623bed68879440a2388d657bdd215.ctex"
 metadata={
 "vram_texture": false
 }
 generator_parameters={
-"md5": "bd968262ffcc43f6107ee56a0d7911f4"
+"md5": "783132c132978843b1fded82d2d7642d"
 }
 
 [deps]
 
-source_file="res://art/weapons/smle/smle_Color.jpg"
-dest_files=["res://.godot/imported/smle_Color.jpg-befb88ed861e1a101d70b7af4a4f1cf0.ctex"]
+source_file="res://art/weapons/smle/smle_Magazine_normal.jpg"
+dest_files=["res://.godot/imported/smle_Magazine_normal.jpg-e20623bed68879440a2388d657bdd215.ctex"]
 
 [params]
 

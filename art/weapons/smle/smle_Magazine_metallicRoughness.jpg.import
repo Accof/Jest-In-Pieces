@@ -2,19 +2,19 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bkpsg8a8t75w2"
-path="res://.godot/imported/smle_BluedSteel_Color.jpg-a5aa0aed18db56a35c77b6c221e18c68.ctex"
+uid="uid://c65icxr3c3tld"
+path="res://.godot/imported/smle_Magazine_metallicRoughness.jpg-e43ca4b5875f0e88057d162cb5863da9.ctex"
 metadata={
 "vram_texture": false
 }
 generator_parameters={
-"md5": "6d1d991db6fcf5afeb00eb2a9c50ae54"
+"md5": "98c0b531ae102b7f1e84dd96af7914cc"
 }
 
 [deps]
 
-source_file="res://art/weapons/smle/smle_BluedSteel_Color.jpg"
-dest_files=["res://.godot/imported/smle_BluedSteel_Color.jpg-a5aa0aed18db56a35c77b6c221e18c68.ctex"]
+source_file="res://art/weapons/smle/smle_Magazine_metallicRoughness.jpg"
+dest_files=["res://.godot/imported/smle_Magazine_metallicRoughness.jpg-e43ca4b5875f0e88057d162cb5863da9.ctex"]
 
 [params]
 

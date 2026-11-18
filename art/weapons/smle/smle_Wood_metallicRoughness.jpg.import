@@ -2,19 +2,19 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bcag2vtduhaj3"
-path="res://.godot/imported/smle_tripo_image_5df0a58c-a0f4-4050-b1ad-47c5679fac05_2-tripo_image_5df0a58c-a0f4-4050-b1ad-47c5679fac05_1.jpg-ae74ba5e0eb90b239aed5805d1044a3b.ctex"
+uid="uid://bcxnsboafirje"
+path="res://.godot/imported/smle_Wood_metallicRoughness.jpg-11489067b440b77f32154f0c95e7c8cf.ctex"
 metadata={
 "vram_texture": false
 }
 generator_parameters={
-"md5": "1847d89d8a8955188073e74da847a950"
+"md5": "96b9162fae537d5bfb04622645d488e4"
 }
 
 [deps]
 
-source_file="res://art/weapons/smle/smle_tripo_image_5df0a58c-a0f4-4050-b1ad-47c5679fac05_2-tripo_image_5df0a58c-a0f4-4050-b1ad-47c5679fac05_1.jpg"
-dest_files=["res://.godot/imported/smle_tripo_image_5df0a58c-a0f4-4050-b1ad-47c5679fac05_2-tripo_image_5df0a58c-a0f4-4050-b1ad-47c5679fac05_1.jpg-ae74ba5e0eb90b239aed5805d1044a3b.ctex"]
+source_file="res://art/weapons/smle/smle_Wood_metallicRoughness.jpg"
+dest_files=["res://.godot/imported/smle_Wood_metallicRoughness.jpg-11489067b440b77f32154f0c95e7c8cf.ctex"]
 
 [params]
 

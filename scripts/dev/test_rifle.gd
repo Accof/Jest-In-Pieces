@@ -141,7 +141,7 @@ func _run() -> void:
 	_check(parts_ok, "the model is in parts: body, bolt (turning handle, cocking piece) and the markers")
 	var body := v._le_model.find_child("Body", true, false) as MeshInstance3D
 	var bm := body.mesh.surface_get_material(0) as StandardMaterial3D
-	_check(bm != null and bm.albedo_texture != null and bm.normal_texture != null, "the Tripo wood and steel textures are on it")
+	_check(bm != null and bm.albedo_texture != null and bm.normal_texture != null, "the wood and steel textures are on it (Sketchfab model, CC-BY: art/weapons/smle/CREDITS.txt)")
 	var ab := body.get_aabb()
 	_check(absf(ab.size.x - 1.132) < 0.01, "real length: %.3f m (an SMLE is 1.132)" % ab.size.x)
 	var strap := false

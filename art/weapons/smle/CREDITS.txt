@@ -1,0 +1,15 @@
+SMLE Mk III rifle model (smle.glb)
+
+This work is based on "Lee Enfield MKIII"
+(https://sketchfab.com/3d-models/lee-enfield-mkiii-f6a2160daf134071a84e3cae5f831875)
+by Giuliano.Sgroi (https://sketchfab.com/Giuliano.Sgroi)
+licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+Changes made for Jest In Pieces: the bayonet, the sling and the loose display
+cartridge were removed; the model was rescaled to 1132 mm and re-oriented; the
+bolt was separated into moving parts (Bolt / BoltTurn / CockingPiece) for animation;
+sight, muzzle and loading markers were added; textures were downscaled to 2048 px
+and re-encoded as JPEG. Build script: source/build_smle_sketchfab.py.
+
+Keep this credit with the game (for example in the in-game credits screen) if it is
+ever released.

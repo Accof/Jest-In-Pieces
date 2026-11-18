@@ -2,19 +2,19 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dsuxs56t7kwuf"
-path="res://.godot/imported/smle_BluedSteel_Normal.jpg-51a874cb446000a9d706f9c75e8bfdb5.ctex"
+uid="uid://387o7374xktd"
+path="res://.godot/imported/smle_Mechanic_normal.jpg-60a5155a95de98836d9d429aa3128b9f.ctex"
 metadata={
 "vram_texture": false
 }
 generator_parameters={
-"md5": "02a1eadf5db2a2a8d5c12cccdea9097c"
+"md5": "55c6fa2eeca956bd2002ddaecc45937d"
 }
 
 [deps]
 
-source_file="res://art/weapons/smle/smle_BluedSteel_Normal.jpg"
-dest_files=["res://.godot/imported/smle_BluedSteel_Normal.jpg-51a874cb446000a9d706f9c75e8bfdb5.ctex"]
+source_file="res://art/weapons/smle/smle_Mechanic_normal.jpg"
+dest_files=["res://.godot/imported/smle_Mechanic_normal.jpg-60a5155a95de98836d9d429aa3128b9f.ctex"]
 
 [params]
 
