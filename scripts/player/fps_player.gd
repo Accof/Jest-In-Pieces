@@ -17,10 +17,13 @@ const WEAPONS := [
 	{name = "SMG", damage = 21.0, pellets = 1, spread = 1.8, impulse = 8.0, heavy = false, can_dismember = false, cooldown = 0.085, falloff = 28.0, mag = 32},
 	{name = "Stake Gun", damage = 500.0, pellets = 1, spread = 0.0, impulse = 2.0, heavy = true, can_dismember = false, cooldown = 0.5, falloff = 100.0, mag = 1, projectile = true},
 	{name = "Maxim", damage = 60.0, pellets = 1, spread = 2.4, impulse = 22.0, heavy = true, can_dismember = true, cooldown = 0.11, falloff = 80.0, mag = 250, belt = true},
-	# A WW1 bolt-action service rifle: one heavy round per pull of the bolt,
-	# and it carries on through: up to four bodies in a line, losing 15% of
-	# its punch in each.
-	{name = "Rifle", damage = 180.0, pellets = 1, spread = 0.0, impulse = 20.0, heavy = true, can_dismember = false, cooldown = 1.1, falloff = 220.0, mag = 5, pierce = 4},
+	# A WW1 Lee-Enfield SMLE Mk III (the rifle slot; `name` stays "Rifle", what the
+	# saves and stats know it by; `label` is what the HUD shows). Ten rounds; one heavy
+	# round per pull, and the bolt worked after every shot (`bolt`: a round must be
+	# chambered to fire). Reloaded through the top with five-round chargers and loose
+	# rounds. `hip_spread`: degrees of scatter from the hip, none aimed down the sights.
+	{name = "Rifle", label = "SMLE Mk III", damage = 180.0, pellets = 1, spread = 0.0, hip_spread = 1.6, impulse = 20.0, heavy = true, can_dismember = false,
+		cooldown = 0.95, falloff = 220.0, mag = 10, pierce = 4, punch = 3.4, shot_sfx = "rifle_shot", semi = true, bolt = true, dry = true},
 	# A WW1 top-break service revolver (the Tripo model): six heavy rounds,
 	# one per pull of the trigger (semi: holding the button does not repeat),
 	# a hard upward kick, slow to reload. The procedural Pistol stays as the
@@ -89,7 +92,17 @@ var health := 100.0
 var dead := false
 var weapon := 0
 ## Rounds loaded in each gun. Spare ammunition is unlimited for now.
-var ammo: Array[int] = [17, 6, 32, 1, 0, 5, 6, 6, 20]
+var ammo: Array[int] = [17, 6, 32, 1, 0, 10, 6, 6, 20]
+## The rifle: a round in the chamber (ammo counts it). Fired: empty until the bolt is worked.
+var rifle_chambered := true
+var _rifle_cycle_left := -1.0
+## The rifle's reload: [time, rounds] as each charger or round goes in, and its clock.
+var _rifle_events: Array = []
+var _rifle_reload_t := -1.0
+var _rifle_reload_total := 0.0
+## Aiming down the sights (right mouse; the rifle): 0 hip .. 1 aimed.
+var ads := 0.0
+const ADS_FOV := 58.0
 ## Inside an event room (gunshots are not heard in the level).
 var in_event := false
 ## The final-kill camera has the view: no moving, looking or shooting, and the
@@ -297,6 +310,7 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		return
 	_tick_reload(delta)
+	_tick_ads(delta)
 	# Holding the button keeps firing (not a semi-automatic: one shot a pull).
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
 			and not WEAPONS[weapon].get("semi", false):
@@ -334,6 +348,8 @@ func select_weapon(w: int) -> void:
 	_shell_left = -1.0
 	_queued = -1.0
 	_cancel_pull()
+	if weapon == RIFLE:
+		_rifle_put_away()
 	weapon = w
 	view.swap_to(w)
 	_cooldown = maxf(_cooldown, ViewModel.SWAP_TIME)
@@ -359,6 +375,55 @@ func give_mp18_drum() -> void:
 	_update_label()
 
 
+## Leaving the rifle mid-cycle or mid-reload: the bolt is closed as it goes down
+## (rounds already in stay in; a round is chambered if there is one).
+func _rifle_put_away() -> void:
+	if _rifle_cycle_left >= 0.0 or _rifle_reload_t >= 0.0:
+		_rifle_cycle_left = -1.0
+		_rifle_reload_t = -1.0
+		_rifle_events = []
+		rifle_chambered = ammo[RIFLE] > 0
+	ads = 0.0
+
+
+## The rifle's reload: the bolt opens (a live round in the chamber comes out with it),
+## then five-round chargers and loose rounds until it holds ten, and the bolt shut.
+func _start_rifle_reload() -> void:
+	if _rifle_reload_t >= 0.0 or _rifle_cycle_left >= 0.0:
+		return
+	var extract := rifle_chambered and ammo[RIFLE] > 0
+	if extract:
+		ammo[RIFLE] -= 1
+	rifle_chambered = false
+	var need: int = mag_of(RIFLE) - ammo[RIFLE]
+	_rifle_events = view.start_rifle_reload(need / 5, need % 5, extract)
+	_rifle_reload_total = view.rifle_reload_total()
+	_rifle_reload_t = 0.0
+	view.le_rounds_in_mag = ammo[RIFLE]
+	ammo_changed.emit()
+	_update_label()
+
+
+func _tick_rifle(delta: float) -> void:
+	if _rifle_cycle_left >= 0.0:
+		_rifle_cycle_left -= delta
+		if _rifle_cycle_left < 0.0:
+			rifle_chambered = ammo[RIFLE] > 0          # the bolt went home on the next round
+	if _rifle_reload_t >= 0.0:
+		_rifle_reload_t += delta
+		while not _rifle_events.is_empty() and _rifle_reload_t >= float(_rifle_events[0][0]):
+			ammo[RIFLE] = mini(ammo[RIFLE] + int(_rifle_events[0][1]), mag_of(RIFLE))
+			_rifle_events.pop_front()
+			view.le_rounds_in_mag = ammo[RIFLE]
+			ammo_changed.emit()
+			_update_label()
+		if _rifle_reload_t >= _rifle_reload_total:
+			_rifle_reload_t = -1.0
+			view.stop_reload()
+			rifle_chambered = ammo[RIFLE] > 0          # the bolt shut on the top round
+	view.le_rounds_in_mag = ammo[RIFLE] - (1 if rifle_chambered else 0)
+
+
 ## Start reloading the gun in hand, if it has room.
 func reload() -> void:
 	if WEAPONS[weapon].get("belt", false):
@@ -367,6 +432,9 @@ func reload() -> void:
 		return
 	if WEAPONS[weapon].get("pump", false) and _cooldown > 0.0:
 		return                                   # still working the pump
+	if weapon == RIFLE:
+		_start_rifle_reload()
+		return
 	view.start_reload()
 	if weapon == PISTOL:
 		_reload_left = ViewModel.PISTOL_RELOAD * 0.62      # the moment the magazine seats
@@ -374,8 +442,6 @@ func reload() -> void:
 		_reload_left = ViewModel.SMG_SEAT
 	elif weapon == STAKE:
 		_reload_left = ViewModel.STAKE_SEAT
-	elif weapon == RIFLE:
-		_reload_left = ViewModel.RIFLE_SEAT
 	elif weapon == REVOLVER:
 		_reload_left = ViewModel.REVOLVER_SEAT
 		SfxSynth.play(self, "revolver_open", camera.global_position, -8.0, 1.0)
@@ -401,12 +467,31 @@ func _tick_punch(delta: float) -> void:
 	camera.rotation.x = clampf(camera.rotation.x + (_punch - before), -1.5, 1.5)
 
 
+## Aiming down the rifle's sights (right mouse held): the view narrows, the gun comes
+## up to the eye; not while reloading or changing guns. Other guns: none.
+func _tick_ads(delta: float) -> void:
+	var want := weapon == RIFLE and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	if aim_override >= 0.0:
+		want = aim_override > 0.5 and weapon == RIFLE
+	if view.reloading() or view.swapping() or weapon != RIFLE:
+		want = false
+	ads = move_toward(ads, 1.0 if want else 0.0, delta * 5.0)
+	view.ads = ads
+	if not cinematic:
+		camera.fov = lerpf(80.0, ADS_FOV, smoothstep(0.0, 1.0, ads))
+## The tests hold the aim without a mouse: -1 off, 0 not aiming, 1 aiming.
+var aim_override := -1.0
+
+
 ## Loads shell by shell (the shotguns): can be fired part-way through.
 func _shells() -> bool:
 	return WEAPONS[weapon].get("shells", false)
 
 
 func _tick_reload(delta: float) -> void:
+	if weapon == RIFLE:
+		_tick_rifle(delta)
+		return
 	if not _shells():
 		if _reload_left >= 0.0:
 			_reload_left -= delta
@@ -417,7 +502,7 @@ func _tick_reload(delta: float) -> void:
 					view.revolver_loaded()
 				ammo_changed.emit()
 				_update_label()
-		var total: float = {PISTOL: ViewModel.PISTOL_RELOAD, SMG: ViewModel.SMG_RELOAD, STAKE: ViewModel.STAKE_RELOAD, RIFLE: ViewModel.RIFLE_RELOAD, REVOLVER: ViewModel.REVOLVER_RELOAD, MP18: view.mp_reload_time()}.get(weapon, ViewModel.STAKE_RELOAD)
+		var total: float = {PISTOL: ViewModel.PISTOL_RELOAD, SMG: ViewModel.SMG_RELOAD, STAKE: ViewModel.STAKE_RELOAD, REVOLVER: ViewModel.REVOLVER_RELOAD, MP18: view.mp_reload_time()}.get(weapon, ViewModel.STAKE_RELOAD)
 		if view.reloading() and view._reload_t >= total:
 			view.stop_reload()
 			view.slide_locked = false
@@ -456,6 +541,13 @@ func fire() -> void:
 			_dry_at = Time.get_ticks_msec()
 			SfxSynth.play(self, "dry_click", camera.global_position, -10.0, 1.1)   # the trigger on an empty drum
 		reload()
+		return
+	if WEAPONS[weapon].get("bolt", false) and not rifle_chambered:
+		if _rifle_reload_t >= 0.0 or _rifle_cycle_left >= 0.0:
+			return
+		_rifle_cycle_left = ViewModel.RIFLE_CYCLE       # closed on an empty chamber (a reload broken off): work it
+		_cooldown = ViewModel.RIFLE_CYCLE
+		view.rifle_cycle()
 		return
 	if weapon == MP18 and view.mp_bolt_forward and not view.reloading():
 		view.mp_bolt_forward = false             # a full drum went on but the handle was never pulled (a swap mid-change): cocked now
@@ -502,6 +594,9 @@ func _discharge() -> void:
 		view.slide_locked = true
 	if weapon == MP18 and ammo[MP18] == 0:
 		view.mp_bolt_forward = true              # the last round: the bolt runs home on an empty drum
+	if weapon == RIFLE:
+		rifle_chambered = false                  # fired: the case is in the chamber until the bolt is worked
+		_rifle_cycle_left = ViewModel.RIFLE_CYCLE
 	view.fire()
 	var from := camera.global_position
 	var aim := -camera.global_basis.z
@@ -534,8 +629,9 @@ func _discharge() -> void:
 	var pellets: int = w.pellets + (stats.pellets if w.pellets > 1 else 0)
 	for i in pellets:
 		var d := aim
-		if w.spread > 0.0:
-			var s: float = deg_to_rad(w.spread) * (stats.spread if w.pellets > 1 else 1.0)
+		var spread: float = w.spread + float(w.get("hip_spread", 0.0)) * (1.0 - ads)    # the rifle from the hip scatters; aimed it does not
+		if spread > 0.0:
+			var s: float = deg_to_rad(spread) * (stats.spread if w.pellets > 1 else 1.0)
 			if w.has("spread_grow"):
 				s *= 1.0 + w.spread_grow * float(mini(burst, w.burst_cap))
 			d = (aim + camera.global_basis.x * randfn(0.0, s * 0.5) + camera.global_basis.y * randfn(0.0, s * 0.5)).normalized()
@@ -712,4 +808,4 @@ func heal(amount: float) -> void:
 
 
 func _update_label() -> void:
-	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [7] revolver  [8] trench gun  [9] MP 18  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], mag_of(weapon), " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]
+	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [7] revolver  [8] trench gun  [9] MP 18  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].get("label", WEAPONS[weapon].name), ammo[weapon], mag_of(weapon), " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]

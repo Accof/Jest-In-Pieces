@@ -516,7 +516,7 @@ func _on_player_fired(weapon: int) -> void:
 		if is_instance_valid(c) and not c.dead:
 			var b := c.get_node_or_null("Brain") as ClownBrain
 			if b:
-				b.hear(player.global_position, 1 if weapon in [FpsPlayer.SHOTGUN, FpsPlayer.REVOLVER, FpsPlayer.TRENCH] else 0)   # the shotguns and the revolver carry further
+				b.hear(player.global_position, 1 if weapon in [FpsPlayer.SHOTGUN, FpsPlayer.REVOLVER, FpsPlayer.TRENCH, FpsPlayer.RIFLE] else 0)   # the shotguns, the revolver and the .303 carry further
 
 
 ## A loud noise anywhere (an explosion): clowns within `cells` come looking.
@@ -928,7 +928,7 @@ func _refresh_hud() -> void:
 		_health_bar.value = player.health
 		return
 	var w: Dictionary = FpsPlayer.WEAPONS[player.weapon]
-	_hud.text = "Floor %d     Clowns left: %d     Tickets: %d     %s %d/%d%s" % [floor_number, maxi(remaining, 0), run_tickets, w.name, player.ammo[player.weapon], player.mag_of(player.weapon),
+	_hud.text = "Floor %d     Clowns left: %d     Tickets: %d     %s %d/%d%s" % [floor_number, maxi(remaining, 0), run_tickets, w.get("label", w.name), player.ammo[player.weapon], player.mag_of(player.weapon),
 		("     EXIT OPEN - find the green door" if exit_open else "") + ("     GOD MODE" if FpsPlayer.god_mode else "")]
 	_health_bar.max_value = player.stats.max_health
 	_health_bar.value = player.health

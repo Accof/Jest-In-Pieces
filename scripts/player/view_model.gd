@@ -28,9 +28,7 @@ const SMG_RELOAD := 1.9
 const SMG_SEAT := 1.12          # the new magazine clicks home
 const STAKE_RELOAD := 2.9
 const STAKE_SEAT := 1.5         # the new stake is on the rail
-const RIFLE_CYCLE := 0.95       # working the bolt after a shot
-const RIFLE_RELOAD := 2.5       # bolt open, a stripper clip of five thumbed in, bolt shut
-const RIFLE_SEAT := 1.55        # the rounds are in the magazine
+const RIFLE_CYCLE := 0.95       # working the bolt after a shot (the SMLE: see L_CYCLE)
 const REVOLVER_RELOAD := 3.0    # broken open, the extractor throws everything out, six in, snapped shut
 const REVOLVER_SEAT := 2.35     # the rounds are in (the frame snaps shut)
 const MP18_RELOAD := 3.4        # (the Snail Drum upgrade) empty drum out sideways, a full one fetched and seated
@@ -54,9 +52,6 @@ var _stake_loaded: Node3D
 var _stake_in_hand: Node3D
 var _stake_lever: Node3D
 var _gauge_needle: Node3D
-var _rifle_bolt: Node3D
-var _rifle_rhand: Node3D
-var _rifle_clip: Node3D
 var _cycle_t := -1.0            # >= 0 while the bolt is being worked after a shot
 var stake_ready := true         # set by the player: is a stake on the rail
 var _left: Array[Node3D] = []   # per gun: the left arm
@@ -164,6 +159,7 @@ func start_reload() -> void:
 
 func stop_reload() -> void:
 	_reload_t = -1.0
+	_le_reset()
 	_mp_reset_reload()
 	_revolver_reset_reload()
 
@@ -193,6 +189,8 @@ func swap_to(w: int) -> void:
 	_swap_to = w
 	_swap_t = 0.0
 	_reload_t = -1.0
+	_cycle_t = -1.0
+	_le_reset()
 	_mp_reset_reload()
 	_revolver_reset_reload()
 
@@ -242,8 +240,9 @@ func animate(delta: float, speed: float, look: Vector2) -> void:
 	var root := _guns[weapon]
 	var bob := Vector3(sin(_bob) * 0.006, -absf(cos(_bob)) * 0.008, 0) * _bob_amount
 	var breathe := Vector3(0, sin(_time * 1.6) * 0.0018, 0)
-	root.position = bob + breathe + Vector3(_sway.x, _sway.y - drop * 0.35, 0)
-	root.rotation = Vector3(-drop * 0.9 + _sway.y * 1.2, _sway.x * 1.5, _sway.x * 0.8)
+	var steady := 1.0 - 0.85 * (ads if weapon == RIFLE else 0.0)          # aimed: the sway and bob mostly go
+	root.position = (bob + breathe + Vector3(_sway.x, _sway.y, 0)) * steady + Vector3(0, -drop * 0.35, 0)
+	root.rotation = Vector3(-drop * 0.9 + _sway.y * 1.2 * steady, _sway.x * 1.5 * steady, _sway.x * 0.8 * steady)
 
 	if weapon == PISTOL:
 		_animate_pistol()
@@ -695,122 +694,518 @@ func _build_maxim() -> void:
 	root.visible = false
 
 
-# --- the bolt-action rifle --------------------------------------------------------
-# Long, wooden, a turned-down bolt handle on the right. After every shot the
-# right hand goes up to the bolt: up, back (the case flies), forward, down.
-const R_HOME := Vector3(0.105, -0.155, -0.5)
-const R_BOLT_KNOB := Vector3(0.055, 0.022, 0.07)    # where the right hand takes the bolt
-
-func _animate_rifle() -> void:
-	var pose := _pose[RIFLE]
-	var left := _left[RIFLE]
-	var k := _kick * _kick
-	var pos := R_HOME + Vector3(0, 0.012 * k, 0.045 * k)
-	var rot := Vector3(deg_to_rad(7.0) * k, 0, 0)
-	var lift := 0.0          # bolt handle up (0..1)
-	var draw := 0.0          # bolt back (0..1)
-	var to_bolt := 0.0       # right hand off the grip and on the bolt
-	var left_pos := Vector3.ZERO
-	var clip := false
-	var clip_pos := Vector3.ZERO
-	if _cycle_t >= 0.0 and _reload_t < 0.0:
-		var t := _cycle_t
-		# 0.10-0.22 hand to the bolt; 0.22-0.32 up; 0.32-0.48 back; 0.48-0.64 home; 0.64-0.74 down; back to the grip
-		to_bolt = smoothstep(0.08, 0.22, t) * (1.0 - smoothstep(0.74, 0.9, t))
-		lift = smoothstep(0.22, 0.32, t) * (1.0 - smoothstep(0.64, 0.74, t))
-		draw = smoothstep(0.32, 0.46, t) * (1.0 - smoothstep(0.48, 0.62, t))
-		rot += Vector3(0, 0, deg_to_rad(-9.0)) * to_bolt          # rolled over a little to work it
-		pos += Vector3(0, 0, 0.012) * (smoothstep(0.32, 0.4, t) - smoothstep(0.4, 0.5, t))
-	if _reload_t >= 0.0:
-		var t := _reload_t
-		# 0.00-0.30 rifle rolled over, bolt up and back
-		# 0.30-0.80 left hand down to the pouch for a clip and back up
-		# 0.80-1.55 clip into the guide, thumb strips the rounds down
-		# 1.55-1.85 empty clip flicked away
-		# 1.85-2.15 bolt home and down
-		# 2.15-2.50 back on target
-		var tilt := smoothstep(0.0, 0.3, t) * (1.0 - smoothstep(2.15, RIFLE_RELOAD, t))
-		pos += Vector3(-0.05, 0.05, 0.06) * tilt
-		rot += Vector3(deg_to_rad(10.0), deg_to_rad(12.0), deg_to_rad(-28.0)) * tilt
-		to_bolt = smoothstep(0.0, 0.15, t) * (1.0 - smoothstep(2.15, 2.35, t))
-		lift = smoothstep(0.1, 0.2, t) * (1.0 - smoothstep(2.0, 2.12, t))
-		draw = smoothstep(0.2, 0.3, t) * (1.0 - smoothstep(1.85, 2.0, t))
-		var guide := Vector3(0.0, 0.06, 0.12)                     # just above the open breech
-		if t < 0.8:
-			var down := sin(clampf((t - 0.3) / 0.5, 0.0, 1.0) * PI)
-			left_pos = Vector3(-0.04, -0.3, 0.2) * down + (guide - Vector3(-0.012, -0.05, -0.32)) * smoothstep(0.62, 0.8, t)
-			clip = t > 0.52
-			clip_pos = Vector3.ZERO
-		elif t < RIFLE_SEAT:
-			left_pos = guide - Vector3(-0.012, -0.05, -0.32) + Vector3(0, -0.035 * smoothstep(0.95, 1.45, t), 0)
-			clip = true
-			clip_pos = Vector3(0, -0.035 * smoothstep(0.95, 1.45, t), 0)
-		elif t < 1.85:
-			var off := smoothstep(RIFLE_SEAT, 1.8, t)
-			left_pos = (guide - Vector3(-0.012, -0.05, -0.32)) * (1.0 - off)
-			clip = t < 1.62
-			clip_pos = Vector3(-0.08, 0.06, 0) * off
-	pose.position = pos
-	pose.rotation = rot
-	_rifle_bolt.rotation.z = deg_to_rad(80.0) * lift
-	_rifle_bolt.position.z = 0.09 * draw
-	_rifle_rhand.position = (R_BOLT_KNOB + Vector3(0.0, 0.05 * lift, 0.09 * draw) - Vector3(0.0, -0.07, 0.2)) * to_bolt
-	left.position = left_pos
-	_rifle_clip.visible = clip
-	_rifle_clip.position = clip_pos
+# --- the bolt-action rifle: a WW1 Lee-Enfield SMLE Mk III ----------------------------------
+# art/weapons/smle/smle.glb, built from the untouched Tripo model by
+# art/weapons/smle/source/build_smle.py (claude/smle.md): Body (stock, receiver with an
+# open bolt-way, charger bridge, sights) and the bolt: Bolt (slides) carrying BoltTurn
+# (turns about the bore: body, rib, lug, head, handle, knob) and CockingPiece (slides
+# only). Markers: Muzzle, SightRear, SightFront, Ejection, ChargerGuide, MagMouth, Knob.
+# Metres, +X the muzzle, +Y up, +Z the right side. Shouldered, real size.
+const L_PATH := "res://art/weapons/smle/smle.glb"
+const L_HOME := Vector3(0.105, -0.150, -0.46)
+const L_TILT := Vector3(0.0, 2.0, 2.5)
+const L_BORE_Y := 0.1917
+const L_TRAVEL := 0.0832                 # the bolt's stroke
+const L_LIFT := 60.0                     # the handle turned up to unlock (degrees about the bore)
+const L_EYE := 0.52                      # aiming: the eye behind the rear notch (view space, before the shrink): just behind the cocking piece
+## Working the bolt after a shot (s): the right hand off the wrist to the knob, up,
+## back (the case flies), forward (a round chambered), down, back to the wrist.
+const L_CYCLE := {"to_knob": Vector2(0.05, 0.19), "up": Vector2(0.19, 0.28), "back": Vector2(0.28, 0.43), "eject": Vector2(0.38, 0.0),
+	"fwd": Vector2(0.48, 0.62), "down": Vector2(0.62, 0.71), "to_grip": Vector2(0.71, 0.92)}
+## The reload's steps (s). Built per reload from how many chargers and loose rounds it needs.
+const L_STEP := {"open": 0.55, "fetch": 0.55, "seat": 0.14, "press": 0.45, "strip": 0.2, "fetch_round": 0.45, "press_round": 0.3, "close": 0.62, "settle": 0.2}
+const L_POUCH := Vector3(0.20, -0.48, 0.12)          # the right hand at the belt (pose space)
+const L_ROUND_GAP := 0.0116                          # rounds stacked in a charger
+var ads := 0.0                                       # set by the player: 0 hip .. 1 aimed
+var _le_model: Node3D
+var _le_muzzle: Node3D
+var _le_bolt: Node3D
+var _le_turn: Node3D
+var _le_cock: Node3D
+var _le_bolt_rest := Vector3.ZERO
+var _le_cock_rest := Vector3.ZERO
+var _le_mark := {}                                   # marker name -> position (model space)
+var _le_knob_rel := Vector3.ZERO                     # the knob's centre in the bolt's space, handle down
+var _le_charger: Node3D                              # a five-round charger (the rounds are its children)
+var _le_round: Node3D                                # a loose round in the hand
+var _le_top: Node3D                                  # the top round in the magazine (seen with the bolt open)
+var _le_plan: Array = []                             # this reload's steps: {kind, t0, t1, ...}
+var _le_events: Array = []                           # [time, rounds] the player counts in
+var _le_total := 0.0
+var _le_done := {}                                   # one-shot things this cycle or reload has done
+var _le_hand_r := false                              # the right hand is off the wrist (keys applied)
+var _le_last_key: Array = []                         # the right hand's key last frame (each step blends from it)
+var le_lift := 0.0                                   # the bolt as drawn this frame (for the tests)
+var le_draw := 0.0
+var le_rounds_in_mag := 0                            # set by the player (rounds below the bolt, for the top round)
+var le_spent: Array[RigidBody3D] = []                # cases and chargers thrown (for the tests)
 
 
 func _build_rifle() -> void:
 	var root := Node3D.new()
+	root.name = "SMLE"
 	add_child(root)
 	_guns.append(root)
 	var pose := Node3D.new()
 	root.add_child(pose)
 	_pose.append(pose)
-	var steel := _mat(Color(0.09, 0.09, 0.1), 0.38, 0.8)
-	var blued := _mat(Color(0.06, 0.065, 0.08), 0.3, 0.85)
-	var wood := _mat(Color(0.33, 0.17, 0.07), 0.55, 0.0)
-	var brass := _mat(Color(0.6, 0.45, 0.18), 0.3, 0.9)
-	# the stock runs the length of it: butt, wrist, fore-end, a hand guard on top
-	_box(pose, Vector3(0.04, 0.1, 0.24), Vector3(0, -0.055, 0.33), Vector3(-6, 0, 0), wood)            # butt
-	_box(pose, Vector3(0.034, 0.05, 0.14), Vector3(0, -0.03, 0.17), Vector3(10, 0, 0), wood)           # wrist
-	_box(pose, Vector3(0.038, 0.045, 0.62), Vector3(0, -0.012, -0.34), Vector3.ZERO, wood)             # fore-end
-	_box(pose, Vector3(0.03, 0.016, 0.42), Vector3(0, 0.022, -0.36), Vector3.ZERO, wood)               # hand guard
-	_box(pose, Vector3(0.042, 0.012, 0.03), Vector3(0, -0.012, -0.1), Vector3.ZERO, steel)             # band
-	_box(pose, Vector3(0.042, 0.012, 0.03), Vector3(0, -0.012, -0.58), Vector3.ZERO, steel)            # band
-	# receiver, barrel, front sight, the magazine well and trigger guard
-	_cyl(pose, 0.017, 0.2, Vector3(0, 0.02, 0.04), Vector3(90, 0, 0), blued)
-	_cyl(pose, 0.009, 0.4, Vector3(0, 0.03, -0.73), Vector3(90, 0, 0), blued)
-	_box(pose, Vector3(0.004, 0.02, 0.012), Vector3(0, 0.048, -0.9), Vector3.ZERO, steel)
-	_box(pose, Vector3(0.026, 0.008, 0.05), Vector3(0, 0.044, -0.06), Vector3.ZERO, steel)             # rear sight
-	_box(pose, Vector3(0.03, 0.04, 0.07), Vector3(0, -0.03, 0.02), Vector3.ZERO, steel)
-	_box(pose, Vector3(0.008, 0.03, 0.06), Vector3(0, -0.06, 0.08), Vector3(0, 0, 0), steel)
-	# the bolt: a sleeve along the receiver and the turned-down handle
-	_rifle_bolt = Node3D.new()
-	_rifle_bolt.position = Vector3(0.0, 0.022, 0.07)
-	pose.add_child(_rifle_bolt)
-	_cyl(_rifle_bolt, 0.013, 0.1, Vector3(0, 0, 0.0), Vector3(90, 0, 0), steel)
-	_cyl(_rifle_bolt, 0.005, 0.055, Vector3(0.028, -0.012, 0.0), Vector3(0, 0, 65), steel)
-	_add(_rifle_bolt, SphereMesh.new(), Vector3(0.052, -0.024, 0.0), Vector3.ZERO, steel).scale = Vector3.ONE * 0.022
-	# a sling swivel and a bit of sling
-	_box(pose, Vector3(0.012, 0.004, 0.3), Vector3(-0.022, -0.05, -0.15), Vector3(0, 0, 0), _mat(Color(0.28, 0.2, 0.1), 0.85, 0.0))
-	# right hand on the wrist (it goes up to the bolt between shots)
-	_rifle_rhand = Node3D.new()
-	pose.add_child(_rifle_rhand)
-	_hand(_rifle_rhand, Vector3(0, -0.07, 0.2), Vector3(0.1, -0.3, 0.52), false)
-	# left hand under the fore-end, with a stripper clip of five when reloading
 	var left := Node3D.new()
 	pose.add_child(left)
-	_hand(left, Vector3(-0.004, -0.06, -0.32), Vector3(-0.28, -0.33, 0.06), true)
-	_rifle_clip = Node3D.new()
-	left.add_child(_rifle_clip)
-	# the clip sits in the fingertips, rounds standing up out of it
-	_box(_rifle_clip, Vector3(0.016, 0.006, 0.062), Vector3(0.0, 0.0, -0.345), Vector3.ZERO, steel)
-	for i in 5:
-		_cyl(_rifle_clip, 0.0045, 0.06, Vector3(0.0, 0.03, -0.369 + i * 0.012), Vector3.ZERO, brass)
-	_rifle_clip.visible = false
 	_left.append(left)
 	root.visible = false
+	if not ResourceLoader.exists(L_PATH):
+		return
+	_le_model = (load(L_PATH) as PackedScene).instantiate() as Node3D
+	_le_model.name = "Model"
+	_le_model.basis = Basis(Vector3.UP, PI * 0.5)
+	_le_model.position = Vector3(0, 0.018 - L_BORE_Y, -0.04)
+	pose.add_child(_le_model)
+	for mi in _le_model.find_children("*", "MeshInstance3D", true, false):
+		(mi as MeshInstance3D).layers = 2
+		(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for n in ["Muzzle", "SightRear", "SightFront", "Ejection", "ChargerGuide", "MagMouth"]:
+		var node := _le_model.find_child(n, true, false) as Node3D
+		_le_mark[n] = node.position if node else Vector3.ZERO
+	_le_muzzle = _le_model.find_child("Muzzle", true, false) as Node3D
+	_le_bolt = _le_model.find_child("Bolt", true, false) as Node3D
+	_le_turn = _le_model.find_child("BoltTurn", true, false) as Node3D
+	_le_cock = _le_model.find_child("CockingPiece", true, false) as Node3D
+	var knob := _le_model.find_child("Knob", true, false) as Node3D
+	if _le_bolt:
+		_le_bolt_rest = _le_bolt.position
+	if _le_cock:
+		_le_cock_rest = _le_cock.position
+	if knob:
+		_le_knob_rel = knob.position
+	# the charger, a loose round and the magazine's top round (.303: 77 mm long)
+	_le_charger = Node3D.new()
+	_le_model.add_child(_le_charger)
+	var clip_m := _mat(Color(0.12, 0.12, 0.13), 0.5, 0.8)
+	_box(_le_charger, Vector3(0.004, 0.064, 0.016), Vector3(-0.002, 0.026, 0), Vector3.ZERO, clip_m)      # the strip the rims slide in
+	for k in 5:
+		var r := _le_cartridge()
+		r.position = Vector3(0, k * L_ROUND_GAP, 0)
+		r.name = "R%d" % k
+		_le_charger.add_child(r)
+	_le_charger.visible = false
+	_le_round = _le_cartridge()
+	_le_model.add_child(_le_round)
+	_le_round.visible = false
+	_le_top = _le_cartridge()
+	_le_model.add_child(_le_top)
+	_le_top.position = Vector3(_le_mark.ChargerGuide.x + 0.003, L_BORE_Y - 0.0105, 0)
+	_le_top.visible = false
+	for n: Node3D in [_le_charger, _le_round, _le_top]:
+		for mi in n.find_children("*", "MeshInstance3D", true, false):
+			(mi as MeshInstance3D).layers = 2
+	_build_arms(RIFLE, pose, _le_model)
+
+
+## The knob's centre in the bolt's space with the handle down (for the tests).
+func _knob_local() -> Vector3:
+	return _le_knob_rel
+
+
+## A .303 round: rim at the origin, the bullet out along +X (77 mm).
+func _le_cartridge() -> Node3D:
+	var n := Node3D.new()
+	var brass := _brass_mat()
+	var lead := _mat(Color(0.55, 0.38, 0.22), 0.4, 0.85)       # cupro-nickel jacket, dirty
+	_cyl(n, 0.0068, 0.0015, Vector3(0.0008, 0, 0), Vector3(0, 0, 90), brass)         # rim
+	_cyl(n, 0.0059, 0.046, Vector3(0.0245, 0, 0), Vector3(0, 0, 90), brass)          # case
+	_cyl(n, 0.0042, 0.008, Vector3(0.0515, 0, 0), Vector3(0, 0, 90), brass)          # shoulder and neck
+	var b := _cyl(n, 0.0039, 0.020, Vector3(0.0655, 0, 0), Vector3(0, 0, 90), lead)  # the bullet
+	(b.mesh as CylinderMesh).top_radius = 0.0012
+	return n
+
+
+## How long this reload will take, and when its rounds go in: `chargers` five-round
+## chargers then `loose` single rounds; `extract`: a live round is in the chamber and
+## comes out when the bolt opens. Returns [[time, rounds], ...].
+func start_rifle_reload(chargers: int, loose: int, extract: bool) -> Array:
+	_reload_t = 0.0
+	_le_plan = []
+	_le_events = []
+	_le_done = {}
+	var t := 0.0
+	_le_plan.append({"kind": "open", "t0": t, "t1": t + L_STEP.open, "extract": extract})
+	t += L_STEP.open
+	for i in chargers:
+		_le_plan.append({"kind": "fetch", "t0": t, "t1": t + L_STEP.fetch, "what": "charger"})
+		t += L_STEP.fetch
+		_le_plan.append({"kind": "seat", "t0": t, "t1": t + L_STEP.seat})
+		t += L_STEP.seat
+		_le_plan.append({"kind": "press", "t0": t, "t1": t + L_STEP.press})
+		t += L_STEP.press
+		_le_events.append([t - 0.02, 5])
+		_le_plan.append({"kind": "strip", "t0": t, "t1": t + L_STEP.strip})
+		t += L_STEP.strip
+	for i in loose:
+		_le_plan.append({"kind": "fetch", "t0": t, "t1": t + L_STEP.fetch_round, "what": "round"})
+		t += L_STEP.fetch_round
+		_le_plan.append({"kind": "press_round", "t0": t, "t1": t + L_STEP.press_round})
+		t += L_STEP.press_round
+		_le_events.append([t - 0.02, 1])
+	_le_plan.append({"kind": "close", "t0": t, "t1": t + L_STEP.close})
+	t += L_STEP.close
+	_le_plan.append({"kind": "settle", "t0": t, "t1": t + L_STEP.settle})
+	t += L_STEP.settle
+	_le_total = t
+	return _le_events
+
+
+func rifle_reload_total() -> float:
+	return _le_total
+
+
+## Work the bolt (after a shot, or to chamber a round with the action closed empty).
+func rifle_cycle() -> void:
+	_cycle_t = 0.0
+	_le_done = {}
+
+
+func _le_reset() -> void:
+	_le_plan = []
+	_le_done = {}
+	if _le_charger:
+		_le_charger.visible = false
+		_le_round.visible = false
+
+
+func _animate_rifle() -> void:
+	var pose := _pose[RIFLE]
+	if _le_model == null:
+		return
+	var k := _kick * _kick
+	var a := smoothstep(0.0, 1.0, ads)
+	# held at the hip-shoulder ...
+	var pos := L_HOME
+	var rot := L_TILT * (PI / 180.0)
+	# ... or aimed: the rear notch and the blade on the camera's axis
+	if a > 0.0:
+		var m0 := Transform3D(_le_model.basis, _le_model.position)
+		var rear: Vector3 = m0 * (_le_mark.SightRear as Vector3)
+		var aim_pos := Vector3(-rear.x, -rear.y, -L_EYE - rear.z)
+		pos = pos.lerp(aim_pos, a)
+		rot = rot.lerp(Vector3.ZERO, a)
+	# the shot: a hard shove back and the muzzle up (less when aimed, the stock in the shoulder)
+	pos += Vector3(0, 0.010 * k, 0.05 * k) * (1.0 - 0.4 * a)
+	rot += Vector3(deg_to_rad(6.0) * k * (1.0 - 0.3 * a), 0, deg_to_rad(_jitter.x) * _kick * 0.5)
+	var lift := 0.0
+	var draw := 0.0
+	var e := func(r: Vector2, t: float) -> float: return smoothstep(r.x, r.y, t)
+	var rkey: Array = []                          # the right hand's key, when it is off the wrist
+	var ra: FPArm = _arms[RIFLE]["R"] if _arms.has(RIFLE) else null
+	if _reload_t < 0.0 and _cycle_t >= 0.0:
+		var t := _cycle_t
+		var c := L_CYCLE
+		lift = e.call(c.up, t) * (1.0 - e.call(c.down, t))
+		draw = e.call(c.back, t) * (1.0 - e.call(c.fwd, t))
+		rot += Vector3(0, 0, deg_to_rad(-5.0)) * e.call(c.to_knob, t) * (1.0 - e.call(c.to_grip, t))
+		pos += Vector3(0, 0, 0.006) * (e.call(Vector2(c.back.y - 0.02, c.back.y + 0.02), t) - e.call(Vector2(c.back.y + 0.02, c.back.y + 0.1), t))   # the bolt hits its stop
+		if ra:
+			var grip := _rl_grip_for(RIFLE, ra, "R")
+			var kn := _le_knob_key(ra, lift, draw)
+			if t < c.to_knob.y:
+				rkey = _rl_blend(grip, kn, e.call(c.to_knob, t))
+			elif t < c.to_grip.x:
+				rkey = kn
+			else:
+				rkey = _rl_blend(kn, grip, e.call(c.to_grip, t))
+		_le_sounds_cycle(t)
+		if t >= c.eject.x and not _le_done.has("eject"):
+			_le_done["eject"] = true
+			_le_throw(false)
+	if _reload_t >= 0.0:
+		var r := _le_reload(_reload_t, ra)
+		lift = r[0]
+		draw = r[1]
+		rkey = r[2]
+		var tilt: float = r[3]
+		pos += Vector3(-0.03, 0.03, 0.05) * tilt
+		rot += Vector3(deg_to_rad(8.0), deg_to_rad(10.0), deg_to_rad(-26.0)) * tilt
+	pose.position = pos
+	pose.rotation = rot
+	le_lift = lift
+	le_draw = draw
+	_le_last_key = rkey
+	if _le_turn:
+		_le_turn.rotation = Vector3(deg_to_rad(-L_LIFT) * lift, 0, 0)
+	if _le_bolt:
+		_le_bolt.position = _le_bolt_rest + Vector3(-L_TRAVEL * draw, 0, 0)
+	if _le_cock:
+		_le_cock.position = _le_cock_rest + Vector3(-0.005 * lift, 0, 0)     # cocked as the handle goes up
+	# the top round in the magazine shows in the open bolt-way
+	_le_top.visible = draw > 0.6 and le_rounds_in_mag > 0
+	if ra:
+		if not rkey.is_empty():
+			_rl_apply(ra, rkey)
+			_le_hand_r = true
+		elif _le_hand_r:
+			_le_hand_r = false
+			apply_grip(RIFLE, _grips_live[RIFLE], _le_model)
+			_arm_pull_last = -1.0
+		if rkey.is_empty():
+			_arm_trigger(RIFLE, 1.0 if _since_shot < 0.12 else 0.0)
+
+
+## The right hand on the knob (wherever the bolt is): pinched from behind and to the right.
+func _le_knob_key(arm: FPArm, lift: float, draw: float) -> Array:
+	var m := _le_model.transform
+	var bolt := Transform3D(Basis(), _le_bolt_rest + Vector3(-L_TRAVEL * draw, 0, 0))
+	var knob := m * (bolt * (Basis(Vector3.RIGHT, deg_to_rad(-L_LIFT) * lift) * _le_knob_rel))
+	var along := (m.basis * Vector3(0.62, -0.10, -0.55)).normalized()
+	var toward := m.basis * Vector3(0, 0, -1)
+	var palm := (toward - along * toward.dot(along)).normalized()
+	var hand := FPArm.frame(Vector3.ZERO, along, palm)
+	if not _pinch_off.has(arm):
+		arm.set_pose(PINCH_POSE)
+		_pinch_off[arm] = arm.pinch_offset()
+	hand.origin = knob - hand.basis * (_pinch_off[arm] as Vector3)
+	return [hand, Vector3(0.34, -0.60, 0.40), PINCH_POSE]
+
+
+## The right hand pinching a point (pose space), coming down from above and the right.
+func _le_pinch_at(arm: FPArm, at: Vector3, down: float) -> Array:
+	var m := _le_model.transform
+	var along := (m.basis * Vector3(0.45, -0.55 * down - 0.1, -0.55)).normalized()
+	var toward := (m.basis * Vector3(0, -0.6 * down, -1)).normalized()
+	var palm := (toward - along * toward.dot(along)).normalized()
+	var hand := FPArm.frame(Vector3.ZERO, along, palm)
+	if not _pinch_off.has(arm):
+		arm.set_pose(PINCH_POSE)
+		_pinch_off[arm] = arm.pinch_offset()
+	hand.origin = at - hand.basis * (_pinch_off[arm] as Vector3)
+	return [hand, Vector3(0.34, -0.58, 0.36), PINCH_POSE]
+
+
+## Where the charger sits in its guide (model space): the rims in the clip just above
+## the bridge, the rounds pointing forward over the magazine.
+func _le_charger_home() -> Transform3D:
+	var g: Vector3 = _le_mark.ChargerGuide
+	return Transform3D(Basis(), Vector3(g.x + 0.003, g.y + 0.007, 0))
+
+
+## The reload at time t: [lift, draw, right-hand key (or []), tilt].
+func _le_reload(t: float, ra: FPArm) -> Array:
+	var lift := 1.0
+	var draw := 1.0
+	var key: Array = []
+	var tilt := smoothstep(0.0, 0.3, t) * (1.0 - smoothstep(_le_total - L_STEP.settle - 0.25, _le_total, t))
+	var step: Dictionary = {}
+	for s: Dictionary in _le_plan:
+		if t >= s.t0 and t < s.t1:
+			step = s
+			break
+	if step.is_empty():
+		return [0.0, 0.0, [], tilt]
+	var u := (t - float(step.t0)) / maxf(float(step.t1) - float(step.t0), 0.001)
+	var m := _le_model.transform
+	var ch_home := _le_charger_home()
+	var press_drop := (L_BORE_Y - 0.0105) - (ch_home.origin.y + 4 * L_ROUND_GAP)       # takes the top round down to the magazine's top
+	_le_charger.visible = false
+	_le_round.visible = false
+	match step.kind:
+		"open":
+			lift = smoothstep(0.33, 0.48, u)
+			draw = smoothstep(0.48, 0.78, u)
+			if ra:
+				key = _rl_blend(_rl_grip_for(RIFLE, ra, "R"), _le_knob_key(ra, lift, draw), smoothstep(0.0, 0.33, u))
+				if u > 0.78:
+					key = _le_knob_key(ra, lift, draw)
+			if u > 0.18 and not _le_done.has("s_up"):
+				_le_done["s_up"] = true
+				SfxSynth.play(self, "bolt_up", global_position, -6.0, randf_range(0.95, 1.05))
+			if u > 0.5 and not _le_done.has("s_back"):
+				_le_done["s_back"] = true
+				SfxSynth.play(self, "bolt_back", global_position, -5.0, randf_range(0.95, 1.05))
+			if step.extract and u > 0.7 and not _le_done.has("extract"):
+				_le_done["extract"] = true
+				_le_throw(true)
+		"fetch":
+			var carried: Node3D = _le_charger if step.what == "charger" else _le_round
+			var place := _le_charger_home() if step.what == "charger" else _le_round_home(0.0)
+			var place_key := _le_place_key(ra, place, step.what == "charger") if ra else []
+			var prev: Array = _le_from(step, _le_knob_key(ra, 1.0, 1.0)) if ra else []
+			if ra:
+				var pouch := [Transform3D(place_key[0].basis.rotated(Vector3.RIGHT, 0.5).orthonormalized(), L_POUCH), Vector3(0.36, -0.85, 0.30), PINCH_POSE]
+				key = _rl_blend(prev, pouch, smoothstep(0.0, 0.45, u)) if u < 0.5 else _rl_blend(pouch, place_key, smoothstep(0.5, 1.0, u))
+				if u > 0.5:
+					carried.visible = true
+					carried.transform = m.affine_inverse() * (key[0] as Transform3D) * (place_key[0] as Transform3D).affine_inverse() * (m * place)
+					if step.what == "charger":
+						_le_set_charger_rounds(0.0)
+		"seat":
+			_le_charger.visible = true
+			_le_charger.transform = ch_home
+			_le_set_charger_rounds(0.0)
+			if ra:
+				key = _le_place_key(ra, ch_home, true)
+			if not _le_done.has("seat%f" % step.t0):
+				_le_done["seat%f" % step.t0] = true
+				SfxSynth.play(self, "charger_in", global_position, -6.0, randf_range(0.95, 1.05))
+		"press":
+			_le_charger.visible = true
+			_le_charger.transform = ch_home
+			var p := smoothstep(0.05, 0.95, u)
+			_le_set_charger_rounds(press_drop * p)
+			if ra:
+				var top := m * (ch_home * Vector3(0.03, 4 * L_ROUND_GAP + press_drop * p + 0.008, 0))
+				key = _le_pinch_at(ra, top, 1.0)
+			if u > 0.1 and not _le_done.has("press%f" % step.t0):
+				_le_done["press%f" % step.t0] = true
+				SfxSynth.play(self, "rounds_in", global_position, -6.0, randf_range(0.95, 1.05))
+		"strip":
+			_le_charger.visible = u < 0.85
+			var off := Transform3D(Basis(Vector3.FORWARD, -0.6 * u), Vector3(0, 0.04 * u, 0.05 * u))
+			_le_charger.transform = ch_home * off
+			_le_set_charger_rounds(press_drop - 1.0)          # empty
+			if ra:
+				key = _le_place_key(ra, _le_charger.transform, true)
+			if u > 0.85 and not _le_done.has("strip%f" % step.t0):
+				_le_done["strip%f" % step.t0] = true
+				_le_throw_charger()
+		"press_round":
+			_le_round.visible = u < 0.95
+			var p := smoothstep(0.1, 0.9, u)
+			_le_round.transform = _le_round_home(p)
+			if ra:
+				key = _le_pinch_at(ra, m * (_le_round.transform * Vector3(0.03, 0.007, 0)), 1.0)
+			if u > 0.5 and not _le_done.has("rnd%f" % step.t0):
+				_le_done["rnd%f" % step.t0] = true
+				SfxSynth.play(self, "round_in", global_position, -8.0, randf_range(0.95, 1.1))
+		"close":
+			draw = 1.0 - smoothstep(0.30, 0.58, u)
+			lift = 1.0 - smoothstep(0.58, 0.72, u)
+			if ra:
+				var kn := _le_knob_key(ra, lift, draw)
+				if u < 0.30:
+					key = _rl_blend(_le_from(step, kn), kn, smoothstep(0.0, 0.30, u))
+				elif u < 0.74:
+					key = kn
+				else:
+					key = _rl_blend(kn, _rl_grip_for(RIFLE, ra, "R"), smoothstep(0.74, 1.0, u))
+			if u > 0.32 and not _le_done.has("s_fwd"):
+				_le_done["s_fwd"] = true
+				SfxSynth.play(self, "bolt_fwd", global_position, -5.0, randf_range(0.95, 1.05))
+			if u > 0.6 and not _le_done.has("s_down"):
+				_le_done["s_down"] = true
+				SfxSynth.play(self, "bolt_down", global_position, -6.0, randf_range(0.95, 1.05))
+		"settle":
+			lift = 0.0
+			draw = 0.0
+	return [lift, draw, key, tilt]
+
+
+## A loose round on its way into the magazine: above the opening (p 0) to pressed down (p 1).
+func _le_round_home(p: float) -> Transform3D:
+	var h := _le_charger_home().origin
+	return Transform3D(Basis(), Vector3(h.x, lerpf(h.y + 0.004, L_BORE_Y - 0.0105, p), 0))
+
+
+## The hand holding what it carries placed at `place` (model space): a charger by its
+## clip from above and the right, a round by its base.
+func _le_place_key(arm: FPArm, place: Transform3D, charger: bool) -> Array:
+	var m := _le_model.transform
+	var grab := place * (Vector3(-0.002, 0.058, 0.0) if charger else Vector3(0.008, 0.0, 0.0))
+	return _le_pinch_at(arm, m * grab, 0.6)
+
+
+## Where a step starts the right hand from: wherever it was when the step began.
+func _le_from(step: Dictionary, fallback: Array) -> Array:
+	var k := "from%f" % float(step.t0)
+	if not _le_done.has(k):
+		_le_done[k] = _le_last_key if not _le_last_key.is_empty() else fallback
+	return _le_done[k]
+
+
+## The charger's rounds dropped `dy` (negative: pressed down). Below the magazine's top
+## they are in the magazine and hidden; the top round stays at the top.
+func _le_set_charger_rounds(dy: float) -> void:
+	var top := L_BORE_Y - 0.0105
+	for k in 5:
+		var r := _le_charger.get_node("R%d" % k) as Node3D
+		r.position = Vector3(0, k * L_ROUND_GAP + dy, 0)
+		var y := _le_charger.position.y + r.position.y
+		r.visible = y > top + (-0.0005 if k == 4 else 0.003)
+
+
+func _le_sounds_cycle(t: float) -> void:
+	for s: Array in [["up", "bolt_up"], ["back", "bolt_back"], ["fwd", "bolt_fwd"], ["down", "bolt_down"]]:
+		var at: float = (L_CYCLE[s[0]] as Vector2).x + 0.02
+		if t >= at and not _le_done.has("s_" + s[0]):
+			_le_done["s_" + s[0]] = true
+			SfxSynth.play(self, s[1], global_position, -6.0, randf_range(0.95, 1.05))
+
+
+## A case (or, opening on a live round, the round) out of the ejection opening, a real body.
+func _le_throw(live: bool) -> void:
+	var cam := get_parent() as Node3D
+	var scene := get_tree().current_scene
+	if cam == null or scene == null or _le_model == null:
+		return
+	var eye := cam.global_position
+	var at := eye + (_le_model.global_transform * (_le_mark.Ejection as Vector3) - eye) / SHRINK
+	var body := RigidBody3D.new()
+	body.collision_layer = 1 << 3
+	body.collision_mask = 1
+	body.mass = 0.025 if live else 0.012
+	var length := 0.077 if live else 0.056
+	var shape := CylinderShape3D.new()
+	shape.radius = 0.006
+	shape.height = length
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	cs.rotation.z = PI * 0.5
+	body.add_child(cs)
+	var vis := _le_cartridge()
+	if not live:
+		vis.get_child(3).queue_free()                # no bullet: a fired case
+	vis.position = Vector3(-length * 0.5, 0, 0)
+	body.add_child(vis)
+	body.add_to_group("spent_brass")
+	scene.add_child(body)
+	var gm := _le_model.global_transform.basis.orthonormalized()
+	body.global_transform = Transform3D(gm, at)
+	body.linear_velocity = gm.z * randf_range(2.0, 2.8) + Vector3.UP * randf_range(1.2, 1.9) - gm.x * randf_range(0.2, 0.6)
+	body.angular_velocity = Vector3(randf_range(-18, 18), randf_range(-18, 18), randf_range(-18, 18))
+	body.contact_monitor = true
+	body.max_contacts_reported = 1
+	var hits := [0]
+	body.body_entered.connect(func(_b: Node) -> void:
+		if hits[0] < 1 and body.linear_velocity.length() > 0.6:
+			hits[0] += 1
+			SfxSynth.play(body, "brass_tink", body.global_position, -18.0, randf_range(0.8, 1.0)))
+	get_tree().create_timer(15.0).timeout.connect(body.queue_free)
+	le_spent.append(body)
+
+
+## The empty charger flicked away, a real body.
+func _le_throw_charger() -> void:
+	var cam := get_parent() as Node3D
+	var scene := get_tree().current_scene
+	if cam == null or scene == null:
+		return
+	var eye := cam.global_position
+	var g := _le_charger.global_transform
+	var body := RigidBody3D.new()
+	body.collision_layer = 1 << 3
+	body.collision_mask = 1
+	body.mass = 0.02
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.006, 0.064, 0.016)
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	cs.position = Vector3(0, 0.026, 0)
+	body.add_child(cs)
+	_box(body, Vector3(0.004, 0.064, 0.016), Vector3(-0.002, 0.026, 0), Vector3.ZERO, _mat(Color(0.12, 0.12, 0.13), 0.5, 0.8))
+	scene.add_child(body)
+	body.global_transform = Transform3D(g.basis.orthonormalized(), eye + (g.origin - eye) / SHRINK)
+	var gm := _le_model.global_transform.basis.orthonormalized()
+	body.linear_velocity = gm.z * 1.6 + Vector3.UP * 0.8
+	body.angular_velocity = Vector3(randf_range(-6, 6), randf_range(-6, 6), randf_range(-6, 6))
+	get_tree().create_timer(15.0).timeout.connect(body.queue_free)
+	le_spent.append(body)
 
 
 func _muzzle() -> Vector3:
@@ -820,6 +1215,8 @@ func _muzzle() -> Vector3:
 		return to_local(_sg_muzzle.global_position)
 	if weapon == MP18:
 		return to_local(_mp_muzzle.global_position)
+	if weapon == RIFLE and _le_muzzle:
+		return to_local(_le_muzzle.global_position)
 	var local := [Vector3(0, 0.02, -0.19), Vector3(0, 0.018, -0.64), Vector3(0, 0.012, -0.445), Vector3(0, 0.03, -0.6), Vector3(0, 0.0, -0.76), Vector3(0, 0.03, -0.93)][weapon] as Vector3
 	return to_local(_pose[weapon].to_global(local))
 
@@ -867,6 +1264,21 @@ const ARM_GRIPS := {
 			"ring_01": Vector3(10, 0, 0), "ring_02": Vector3(55, 0, 0), "ring_03": Vector3(28, 0, 0),
 			"little_01": Vector3(5, 0, 0), "little_02": Vector3(110, 0, 0), "little_03": Vector3(55, 0, 0),
 			"thumb_01": Vector3(-18, 0, 8), "thumb_02": Vector3(0, 0, 0), "thumb_03": Vector3(15, 0, 0)}}
+	},
+	RIFLE: {
+		"R": {"index_k": Vector3(-0.283, 0.146, 0.054), "little_k": Vector3(-0.320, 0.099, 0.054), "palm": Vector3(0.0, -0.05, -1.0), "elbow": Vector3(-0.60, -0.10, 0.24),
+			"pose": {"index_01": Vector3(20, 0, 0), "index_02": Vector3(15, 0, 0), "index_03": Vector3(10, 0, 0),
+			"middle_01": Vector3(60, 0, 0), "middle_02": Vector3(10, 0, 0), "middle_03": Vector3(5, 0, 0),
+			"ring_01": Vector3(85, 0, 0), "ring_02": Vector3(70, 0, 0), "ring_03": Vector3(40, 0, 0),
+			"little_01": Vector3(80, 0, 0), "little_02": Vector3(0, 0, 0), "little_03": Vector3(0, 0, 0),
+			"thumb_01": Vector3(-30, 0, -40), "thumb_02": Vector3(40, 0, 0), "thumb_03": Vector3(30, 0, 0)},
+			"pull": {"index_01": Vector3(6, 0, 0), "index_02": Vector3(14, 0, 0), "index_03": Vector3(10, 0, 0)}},
+		"L": {"index_k": Vector3(0.118, 0.147, 0.018), "little_k": Vector3(0.053, 0.144, 0.018), "palm": Vector3(0.0, 0.92, -0.38), "elbow": Vector3(-0.15, -0.10, -0.28),
+			"pose": {"index_01": Vector3(-10, 0, 0), "index_02": Vector3(70, 0, 0), "index_03": Vector3(35, 0, 0),
+			"middle_01": Vector3(-10, 0, 0), "middle_02": Vector3(70, 0, 0), "middle_03": Vector3(35, 0, 0),
+			"ring_01": Vector3(0, 0, 0), "ring_02": Vector3(45, 0, 0), "ring_03": Vector3(22, 0, 0),
+			"little_01": Vector3(-10, 0, 0), "little_02": Vector3(105, 0, 0), "little_03": Vector3(52, 0, 0),
+			"thumb_01": Vector3(-30, 0, 8), "thumb_02": Vector3(-10, 0, 0), "thumb_03": Vector3(0, 0, 0)}}
 	},
 	MP18: {
 		"R": {"index_k": Vector3(-0.170, 0.092, 0.053), "little_k": Vector3(-0.215, 0.039, 0.055), "palm": Vector3(0.0, -0.2, -1.0), "elbow": Vector3(-0.45, -0.18, 0.34),
@@ -2128,7 +2540,7 @@ func _mp_bolt(t: float) -> void:
 
 ## A side's grip on gun `gun` (ARM_GRIPS), as a key.
 func _rl_grip_for(gun: int, arm: FPArm, side: String) -> Array:
-	var model: Node3D = _mp_model if gun == MP18 else (_sg_model if gun == TRENCH else _rev_model)
+	var model: Node3D = _mp_model if gun == MP18 else (_sg_model if gun == TRENCH else (_le_model if gun == RIFLE else _rev_model))
 	var m := model.transform
 	var g: Dictionary = ARM_GRIPS[gun][side]
 	var hand := arm.frame_from_knuckles(m * g.index_k, m * g.little_k, m.basis * g.palm) if g.has("index_k") else FPArm.frame(m * g.wrist, m.basis * g.along, m.basis * g.palm)

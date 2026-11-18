@@ -131,6 +131,23 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _mix(_crack(0.04, rng, 0.8), _ratchet(0.18, 30.0, rng))
 		"drum_in":
 			data = _mix(_thump(0.1, 220.0, 140.0, 0.02, 0.8, rng, 0.015, 0.9), _crack(0.05, rng, 1.0))
+		# --- the SMLE (synthesized placeholders, not recordings)
+		"rifle_shot":
+			data = _mix(_gunshot(rng), _crack(0.06, rng, 1.0))
+		"bolt_up":
+			data = _mix(_crack(0.03, rng, 0.5), _thump(0.04, 600.0, 400.0, 0.005, 0.4, rng, 0.01, 0.5))
+		"bolt_back":
+			data = _mix(_ratchet(0.10, 45.0, rng), _thump(0.05, 300.0, 200.0, 0.01, 0.6, rng, 0.01, 0.7))
+		"bolt_fwd":
+			data = _mix(_ratchet(0.09, 50.0, rng), _thump(0.06, 260.0, 160.0, 0.01, 0.7, rng, 0.012, 0.8))
+		"bolt_down":
+			data = _mix(_crack(0.035, rng, 0.8), _thump(0.05, 420.0, 260.0, 0.008, 0.6, rng, 0.01, 0.7))
+		"charger_in":
+			data = _mix(_crack(0.03, rng, 0.6), _ratchet(0.05, 80.0, rng))
+		"rounds_in":
+			data = _ratchet(0.32, 18.0, rng)
+		"round_in":
+			data = _mix(_crack(0.025, rng, 0.5), _ratchet(0.06, 40.0, rng))
 		"mag_out":                                # the stick magazine: catch pressed, drawn out
 			data = _mix(_crack(0.03, rng, 0.7), _ratchet(0.07, 70.0, rng))
 		"mag_in":                                 # pushed home and slapped
