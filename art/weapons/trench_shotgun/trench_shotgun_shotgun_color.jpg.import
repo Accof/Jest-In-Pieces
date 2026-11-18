@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://s6nowiqjr4xj"
-path="res://.godot/imported/trench_shotgun_shotgun_color.jpg-123a84948d49b292c6dc8b6b8b1bb97f.ctex"
+path.s3tc="res://.godot/imported/trench_shotgun_shotgun_color.jpg-123a84948d49b292c6dc8b6b8b1bb97f.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "a97889b942f0ef1d32638b154ff0d73a"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/weapons/trench_shotgun/trench_shotgun_shotgun_color.jpg"
-dest_files=["res://.godot/imported/trench_shotgun_shotgun_color.jpg-123a84948d49b292c6dc8b6b8b1bb97f.ctex"]
+dest_files=["res://.godot/imported/trench_shotgun_shotgun_color.jpg-123a84948d49b292c6dc8b6b8b1bb97f.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

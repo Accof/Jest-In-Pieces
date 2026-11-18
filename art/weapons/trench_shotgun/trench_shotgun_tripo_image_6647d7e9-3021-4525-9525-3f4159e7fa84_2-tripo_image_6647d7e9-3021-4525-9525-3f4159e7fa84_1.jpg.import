@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://docx88q2df7vk"
-path="res://.godot/imported/trench_shotgun_tripo_image_6647d7e9-3021-4525-9525-3f4159e7fa84_2-tripo_image_6647d7e9-3021-4525-9525-3f4159e7fa84_1.jpg-1a2d7bd48eb19e2e39e015d8f18c1d43.ctex"
+path.s3tc="res://.godot/imported/trench_shotgun_tripo_image_6647d7e9-3021-4525-9525-3f4159e7fa84_2-tripo_image_6647d7e9-3021-4525-9525-3f4159e7fa84_1.jpg-1a2d7bd48eb19e2e39e015d8f18c1d43.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "fa0d103adff22c6541a25a51a524e713"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/weapons/trench_shotgun/trench_shotgun_tripo_image_6647d7e9-3021-4525-9525-3f4159e7fa84_2-tripo_image_6647d7e9-3021-4525-9525-3f4159e7fa84_1.jpg"
-dest_files=["res://.godot/imported/trench_shotgun_tripo_image_6647d7e9-3021-4525-9525-3f4159e7fa84_2-tripo_image_6647d7e9-3021-4525-9525-3f4159e7fa84_1.jpg-1a2d7bd48eb19e2e39e015d8f18c1d43.ctex"]
+dest_files=["res://.godot/imported/trench_shotgun_tripo_image_6647d7e9-3021-4525-9525-3f4159e7fa84_2-tripo_image_6647d7e9-3021-4525-9525-3f4159e7fa84_1.jpg-1a2d7bd48eb19e2e39e015d8f18c1d43.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0
