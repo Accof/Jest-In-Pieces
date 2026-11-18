@@ -256,28 +256,85 @@ print("handle at", tuple(round(c, 4) for c in handle.location), "travel", round(
 # 7. a 20-round stick magazine for the same housing (the drum becomes an upgrade):
 # a slim steel box along the housing's axis, a floor plate on its outer end, two
 # pressed ribs; its node sits on the same cut as the drum's
-mag_dir = Vector((CUT_N.x, CUT_N.y, 0)).normalized()
-mag_w = mag_dir.cross(Vector((0, 0, 1))).normalized()            # across, roughly along the gun
-mag_t = Vector((0, 0, 1))
+# the housing's real axis, measured: slice the body square to the cut's normal every
+# 4 mm into the housing, take each slice's middle, and fit a line through them (it
+# tips down and back ~6 deg from the cut's normal, which was set level)
+_mids = []
+for _d in [-0.004 * i for i in range(1, 13)]:
+    _b = bmesh.new(); _b.from_mesh(gun.data); _p = cut + CUT_N * _d
+    _r = bmesh.ops.bisect_plane(_b, geom=_b.verts[:] + _b.edges[:] + _b.faces[:], plane_co=_p, plane_no=CUT_N, dist=1e-5)
+    _pts = [v.co.copy() for v in _r["geom_cut"] if isinstance(v, bmesh.types.BMVert) and (v.co - _p).length < 0.034]
+    _u = CUT_N.cross(Vector((0, 0, 1))).normalized()
+    _a = [(q - _p).dot(_u) for q in _pts]; _z = [(q - _p).z for q in _pts]
+    _mids.append(_p + _u * (min(_a) + max(_a)) / 2 + Vector((0, 0, (min(_z) + max(_z)) / 2)))
+    _b.free()
+_M = np.array([m[:] for m in _mids]); _c0 = _M.mean(0)
+_ax = np.linalg.svd(_M - _c0)[2][0]
+if _ax @ np.array(CUT_N[:]) < 0: _ax = -_ax
+mag_dir = Vector(_ax.tolist()).normalized()
+mag_c = Vector((_c0 + _ax * ((np.array(cut[:]) - _c0) @ _ax)).tolist()) - cut   # the axis where it meets the cut, from the pivot
+print("housing axis", tuple(round(c, 4) for c in mag_dir), "%.1f deg off the cut normal" % math.degrees(mag_dir.angle(CUT_N)))
+mag_w = mag_dir.cross(Vector((0, 0, 1))).normalized()            # across, along the gun
+mag_t = mag_w.cross(mag_dir).normalized()                       # square to both, up-ish
 mb = bmesh.new()
-def box(c0, length, w, t, s0):
+def box(length, w, t, s0):
     m = Matrix((mag_dir, mag_w, mag_t)).transposed().to_4x4()
-    m.translation = c0 + mag_dir * (s0 + length / 2)
+    m.translation = mag_c + mag_dir * (s0 + length / 2)
     bmesh.ops.create_cube(mb, size=1.0, matrix=m @ Matrix.Diagonal((length, w, t, 1)))
-box(Vector((0, 0, 0)), 0.200, 0.034, 0.017, -0.03)                # the body, its inner end 3 cm inside the housing
-box(Vector((0, 0, 0)), 0.006, 0.038, 0.021, 0.168)               # floor plate
+# sized to the housing's mouth (about 49 x 36 mm outside): it fills the opening
+box(0.200, 0.040, 0.026, -0.03)                 # the body, its inner end 3 cm inside the housing
+box(0.006, 0.045, 0.031, 0.168)                 # floor plate
 for r in (0.05, 0.12):
-    box(Vector((0, 0, 0)), 0.004, 0.035, 0.0178, r)               # ribs
+    box(0.004, 0.0415, 0.0275, r)               # ribs
+# the gun's own steel: each face of the magazine takes the texture of the housing
+# face it would sit against (UVs from an affine fit, position -> uv, over the
+# housing's faces that look the same way), read off the housing's length
+_uvl = bm.loops.layers.uv.active if False else None
+gb = bmesh.new(); gb.from_mesh(gun.data); guv = gb.loops.layers.uv.active
+fits = {}
+for key, dirv in (("t", mag_t), ("b", -mag_t), ("f", mag_w), ("r", -mag_w)):
+    rows, uvs = [], []
+    for f in gb.faces:
+        c = f.calc_center_median() - cut
+        sd = c.dot(mag_dir)
+        if -0.05 < sd < -0.004 and (c - mag_dir * sd).length < 0.034 and f.normal.dot(dirv) > 0.7:
+            for l in f.loops:
+                q = l.vert.co - cut
+                rows.append([q.dot(mag_dir), q.dot(mag_w), q.dot(mag_t), 1.0]); uvs.append(l[guv].uv[:])
+    if len(rows) >= 12:
+        # the faces span UV seams: keep the biggest single island (the points whose
+        # uv sits near the median uv), then trim to the points the fit explains
+        R, U = np.array(rows), np.array(uvs)
+        keep = np.linalg.norm(U - np.median(U, 0), axis=1) < 0.03
+        for _ in range(6):
+            if keep.sum() < 9: break
+            F, *_ = np.linalg.lstsq(R[keep], U[keep], rcond=None)
+            res = np.linalg.norm(R @ F - U, axis=1)
+            keep = keep & (res < max(0.002, np.percentile(res[keep], 80)))
+        if keep.sum() >= 9:
+            fits[key] = (F, float(np.linalg.norm(R[keep] @ F - U[keep], axis=1).max()), dirv)
+gb.free()
+print("magazine texture fits", {k: (round(v[1], 4)) for k, v in fits.items()})
+muv = mb.loops.layers.uv.new("UVMap")
+# laid on from the receiver's plain steel (the affine fit M, x z -> uv, from the
+# patch): along the magazine reads along the receiver behind the old handle block,
+# round it reads up the receiver wall, each face from its own stretch so the
+# grain does not repeat side to side
+for f in mb.faces:
+    nrm = f.normal
+    side = int(max(range(4), key=lambda i: nrm.dot((mag_t, -mag_t, mag_w, -mag_w)[i])))
+    for l in f.loops:
+        q = l.vert.co - mag_c
+        sd = q.dot(mag_dir)
+        cr = q.dot(mag_w) if side < 2 else q.dot(mag_t)
+        x = -0.045 + (sd + 0.03) * 0.35 + 0.012 * side
+        z = 0.128 + cr * 0.8
+        l[muv].uv = tuple((np.array([x, z, 1.0]) @ M).tolist())
 mme = bpy.data.meshes.new("StickMag"); mb.to_mesh(mme); mb.free()
 stick = bpy.data.objects.new("StickMag", mme); bpy.context.scene.collection.objects.link(stick)
-magm = bpy.data.materials.new("MagSteel"); magm.use_nodes = True
-_m = magm.node_tree.nodes.get("Principled BSDF")
-_m.inputs["Base Color"].default_value = (0.045, 0.045, 0.05, 1)
-_m.inputs["Metallic"].default_value = 0.85
-_m.inputs["Roughness"].default_value = 0.42
-mme.materials.append(magm)
+mme.materials.append(mat)
 stick.location = cut
-print("stick magazine on the housing at", tuple(round(c, 4) for c in cut), "length out", 0.174)
+print("stick magazine on the housing at", tuple(round(c, 4) for c in cut), "axis (glTF)", (round(mag_dir.x, 4), round(mag_dir.z, 4), round(-mag_dir.y, 4)), "centre offset (glTF)", (round(mag_c.x, 4), round(mag_c.z, 4), round(-mag_c.y, 4)))
 
 for o in (gun, drum, handle, stick):
     bpy.ops.object.select_all(action="DESELECT"); o.select_set(True); bpy.context.view_layer.objects.active = o

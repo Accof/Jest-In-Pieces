@@ -261,6 +261,7 @@ func _empty_change(p: FpsPlayer, v: ViewModel, r: FPArm, l: FPArm, rel0: Transfo
 	var r_off_grip := 0.0
 	var handle_back_at := -1.0
 	var moved := 0.0
+	var moved_dir := Vector3.ZERO
 	var l_on := 0
 	var fired_in_reload := false
 	var t := 0.0
@@ -272,7 +273,10 @@ func _empty_change(p: FpsPlayer, v: ViewModel, r: FPArm, l: FPArm, rel0: Transfo
 		t += get_process_delta_time()
 		var rt := v._reload_t
 		if rt > mt.unlatch.x and rt < mt.to_pouch.x:
-			moved = maxf(moved, v._mp_drum.transform.origin.distance_to(v._mp_drum_rest.origin))
+			var dv := v._mp_drum.transform.origin - v._mp_drum_rest.origin
+			if dv.length() > moved:
+				moved = dv.length()
+				moved_dir = dv.normalized()
 		if rt > mt.out.x and rt < mt.to_pouch.x:
 			var hd := v._mp_model.global_transform.affine_inverse() * (l.skeleton.global_transform * l.skeleton.get_bone_global_pose(l._hand))
 			var want := v._mp_drum.transform * v._mp_drum_hand
@@ -307,6 +311,8 @@ func _empty_change(p: FpsPlayer, v: ViewModel, r: FPArm, l: FPArm, rel0: Transfo
 			_check(p.ammo[FpsPlayer.MP18] == b, "%s: no firing while the magazine is off" % what)
 	var need: float = ViewModel.M_STICK_TRAVEL if what == "stick" else ViewModel.M_DRUM_TRAVEL
 	_timed(moved > need * 0.9, "%s: drawn straight out along the housing (%.0f cm)" % [what, moved * 100.0])
+	var axis: Vector3 = ViewModel.M_STICK_OUT if what == "stick" else ViewModel.M_DRUM_OUT
+	_timed(moved_dir.dot(axis.normalized()) > 0.999, "%s: along the housing's own axis (%.2f deg off)" % [what, rad_to_deg(moved_dir.angle_to(axis))])
 	_timed(l_on > 3, "%s: the left hand holds it while it comes out (%d frames)" % [what, l_on])
 	_timed(v.mp_drums.size() == drops0 + 1, "%s: the empty one drops off as a body" % what)
 	_check(p.ammo[FpsPlayer.MP18] == full, "%s: full again, %d rounds" % [what, full])

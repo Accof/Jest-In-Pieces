@@ -1788,6 +1788,10 @@ const M_TILT := Vector3(0.0, 2.5, 3.0)
 const M_BORE := Vector3(0.423, 0.1256, 0.0)
 const M_DRUM_OUT := Vector3(-0.491, 0.0, -0.871)   # out of the housing (model space)
 const M_DRUM_TRAVEL := 0.12
+## The stick runs along the housing's measured axis (build_mp18.py fits it from
+## slices of the housing; it tips down and back ~6 deg from the drum's cut).
+const M_STICK_OUT := Vector3(-0.5465, -0.0802, -0.8336)
+const M_STICK_CENTRE := Vector3(-0.002, 0.0005, 0.0012)  # that axis at the cut, from the magazine's pivot
 const M_STICK_TRAVEL := 0.07                       # the stick's top end is 3 cm up the housing; this clears it
 const M_PORT := Vector3(-0.07, 0.15, 0.022)        # where the empty cases come out (right of the receiver)
 ## The reload (s): the hand to the drum, unlatch, draw it out, let it drop, back
@@ -1816,6 +1820,7 @@ var _mp_drum_hand := Transform3D()
 var mp_drum := false
 var _mp_mags := {}                               # kind -> [node, rest, hand]
 var _mp_travel := M_STICK_TRAVEL
+var _mp_out := M_STICK_OUT
 
 ## The charging handle (rides the bolt): at rest at the back of its slot (cocked);
 ## it flicks forward and back with each round, and runs forward and stays there
@@ -1887,10 +1892,13 @@ func _build_mp18() -> void:
 		else:
 			# round the stick from below, 9 cm out from the housing: palm up, fingers
 			# across it toward the muzzle side, the wrist back under the gun
-			var out := M_DRUM_OUT
-			var across := Vector3(-out.z, 0, out.x)          # level, square to the stick, toward the muzzle
-			var at := out * 0.09 + Vector3(0, ab.position.y - 0.016, 0)
-			hand = FPArm.frame(at - across * 0.05, across, Vector3.UP)
+			var out := M_STICK_OUT
+			var across := Vector3(-out.z, 0, out.x).normalized()   # level, square to the stick, toward the muzzle
+			var under := across.cross(out).normalized()            # square to both, pointing down under the stick
+			if under.y > 0.0:
+				under = -under
+			var at := M_STICK_CENTRE + out * 0.09 + under * 0.029
+			hand = FPArm.frame(at - across * 0.05, across, -under)
 		_mp_mags[kind] = [node, node.transform, hand]
 	set_mp_drum(mp_drum)
 	_build_arms(MP18, pose, _mp_model)
@@ -1903,6 +1911,7 @@ func set_mp_drum(on: bool) -> void:
 	_mt = M_T_DRUM if on else M_T_STICK
 	_mc = M_CHARGE_DRUM if on else M_CHARGE_STICK
 	_mp_travel = M_DRUM_TRAVEL if on else M_STICK_TRAVEL
+	_mp_out = M_DRUM_OUT if on else M_STICK_OUT
 	for kind: String in _mp_mags:
 		var e: Array = _mp_mags[kind]
 		(e[0] as Node3D).transform = e[1]
@@ -2025,7 +2034,7 @@ func _mp_hands(t: float) -> void:
 		out = 1.0
 	else:
 		out = 1.0 - e.call(_mt.in)
-	var drum_at := Transform3D(_mp_drum_rest.basis, _mp_drum_rest.origin + M_DRUM_OUT * _mp_travel * out)
+	var drum_at := Transform3D(_mp_drum_rest.basis, _mp_drum_rest.origin + _mp_out * _mp_travel * out)
 	var on_drum := func(d: Transform3D) -> Array: return [m * d * _mp_drum_hand, elbow_d, drum_pose]
 	var pouch := [Transform3D((m * drum_at * _mp_drum_hand).basis.rotated(Vector3.RIGHT, -0.4).orthonormalized(), M_POUCH), Vector3(-0.30, -0.85, 0.20), drum_pose]
 	var key: Array
@@ -2169,7 +2178,7 @@ func _drop_drum() -> void:
 	scene.add_child(body)
 	body.global_transform = Transform3D(g.basis.orthonormalized(), eye + (g.origin - eye) / SHRINK)
 	var gm := _mp_model.global_transform.basis.orthonormalized()
-	body.linear_velocity = gm * M_DRUM_OUT * 0.8 + Vector3.DOWN * 0.5
+	body.linear_velocity = gm * _mp_out * 0.8 + Vector3.DOWN * 0.5
 	body.angular_velocity = Vector3(randf_range(-2, 2), randf_range(-2, 2), randf_range(-2, 2))
 	body.contact_monitor = true
 	body.max_contacts_reported = 1
