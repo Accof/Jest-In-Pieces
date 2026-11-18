@@ -13,3 +13,15 @@
    (works on the open Tripo mesh) and prints how many are inside per bone.
 
 Needs: pip install trimesh rtree scipy
+
+## Any gun, either hand (sdf2.py, handfk2.py, fit.py)
+Used for the Trench Shotgun:
+1. `godot --headless --path . res://scenes/test_trench.tscn -- --dump --side=R` (or L;
+   add `--grip` to try /tmp/grip_t.txt)
+2. `python3 sdf2.py Body -0.36 -0.10 0.0 0.22 -0.09 0.09 /tmp/fit/sdf_R.npz`
+   (parts, then the box x0 x1 y0 y1 z0 z1 in gun-model space)
+3. `NOSHIFT=1 SIDE=R TARGET=-0.164,0.087,0.003 python3 fit.py /tmp/fit/sdf_R.npz`
+   prints each finger's curl that rests on the surface; with TARGET the index
+   finger is aimed at that point (the trigger) instead. Without NOSHIFT it also
+   searches a small hand offset that keeps the palm out (move the knuckle targets
+   by it, then dump and fit again).

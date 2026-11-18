@@ -124,6 +124,15 @@ static func _make(name: String) -> AudioStreamWAV:
 		# --- the revolver
 		"revolver_shot":
 			data = _gunshot(rng)
+		# --- the trench shotgun
+		"shotgun_shot":
+			data = _shotgun_boom(rng)
+		"pump_back":
+			data = _mix(_crack(0.05, rng, 0.8), _ratchet(0.11, 45.0, rng))
+		"pump_fwd":
+			data = _mix(_thump(0.09, 260.0, 150.0, 0.015, 0.7, rng, 0.012, 0.9), _crack(0.05, rng, 1.0))
+		"shell_in":
+			data = _mix(_thump(0.07, 520.0, 320.0, 0.01, 0.35, rng, 0.008, 0.5), _crack(0.03, rng, 0.5))
 		"revolver_cock":
 			data = _cock(rng)
 		"revolver_open":
@@ -673,6 +682,29 @@ static func _gunshot(rng: RandomNumberGenerator) -> PackedFloat32Array:
 	return out
 
 
+
+
+## A 12-bore going off: a deeper, longer boom than the revolver, more body, a long tail.
+static func _shotgun_boom(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var len := 1.5
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var lp := 0.0
+	var lp2 := 0.0
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		lp += (x - lp) * 0.28
+		lp2 += (lp - lp2) * 0.03
+		ph += TAU * lerpf(32.0, 85.0, exp(-t * 14.0)) / RATE
+		var crack := x * exp(-t * 120.0) * 1.0
+		var body := lp * exp(-t * 15.0) * 1.0
+		var boom := sin(ph) * exp(-t * 6.5) * 0.95
+		var tail := lp2 * exp(-t * 2.6) * 2.6
+		out[i] = clampf((crack + body + boom + tail) * minf(t / 0.0007, 1.0), -1.0, 1.0)
+	return out
 
 
 ## A spent case landing: a bright little ping, a second one as it bounces.

@@ -258,7 +258,7 @@ func hit(info: Dictionary) -> void:
 				gore.blast(bone, info.position, dir, clampf(0.07 + total * 0.0006, 0.08, 0.13))
 			# Point blank, most of the charge in the chest or belly: it goes
 			# straight through and leaves a hole you can see through.
-			if zone != &"Hips" and info.get("weapon", "") == "Shotgun" and float(info.get("dist", 99.0)) < punch_range \
+			if zone != &"Hips" and info.get("weapon", "") in ["Shotgun", "Trench Shotgun"] and float(info.get("dist", 99.0)) < punch_range \
 					and total >= punch_damage and not _shot_blasted.has(&"through"):
 				_shot_blasted[&"through"] = true
 				gore.punch_through(bone, info.position, dir, punch_radius)

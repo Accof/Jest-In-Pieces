@@ -13,7 +13,7 @@ const LAYER_RAMP := 1 << 4
 
 const WEAPONS := [
 	{name = "Pistol", damage = 34.0, pellets = 1, spread = 0.0, impulse = 14.0, heavy = false, can_dismember = false, cooldown = 0.22, falloff = 60.0, mag = 17},
-	{name = "Shotgun", damage = 16.0, pellets = 9, spread = 4.5, impulse = 16.0, heavy = true, can_dismember = true, cooldown = 0.8, falloff = 9.0, mag = 6},
+	{name = "Shotgun", damage = 16.0, pellets = 9, spread = 4.5, impulse = 16.0, heavy = true, can_dismember = true, cooldown = 0.8, falloff = 9.0, mag = 6, shells = true},
 	{name = "SMG", damage = 21.0, pellets = 1, spread = 1.8, impulse = 8.0, heavy = false, can_dismember = false, cooldown = 0.085, falloff = 28.0, mag = 32},
 	{name = "Stake Gun", damage = 500.0, pellets = 1, spread = 0.0, impulse = 2.0, heavy = true, can_dismember = false, cooldown = 0.5, falloff = 100.0, mag = 1, projectile = true},
 	{name = "Maxim", damage = 60.0, pellets = 1, spread = 2.4, impulse = 22.0, heavy = true, can_dismember = true, cooldown = 0.11, falloff = 80.0, mag = 250, belt = true},
@@ -32,6 +32,12 @@ const WEAPONS := [
 	# push, not `heavy` (so the same deaths), and `react` = the pistol's damage
 	# for the flinch, stagger and dying reactions. Only the damage is bigger.
 	{name = "Revolver", damage = 80.0, pellets = 1, spread = 0.0, impulse = 14.0, heavy = false, react = 34.0, can_dismember = false, cooldown = 0.38, falloff = 70.0, mag = 6, semi = true, punch = 2.4, pull = 0.12},
+	# A Winchester 1897 trench gun (the Tripo model): nine pellets that hit very
+	# hard close up and fall away fast with distance, a heavy kick, and the pump
+	# worked after every shot (the cooldown covers the stroke; reloading waits
+	# for it). Six in the tube, loaded one at a time; firing breaks off loading.
+	# `shells`: loads shell by shell (like the Shotgun). `pump`: a pump to work.
+	{name = "Trench Shotgun", damage = 18.0, pellets = 9, spread = 4.0, impulse = 17.0, heavy = true, can_dismember = true, cooldown = 0.85, falloff = 8.5, mag = 6, shells = true, pump = true, semi = true, punch = 4.5, shot_sfx = "shotgun_shot"},
 ]
 ## The machine gun on its mount in the nest: same rounds, steadier.
 const MOUNTED_MG := {name = "Maxim", damage = 60.0, pellets = 1, spread = 1.1, impulse = 22.0, heavy = true, can_dismember = true, cooldown = 0.11, falloff = 120.0, mag = 0}
@@ -42,6 +48,7 @@ const STAKE := 3
 const MAXIM := 4
 const RIFLE := 5
 const REVOLVER := 6
+const TRENCH := 7
 
 ## Testing aid: take no damage. Kept for the whole session, across runs.
 static var god_mode := false
@@ -70,7 +77,7 @@ var health := 100.0
 var dead := false
 var weapon := 0
 ## Rounds loaded in each gun. Spare ammunition is unlimited for now.
-var ammo: Array[int] = [17, 6, 32, 1, 0, 5, 6]
+var ammo: Array[int] = [17, 6, 32, 1, 0, 5, 6, 6]
 ## Inside an event room (gunshots are not heard in the level).
 var in_event := false
 ## The final-kill camera has the view: no moving, looking or shooting, and the
@@ -222,6 +229,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					select_weapon(MAXIM)
 			KEY_6: select_weapon(RIFLE)
 			KEY_7: select_weapon(REVOLVER)
+			KEY_8: select_weapon(TRENCH)
 			KEY_E: _use()
 			KEY_G:
 				god_mode = not god_mode
@@ -322,6 +330,8 @@ func reload() -> void:
 		return                                   # a belt: what you have is what you get
 	if dead or view.swapping() or view.reloading() or ammo[weapon] >= WEAPONS[weapon].mag:
 		return
+	if WEAPONS[weapon].get("pump", false) and _cooldown > 0.0:
+		return                                   # still working the pump
 	view.start_reload()
 	if weapon == PISTOL:
 		_reload_left = ViewModel.PISTOL_RELOAD * 0.62      # the moment the magazine seats
@@ -354,8 +364,13 @@ func _tick_punch(delta: float) -> void:
 	camera.rotation.x = clampf(camera.rotation.x + (_punch - before), -1.5, 1.5)
 
 
+## Loads shell by shell (the shotguns): can be fired part-way through.
+func _shells() -> bool:
+	return WEAPONS[weapon].get("shells", false)
+
+
 func _tick_reload(delta: float) -> void:
-	if weapon != SHOTGUN:
+	if not _shells():
 		if _reload_left >= 0.0:
 			_reload_left -= delta
 			if _reload_left < 0.0:
@@ -373,10 +388,11 @@ func _tick_reload(delta: float) -> void:
 		# Shells go in one at a time, so the shotgun can be fired part-way through.
 		_shell_left -= delta
 		if _shell_left < 0.0:
-			ammo[1] += 1
+			ammo[weapon] += 1
+			view.shell_loaded()
 			ammo_changed.emit()
 			_update_label()
-			if ammo[1] >= WEAPONS[1].mag:
+			if ammo[weapon] >= WEAPONS[weapon].mag:
 				_shell_left = -1.0
 				view.stop_reload()
 			else:
@@ -396,12 +412,12 @@ func fire() -> void:
 	if WEAPONS[weapon].get("belt", false) and ammo[weapon] <= 0:
 		select_weapon(PISTOL)                    # belt empty: the gun is thrown away
 		return
-	if weapon != SHOTGUN and view.reloading():
+	if not _shells() and view.reloading():
 		return
 	if ammo[weapon] <= 0:
 		reload()
 		return
-	if weapon == 1 and view.reloading():
+	if _shells() and view.reloading():
 		_shell_left = -1.0                      # break off loading to shoot
 		view.stop_reload()
 	var pull: float = WEAPONS[weapon].get("pull", 0.0)
@@ -440,7 +456,7 @@ func _discharge() -> void:
 		_punch_v += deg_to_rad(w.punch) * randf_range(0.9, 1.1) * 14.0
 		_kick += randf_range(-0.05, 0.05)
 		shake(0.14)
-		SfxSynth.play(self, "revolver_shot", camera.global_position + aim * 0.3, 2.0, randf_range(0.95, 1.04))
+		SfxSynth.play(self, w.get("shot_sfx", "revolver_shot"), camera.global_position + aim * 0.3, 2.0, randf_range(0.95, 1.04))
 	if w.get("projectile", false):
 		# a stake, not a bullet: it flies, and loads again by itself
 		var world := get_tree().get_first_node_in_group(&"world_root")
@@ -633,4 +649,4 @@ func heal(amount: float) -> void:
 
 
 func _update_label() -> void:
-	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [7] revolver  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]
+	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [7] revolver  [8] trench gun  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]

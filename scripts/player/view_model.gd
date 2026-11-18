@@ -16,6 +16,7 @@ const STAKE := 3
 const MAXIM := 4
 const RIFLE := 5
 const REVOLVER := 6
+const TRENCH := 7
 
 ## Seconds the reload animations take. The player script reads these.
 const PISTOL_RELOAD := 1.55
@@ -78,6 +79,7 @@ func _ready() -> void:
 	_build_maxim()
 	_build_rifle()
 	_build_revolver()
+	_build_trench()
 	for gi in range(1, _guns.size()):
 		_guns[gi].visible = false
 	_flash = OmniLight3D.new()
@@ -118,13 +120,15 @@ func fire() -> void:
 	_since_shot = 0.0
 	var muzzle := _muzzle()
 	_flash.position = muzzle
-	_flash.light_energy = [5.0, 9.0, 4.0, 1.5, 8.0, 8.0, 10.0][weapon]
+	_flash.light_energy = [5.0, 9.0, 4.0, 1.5, 8.0, 8.0, 10.0, 11.0][weapon]
 	_flash_mesh.position = muzzle
-	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9, 2.4, 2.2, 2.0, 1.9][weapon] * randf_range(0.7, 1.25)
+	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9, 2.4, 2.2, 2.0, 1.9, 2.3][weapon] * randf_range(0.7, 1.25)
 	if weapon == RIFLE:
 		_cycle_t = 0.0
 	if weapon == REVOLVER:
 		_revolver_fired()
+	if weapon == TRENCH:
+		_trench_fired()
 	_flash_mesh.rotation.z = randf() * TAU
 	if weapon == SMG or weapon == MAXIM:
 		_jitter = Vector2(randf_range(-1, 1), randf_range(-0.3, 1))
@@ -154,6 +158,12 @@ func stop_reload() -> void:
 	_revolver_reset_reload()
 
 
+## A shell has gone into the tube (the shotguns load one at a time).
+func shell_loaded() -> void:
+	if weapon == TRENCH:
+		_sg_shell_in = true
+
+
 func reloading() -> bool:
 	return _reload_t >= 0.0
 
@@ -175,7 +185,7 @@ func swapping() -> bool:
 func animate(delta: float, speed: float, look: Vector2) -> void:
 	_time += delta
 	_since_shot += delta
-	_kick = move_toward(_kick, 0.0, delta * [7.0, 3.2, 14.0, 2.2, 11.0, 3.0, 3.6][weapon])
+	_kick = move_toward(_kick, 0.0, delta * [7.0, 3.2, 14.0, 2.2, 11.0, 3.0, 3.6, 2.6][weapon])
 	if _cycle_t >= 0.0:
 		_cycle_t += delta
 		if _cycle_t > RIFLE_CYCLE:
@@ -223,6 +233,8 @@ func animate(delta: float, speed: float, look: Vector2) -> void:
 		_animate_rifle()
 	elif weapon == REVOLVER:
 		_animate_revolver()
+	elif weapon == TRENCH:
+		_animate_trench()
 	else:
 		_animate_maxim()
 
@@ -778,6 +790,8 @@ func _build_rifle() -> void:
 func _muzzle() -> Vector3:
 	if weapon == REVOLVER:
 		return to_local(_rev_muzzle.global_position)
+	if weapon == TRENCH:
+		return to_local(_sg_muzzle.global_position)
 	var local := [Vector3(0, 0.02, -0.19), Vector3(0, 0.018, -0.64), Vector3(0, 0.012, -0.445), Vector3(0, 0.03, -0.6), Vector3(0, 0.0, -0.76), Vector3(0, 0.03, -0.93)][weapon] as Vector3
 	return to_local(_pose[weapon].to_global(local))
 
@@ -810,6 +824,21 @@ const ARM_GRIPS := {
 			"little_01": Vector3(66, 0, 0), "little_02": Vector3(68, 0, 0), "little_03": Vector3(40, 0, 0),
 			"thumb_01": Vector3(10, 0, 0), "thumb_02": Vector3(10, 0, 0), "thumb_03": Vector3(10, 0, 0)},
 			"away": Vector3(-0.12, -0.28, 0.12)}
+	},
+	TRENCH: {
+		"R": {"index_k": Vector3(-0.194, 0.140, 0.045), "little_k": Vector3(-0.236, 0.084, 0.047), "palm": Vector3(0.0, -0.2, -1.0), "elbow": Vector3(-0.45, -0.10, 0.34),
+			"pose": {"index_01": Vector3(10, 0, 15), "index_02": Vector3(15, 0, 0), "index_03": Vector3(40, 0, 0),
+			"middle_01": Vector3(15, 0, 0), "middle_02": Vector3(25, 0, 0), "middle_03": Vector3(12, 0, 0),
+			"ring_01": Vector3(55, 0, 0), "ring_02": Vector3(5, 0, 0), "ring_03": Vector3(4, 0, 0),
+			"little_01": Vector3(50, 0, 0), "little_02": Vector3(60, 0, 0), "little_03": Vector3(30, 0, 0),
+			"thumb_01": Vector3(6, 0, -24), "thumb_02": Vector3(10, 0, 0), "thumb_03": Vector3(0, 0, 0)},
+			"pull": {"index_01": Vector3(6, 0, 0), "index_02": Vector3(14, 0, 0), "index_03": Vector3(10, 0, 0)}},
+		"L": {"index_k": Vector3(0.24, 0.086, 0.012), "little_k": Vector3(0.17, 0.088, 0.016), "palm": Vector3(0.0, 0.92, -0.38), "elbow": Vector3(-0.12, -0.14, -0.25),
+			"pose": {"index_01": Vector3(-10, 0, 0), "index_02": Vector3(80, 0, 0), "index_03": Vector3(40, 0, 0),
+			"middle_01": Vector3(5, 0, 0), "middle_02": Vector3(65, 0, 0), "middle_03": Vector3(32, 0, 0),
+			"ring_01": Vector3(10, 0, 0), "ring_02": Vector3(55, 0, 0), "ring_03": Vector3(28, 0, 0),
+			"little_01": Vector3(5, 0, 0), "little_02": Vector3(110, 0, 0), "little_03": Vector3(55, 0, 0),
+			"thumb_01": Vector3(-18, 0, 8), "thumb_02": Vector3(0, 0, 0), "thumb_03": Vector3(15, 0, 0)}}
 	},
 }
 ## The arms each gun is using: gun index -> {"R": FPArm, "L": FPArm}
@@ -1181,6 +1210,239 @@ func _build_revolver() -> void:
 	pose.add_child(left)
 	_left.append(left)
 	root.visible = false
+
+
+# --- the trench shotgun (Tripo Winchester 1897, refined in Blender) ---------------------
+# art/weapons/trench_shotgun/trench_shotgun.glb, built from the untouched Tripo GLB by
+# art/weapons/trench_shotgun/source/build_shotgun.py: Body (with a modelled perforated
+# heat shield and the magazine tube), Pump (slides along the tube) and Hammer (on its
+# pivot). Metres, +X the muzzle, +Y up, +Z the right side. Held shouldered, real size.
+const T_PATH := "res://art/weapons/trench_shotgun/trench_shotgun.glb"
+const T_HOME := Vector3(0.13, -0.15, -0.33)
+const T_TILT := Vector3(0.0, 2.5, 4.0)        # turned in a touch, canted a little
+const T_BORE := Vector3(0.492, 0.1508, 0.0)  # the bore at the muzzle (model space)
+const T_PUMP_TRAVEL := 0.065                  # the pump's stroke toward the receiver
+const T_PUMP := Vector4(0.12, 0.17, 0.05, 0.15)   # after a shot: wait, back, hold, forward (s)
+const T_HAMMER_DOWN := -22.0                  # degrees about Z from cocked (the model's pose)
+const T_PORT := Vector3(-0.095, 0.168, 0.026)  # the ejection port, right side of the receiver
+const T_LOAD := Vector3(-0.10, 0.07, 0.0)     # the loading port under the receiver
+
+var _sg_root: Node3D
+var _sg_model: Node3D
+var _sg_muzzle: Node3D
+var _sg_pump: Node3D
+var _sg_hammer: Node3D
+var _sg_pump_rest := Vector3.ZERO
+var _sg_pump_s := 0.0                         # 0 forward .. 1 right back
+var _sg_cocked := true
+var _sg_ejected := true
+var _sg_clacked := 0
+var _sg_shell_in := false
+var _sg_shell: Node3D                         # the shell in the left hand while loading
+var sg_hulls: Array[RigidBody3D] = []         # spent hulls thrown (for the tests)
+
+
+func _build_trench() -> void:
+	var root := Node3D.new()
+	root.name = "TrenchShotgun"
+	add_child(root)
+	_guns.append(root)
+	var pose := Node3D.new()
+	root.add_child(pose)
+	_pose.append(pose)
+	var left := Node3D.new()
+	pose.add_child(left)
+	_left.append(left)
+	root.visible = false
+	_sg_root = root
+	if not ResourceLoader.exists(T_PATH):
+		return
+	_sg_model = (load(T_PATH) as PackedScene).instantiate() as Node3D
+	_sg_model.name = "Model"
+	# +X (the muzzle) down -Z; the bore at the height the other guns' sights are
+	_sg_model.basis = Basis(Vector3.UP, PI * 0.5)
+	_sg_model.position = Vector3(0, 0.018, -0.09) - _sg_model.basis * Vector3(-0.0, T_BORE.y, 0.0)
+	pose.add_child(_sg_model)
+	for mi in _sg_model.find_children("*", "MeshInstance3D", true, false):
+		(mi as MeshInstance3D).layers = 2
+		(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_sg_muzzle = Node3D.new()
+	_sg_muzzle.name = "Muzzle"
+	_sg_muzzle.position = T_BORE + Vector3(0.03, 0, 0)
+	_sg_model.add_child(_sg_muzzle)
+	_sg_pump = _sg_model.find_child("Pump", true, false)
+	_sg_hammer = _sg_model.find_child("Hammer", true, false)
+	if _sg_pump:
+		_sg_pump_rest = _sg_pump.position
+	_build_arms(TRENCH, pose, _sg_model)
+	# a shell for the left hand to carry while loading
+	if _arms.has(TRENCH) and _arms[TRENCH].has("L"):
+		var arm: FPArm = _arms[TRENCH]["L"]
+		var att := BoneAttachment3D.new()
+		arm.skeleton.add_child(att)
+		att.bone_name = "hand.L"
+		_sg_shell = _shell_mesh()
+		_sg_shell.position = Vector3(0.0, 0.11, 0.035)   # held in the fingers, along the hand (skeleton units)
+		_sg_shell.rotation_degrees = Vector3(0, 0, 90)
+		_sg_shell.scale = Vector3.ONE / FPArm.SIZE
+		att.add_child(_sg_shell)
+		_sg_shell.visible = false
+
+
+## A 12-bore paper shell, real size, lying along X (brass head at -X).
+func _shell_mesh() -> Node3D:
+	var n := Node3D.new()
+	var hull := _cyl(n, 0.0093, 0.056, Vector3(0.006, 0, 0), Vector3(0, 0, 90), _mat(Color(0.42, 0.05, 0.04), 0.6, 0.0))
+	hull.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var head := _cyl(n, 0.0098, 0.012, Vector3(-0.028, 0, 0), Vector3(0, 0, 90), _mat(Color(0.72, 0.55, 0.25), 0.3, 0.9))
+	head.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for mi in n.find_children("*", "MeshInstance3D", true, false):
+		(mi as MeshInstance3D).layers = 2
+	return n
+
+
+func _trench_fired() -> void:
+	_sg_cocked = false
+	_sg_ejected = false
+	_sg_clacked = 0
+
+
+func _animate_trench() -> void:
+	var pose := _pose[TRENCH]
+	if _sg_model == null:
+		return
+	var k := _kick * _kick
+	# heavy: back into the shoulder and the muzzle up, settling slowly
+	var pos := T_HOME + Vector3(0.004, 0.03 * k, 0.085 * k)
+	var rot := Vector3(deg_to_rad(T_TILT.x + 10.0 * k), deg_to_rad(T_TILT.y - 1.5 * k), deg_to_rad(T_TILT.z + 2.0 * k))
+	# the pump: back and forward after each shot
+	var t := _since_shot
+	var w := T_PUMP
+	var s := 0.0
+	if t > w.x and t < w.x + w.y + w.z + w.w:
+		if t < w.x + w.y:
+			s = smoothstep(w.x, w.x + w.y, t)
+		elif t < w.x + w.y + w.z:
+			s = 1.0
+		else:
+			s = 1.0 - smoothstep(w.x + w.y + w.z, w.x + w.y + w.z + w.w, t)
+		if _sg_clacked == 0 and t > w.x:
+			_sg_clacked = 1
+			SfxSynth.play(self, "pump_back", global_position, -6.0, randf_range(0.95, 1.05))
+		if _sg_clacked == 1 and t > w.x + w.y + w.z:
+			_sg_clacked = 2
+			SfxSynth.play(self, "pump_fwd", global_position, -5.0, randf_range(0.95, 1.05))
+	if s > 0.92 and not _sg_ejected:
+		_sg_ejected = true
+		_sg_cocked = true
+		_throw_hull()
+	_sg_pump_s = s
+	# the whole gun gives a little with the stroke
+	pos += Vector3(0, -0.006, 0.012) * sin(s * PI)
+	rot += Vector3(deg_to_rad(-1.5), 0, deg_to_rad(-2.0)) * sin(s * PI)
+	var load := 0.0
+	if _reload_t >= 0.0:
+		var tilt := smoothstep(0.0, SHELL_INTRO, _reload_t)
+		load = tilt
+		# rolled over to the left and up, the loading port toward the left hand
+		pos += Vector3(-0.03, 0.03, 0.03) * tilt
+		rot += Vector3(deg_to_rad(8.0), deg_to_rad(6.0), deg_to_rad(32.0)) * tilt
+	pose.position = pos
+	pose.rotation = rot
+	if _sg_pump:
+		_sg_pump.position = _sg_pump_rest + Vector3(-T_PUMP_TRAVEL * s, 0, 0)
+	if _sg_hammer:
+		var cock := 1.0 if _sg_cocked else s
+		_sg_hammer.rotation.z = deg_to_rad(T_HAMMER_DOWN) * (1.0 - cock)
+	# the trigger finger: a quick squeeze at the shot
+	_arm_trigger(TRENCH, 1.0 - smoothstep(0.0, 0.14, t) if t < 0.14 else 0.0)
+	_trench_left(s, load)
+
+
+## The left hand: on the pump (riding it), or fetching shells into the loading port.
+func _trench_left(pump_s: float, load: float) -> void:
+	if not _arms.has(TRENCH) or not _arms[TRENCH].has("L"):
+		return
+	var arm: FPArm = _arms[TRENCH]["L"]
+	var home: Transform3D = _arm_home[arm]
+	var on_pump := _sg_model.transform.basis * Vector3(-T_PUMP_TRAVEL * pump_s, 0, 0)
+	var at := home.origin + on_pump
+	var basis := home.basis
+	var shell := false
+	if load > 0.0:
+		# from the pump down to the belt, up to the loading port, a thumb push, again
+		var g: Dictionary = _grips_live[TRENCH]["L"]
+		var port: Vector3 = _sg_model.transform * T_LOAD - _sg_model.transform * (g.index_k + g.little_k) * 0.5
+		var pouch := Vector3(-0.06, -0.30, 0.12)
+		var c := 0.0
+		if _reload_t > SHELL_INTRO:
+			c = fposmod(_reload_t - SHELL_INTRO, SHELL_TIME) / SHELL_TIME
+		var to_pouch := sin(clampf(c / 0.5, 0.0, 1.0) * PI * 0.5) * (1.0 - smoothstep(0.5, 0.8, c))
+		var to_port := smoothstep(0.5, 0.8, c) - smoothstep(0.92, 1.0, c) * 0.3
+		var off := pouch * to_pouch + (port + Vector3(0, -0.02, 0)) * to_port
+		if _reload_t <= SHELL_INTRO:
+			off = Vector3(-0.04, -0.12, 0.06) * load
+		at = home.origin + off
+		basis = home.basis.rotated(Vector3.FORWARD, deg_to_rad(-25.0) * load).orthonormalized()
+		shell = c > 0.35 and c < 0.9 and _reload_t > SHELL_INTRO
+		if _sg_shell_in:
+			_sg_shell_in = false
+			SfxSynth.play(self, "shell_in", global_position, -8.0, randf_range(0.95, 1.08))
+	arm.transform = Transform3D(basis, at)
+	if _sg_shell:
+		_sg_shell.visible = shell
+
+
+## The spent hull out of the port on the right, spinning, onto the floor.
+func _throw_hull() -> void:
+	var cam := get_parent() as Node3D
+	var scene := get_tree().current_scene
+	if cam == null or scene == null or _sg_model == null:
+		return
+	var eye := cam.global_position
+	var port := _sg_model.global_transform * T_PORT
+	var at := eye + (port - eye) / SHRINK
+	var body := RigidBody3D.new()
+	body.collision_layer = 1 << 3
+	body.collision_mask = 1 | (1 << 3)
+	body.mass = 0.02
+	body.continuous_cd = true
+	body.angular_damp = 0.6
+	var pm := PhysicsMaterial.new()
+	pm.bounce = 0.3
+	pm.friction = 0.6
+	body.physics_material_override = pm
+	var shape := CylinderShape3D.new()
+	shape.radius = 0.0098
+	shape.height = 0.068
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	cs.rotation.z = PI * 0.5
+	body.add_child(cs)
+	var mesh := _shell_mesh()
+	for mi in mesh.find_children("*", "MeshInstance3D", true, false):
+		(mi as MeshInstance3D).layers = 1
+		(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	body.add_child(mesh)
+	body.add_to_group("spent_brass")
+	scene.add_child(body)
+	var g := _sg_model.global_transform.basis.orthonormalized()
+	body.global_transform = Transform3D(g, at)
+	# out to the right, up, a little back
+	body.linear_velocity = g.z * randf_range(1.6, 2.3) + Vector3.UP * randf_range(1.0, 1.6) - g.x * randf_range(0.2, 0.5)
+	body.angular_velocity = Vector3(randf_range(-14, 14), randf_range(-14, 14), randf_range(-14, 14))
+	body.contact_monitor = true
+	body.max_contacts_reported = 1
+	var hits := [0]
+	body.body_entered.connect(func(_b: Node) -> void:
+		if hits[0] < 2 and body.linear_velocity.length() > 0.5:
+			hits[0] += 1
+			SfxSynth.play(body, "brass_tink", body.global_position, -18.0 - hits[0] * 4.0, randf_range(0.5, 0.7)))
+	sg_hulls.append(body)
+	get_tree().create_timer(25.0).timeout.connect(body.queue_free)
+	var all := get_tree().get_nodes_in_group("spent_brass")
+	for i in maxi(all.size() - 72, 0):
+		all[i].queue_free()
 
 
 # --- building blocks ------------------------------------------------------------

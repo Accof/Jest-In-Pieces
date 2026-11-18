@@ -1,40 +1,31 @@
 extends Node
-## The Drowned Trenches (TrenchMaze), checked. Sections (user args; none = all):
-##   layouts   many seeds: every cell reachable, the trench parts all there,
-##             no two trenches touching where they should not, route length,
-##             trench length, build time
-##   ground    the carved ground: collision matching the walked surface
-##   game      in the game: floors 3, 6, 9 are trenches (2 and 4 are not),
-##             overcast light there and the bunker dark back after, enemy
-##             mix, the exit at the bunker door, the player walking the route
-##             (duckboards, fire step) without catching or falling through
-##   bodies    on a trench floor: deaths on duckboards, in water, on the
-##             fire step, against a wall, a Carnival Curse: bodies settle on
-##             the ground (not floating, not through it), blood pools
-##   ambience  the player walks the route and wades the flooded stretch:
-##             footsteps by surface (mud, duckboards, water), shells landing
-##             far off (flash, boom), the music box plays near its dugout,
-##             nothing of it hurts him; the dressing is all there (wire,
-##             signs, clutter, the carnival things)
-## Add "render" (with a window) for views in /tmp/tr_*.png; "ascii" prints a layout.
-
+## The Trench Shotgun (Tripo Winchester 1897, key 8): the model and its textures
+## load, it sits shouldered on the right with the rigged arms (right hand on the
+## wrist of the stock, left on the pump), fires nine pellets that hurt a lot up
+## close and much less far off, kicks hard, works the pump after every shot
+## (pump back and forward, hammer re-cocked, a hull thrown out of the port),
+## loads shell by shell and can fire part-way through, and leaves the other
+## guns alone. --render writes /tmp/trench_*.png; --grip uses /tmp/grip_t.txt.
 var render := false
-var fails := 0
+var failed := 0
 
 
 func _ready() -> void:
+	render = "--render" in OS.get_cmdline_user_args()
 	_run()
 
 
+func _timed(ok: bool, what: String) -> void:
+	if render:
+		print("   --    %s (not timed when rendering)" % what)
+		return
+	_check(ok, what)
+
+
 func _check(ok: bool, what: String) -> void:
-	print(("   ok    " if ok else "   FAIL  ") + what)
+	print("   %s  %s" % ["ok  " if ok else "FAIL", what])
 	if not ok:
-		fails += 1
-
-
-func _frames(n: int) -> void:
-	for i in n:
-		await get_tree().physics_frame
+		failed += 1
 
 
 func _shot(name_: String) -> void:
@@ -42,1105 +33,320 @@ func _shot(name_: String) -> void:
 		return
 	await get_tree().process_frame
 	await get_tree().process_frame
-	get_viewport().get_texture().get_image().save_png("/tmp/tr_%s.png" % name_)
+	get_viewport().get_texture().get_image().save_png("/tmp/trench_%s.png" % name_)
+
+
+func _frames(n: int) -> void:
+	for i in n:
+		await get_tree().physics_frame
+
+
+func _wait(sec: float) -> void:
+	await get_tree().create_timer(sec).timeout
+
+
+var _player: FpsPlayer
+
+
+func _key(k: Key) -> void:
+	var e := InputEventKey.new()
+	e.keycode = k
+	e.pressed = true
+	_player._unhandled_input(e)
 
 
 func _run() -> void:
-	var args := OS.get_cmdline_user_args()
-	render = args.has("render")
-	var secs := ["layouts", "ground", "game", "bodies", "ambience", "views", "floor", "normals", "relief", "walls", "parallax", "section", "cine"]
-	var any := false
-	for s: String in secs:
-		any = any or args.has(s)
-	for s: String in secs:
-		if not any or args.has(s):
-			await call("_" + s)
-	print("TRENCH: %d failed" % fails)
+	var room: Node3D = load("res://scenes/gore_sandbox.tscn").instantiate()
+	add_child(room)
+	await get_tree().physics_frame
+	for n in room.get_children():
+		if n is ExplosiveBarrel:
+			n.queue_free()
+	var p: FpsPlayer = room.player
+	_player = p
+	var v := p.view
+	var clowns: Array[Clown] = []
+	for c: Clown in room.clowns:
+		clowns.append(c)
+	for i in clowns.size():
+		var c := clowns[i]
+		if i == 0:
+			c.global_position = Vector3(-0.6, 0, -1.5)       # close: 3 m from the player
+		elif i == 1:
+			c.global_position = Vector3(0.6, 0, -7.5)        # far: 9 m
+		else:
+			c.global_position = Vector3(7, 0, -9 - i)
+		c.rotation.y = 0.0
+	p.global_position = Vector3(0, 0.05, 1.5)
+	p.rotation.y = 0.0
+	await _frames(30)
+
+	# --- the others as they were
+	var pw: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.PISTOL]
+	_check(pw.name == "Pistol" and pw.damage == 34.0 and pw.mag == 17 and not pw.has("shells"), "pistol unchanged")
+	var rw: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.REVOLVER]
+	_check(rw.name == "Revolver" and rw.damage == 80.0 and rw.mag == 6 and rw.pull == 0.12, "revolver unchanged")
+	_check(v._arms.has(ViewModel.REVOLVER) and not v._arms.has(ViewModel.PISTOL), "the revolver keeps its arms; the pistol its own hands")
+	var tw: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.TRENCH]
+	_check(tw.name == "Trench Shotgun" and tw.mag == 6 and tw.pellets > 1 and tw.shells and tw.pump, "Trench Shotgun: six shells, %d pellets, shell by shell, pump" % tw.pellets)
+	_check(p.ammo.size() == FpsPlayer.WEAPONS.size() and p.ammo[FpsPlayer.TRENCH] == 6, "it starts full (6)")
+
+	# --- 8 selects it
+	_key(KEY_8)
+	await _wait(ViewModel.SWAP_TIME + 0.15)
+	_check(p.weapon == FpsPlayer.TRENCH and v.weapon == ViewModel.TRENCH, "8 selects the trench gun")
+	var shown := 0
+	for gi in v._guns.size():
+		shown += int(v._guns[gi].visible)
+	_check(shown == 1 and v._guns[ViewModel.TRENCH].visible, "only the trench gun is shown")
+	if "--grip" in OS.get_cmdline_user_args() and FileAccess.file_exists("/tmp/grip_t.txt"):
+		v.apply_grip(ViewModel.TRENCH, str_to_var(FileAccess.get_file_as_string("/tmp/grip_t.txt")), v._sg_model)
+		print("      grip from /tmp/grip_t.txt")
+	if "--dump" in OS.get_cmdline_user_args():
+		_dump(v, OS.get_cmdline_user_args())
+		get_tree().quit()
+		return
+	# model, parts, textures
+	var names := {}
+	var tex_ok := false
+	for mi: MeshInstance3D in v._sg_model.find_children("*", "MeshInstance3D", true, false):
+		names[String(mi.name)] = true
+		if String(mi.name) == "Body":
+			var m := mi.mesh.surface_get_material(0) as StandardMaterial3D
+			tex_ok = m != null and m.albedo_texture != null and m.normal_texture != null and m.metallic_texture != null
+	_check(names.has("Body") and names.has("Pump") and names.has("Hammer"), "the model is in parts: body, pump, hammer")
+	_check(tex_ok, "the body keeps the Tripo colour, normal and metal/rough textures")
+	var arms: Dictionary = v._arms.get(ViewModel.TRENCH, {})
+	_check(arms.has("R") and arms.has("L"), "the rigged arms hold it (right and left)")
+	# placement
+	var cam := p.camera
+	var muzzle_cam := cam.to_local(v._sg_muzzle.global_position)
+	var dir := cam.global_basis.inverse() * (v._sg_model.global_basis * Vector3.RIGHT).normalized()
+	print("      muzzle in camera space %s, barrel direction %s" % [muzzle_cam, dir])
+	_check(muzzle_cam.x > 0.0 and muzzle_cam.y < 0.0 and muzzle_cam.z < -0.15, "shouldered low on the right, the muzzle well out in front")
+	_check(dir.dot(Vector3.FORWARD) > 0.99, "the barrel points where the player looks")
+	await _shot("0_idle")
+
+	# --- a shot at the near clown, then at the far one
+	var near: Clown = clowns[0]
+	var far: Clown = clowns[1]
+	cam.look_at(near.ragdoll.bones[&"Chest"].global_position)
+	var pitch0 := cam.rotation.x
+	var h0 := near.health
+	var r: FPArm = arms["R"]
+	var l: FPArm = arms["L"]
+	var rel0 := v._sg_model.global_transform.affine_inverse() * (r.skeleton.global_transform * r.skeleton.get_bone_global_pose(r._hand))
+	var lhome := l.position
+	p.fire()
+	var kicked := v._kick
+	var flash_ok := v._flash_mesh.visible and v._flash_mesh.global_position.distance_to(v._sg_muzzle.global_position) < 0.003
+	if render:
+		v._since_shot = -20.0
+		v._flash.light_energy = 11.0
+		v._flash_mesh.visible = true
+		await _shot("1_fired")
+		v._since_shot = 0.0
+	_check(p.ammo[FpsPlayer.TRENCH] == 5, "one shell fired (5 left)")
+	_timed(flash_ok, "the flash is at its muzzle")
+	_timed(kicked > 0.9, "it kicks back into the shoulder")
+	# the pump stroke: watch it
+	var max_s := 0.0
+	var hammer_down := 0.0
+	var left_moved := 0.0
+	var hand_worst := 0.0
+	var hulls0 := v.sg_hulls.size()
+	var climbed := 0.0
+	var t := 0.0
+	var fired_again := false
+	var shot_pump := false
+	while t < 0.9:
+		await get_tree().process_frame
+		t += get_process_delta_time()
+		max_s = maxf(max_s, v._sg_pump_s)
+		if t < 0.1:
+			hammer_down = minf(hammer_down, rad_to_deg(v._sg_hammer.rotation.z))
+		left_moved = maxf(left_moved, l.position.distance_to(lhome))
+		climbed = maxf(climbed, cam.rotation.x - pitch0)
+		var rel := v._sg_model.global_transform.affine_inverse() * (r.skeleton.global_transform * r.skeleton.get_bone_global_pose(r._hand))
+		hand_worst = maxf(hand_worst, rel.origin.distance_to(rel0.origin))
+		if v._sg_pump_s > 0.5 and not shot_pump and render:
+			shot_pump = true
+			v.set_process(false)
+			await _shot("2_pump")
+			v.set_process(true)
+		if t > 0.3 and t < 0.4 and not fired_again:
+			fired_again = true
+			p.fire()                                   # mid-stroke: must not fire
+	await _frames(10)
+	var near_dmg := h0 - near.health if not near.dead else h0
+	print("      near clown: %.0f damage%s" % [near_dmg, " (killed)" if near.dead else ""])
+	_check(near_dmg > 60.0 or near.dead, "up close it hits very hard (%.0f)" % near_dmg)
+	_timed(max_s > 0.98, "the pump comes right back after the shot (%.2f)" % max_s)
+	_check(v._sg_pump_s < 0.01 and v._sg_pump.position.distance_to(v._sg_pump_rest) < 0.0005, "and goes forward again")
+	_timed(hammer_down < -15.0, "the hammer falls on the shot (%.0f deg)" % hammer_down)
+	_check(absf(v._sg_hammer.rotation.z) < 0.01, "and the pump cocks it again")
+	_timed(v.sg_hulls.size() == hulls0 + 1, "one spent hull thrown out")
+	_timed(left_moved > 0.02, "the left hand rides the pump (%.3f)" % left_moved)
+	_check(hand_worst < 0.001, "the right hand stays on the stock through the kick (moved %.5f)" % hand_worst)
+	_timed(climbed > deg_to_rad(2.5), "the view kicks up hard (%.1f deg)" % rad_to_deg(climbed))
+	_check(p.ammo[FpsPlayer.TRENCH] == 5, "no second shot while the pump is being worked")
+	if v.sg_hulls.size() > 0:
+		await _wait(1.0)
+		var hull := v.sg_hulls[-1]
+		print("      hull at %s (player at %s)" % [hull.global_position, p.global_position])
+		_check(is_instance_valid(hull) and hull.global_position.y < 0.3 and hull.global_position.distance_to(p.global_position) < 4.0, "the hull lands on the floor nearby")
+	# far: much less per pellet
+	await _wait(0.3)
+	cam.look_at(far.ragdoll.bones[&"Chest"].global_position)
+	var hf := far.health
+	p.fire()
+	await _frames(12)
+	var far_dmg := hf - far.health if not far.dead else hf
+	print("      far clown (9 m): %.0f damage" % far_dmg)
+	_check(far_dmg > 0.0 and far_dmg < near_dmg * 0.6, "at 9 m it still hits but does far less (%.0f vs %.0f up close)" % [far_dmg, near_dmg])
+	# the falloff itself, per pellet, as the game works it out
+	var per := func(d: float) -> float: return clampf(1.0 - maxf(d - tw.falloff * 0.4, 0.0) / tw.falloff, 0.2, 1.0) * tw.damage
+	print("      per pellet: %.1f at 2 m, %.1f at 6 m, %.1f at 9 m, %.1f at 15 m" % [per.call(2.0), per.call(6.0), per.call(9.0), per.call(15.0)])
+	_check(per.call(15.0) <= per.call(2.0) * 0.25, "falloff: a pellet at 15 m does a fifth of what it does at 2 m")
+	await _wait(1.0)
+
+	# --- shell-by-shell reload, interrupted by a shot
+	cam.rotation.x = 0.0
+	cam.look_at(cam.global_position + Vector3(-0.3, -0.05, -1.0))
+	await _wait(1.0)
+	p.fire()                                           # down to 2 or 3, room to load
+	await _wait(1.0)
+	var a0 := p.ammo[FpsPlayer.TRENCH]
+	p.reload()
+	_check(v.reloading(), "R starts loading (%d in)" % a0)
+	var steps: Array[float] = []
+	var last := a0
+	var tt := 0.0
+	var shot_loading := false
+	while tt < ViewModel.SHELL_INTRO + ViewModel.SHELL_TIME * 1.9:
+		await get_tree().process_frame
+		tt += get_process_delta_time()
+		var now := p.ammo[FpsPlayer.TRENCH]
+		if now != last:
+			steps.append(float(now - last))
+			last = now
+		if render and not shot_loading and tt > ViewModel.SHELL_INTRO + ViewModel.SHELL_TIME * 0.55:
+			shot_loading = true
+			v.set_process(false)
+			await _shot("3_loading")
+			v.set_process(true)
+	var a1 := p.ammo[FpsPlayer.TRENCH]
+	print("      shells went in one by one: %s (%d -> %d)" % [steps, a0, a1])
+	_timed(steps.size() >= 1 and steps.max() == 1.0 and a1 < 6, "one shell at a time (%d -> %d)" % [a0, a1])
+	p.fire()
+	await _frames(3)
+	_check(not v.reloading() and p.ammo[FpsPlayer.TRENCH] == a1 - 1, "a shot breaks off the loading and goes")
+	await _wait(1.0)
+	_check(l.position.distance_to(lhome) < 0.002, "the left hand is back on the pump")
+	p.reload()
+	await _wait(ViewModel.SHELL_INTRO + ViewModel.SHELL_TIME * 7)
+	_timed(p.ammo[FpsPlayer.TRENCH] == 6 and not v.reloading(), "loads up to six and stops (%d)" % p.ammo[FpsPlayer.TRENCH])
+
+	# --- switching
+	_key(KEY_1)
+	await _wait(ViewModel.SWAP_TIME + 0.15)
+	_check(p.weapon == FpsPlayer.PISTOL and not v._guns[ViewModel.TRENCH].visible and v._guns[ViewModel.PISTOL].visible, "1: the pistol, the trench gun put away")
+	_key(KEY_7)
+	await _wait(ViewModel.SWAP_TIME + 0.15)
+	_check(p.weapon == FpsPlayer.REVOLVER and v._guns[ViewModel.REVOLVER].visible and v._rev_model != null, "7: the revolver")
+	await _shot("4_revolver")
+	_key(KEY_8)
+	await _wait(ViewModel.SWAP_TIME + 0.15)
+	_check(p.weapon == FpsPlayer.TRENCH and r.is_visible_in_tree() and l.is_visible_in_tree(), "8: back to the trench gun, arms and all")
+	_key(KEY_2)
+	await _wait(ViewModel.SWAP_TIME + 0.15)
+	_check(p.weapon == FpsPlayer.SHOTGUN and p.ammo[FpsPlayer.SHOTGUN] == 6, "2: the old shotgun is still there, its own ammunition")
+
+	if render:
+		_key(KEY_8)
+		await _wait(ViewModel.SWAP_TIME + 0.3)
+		p.set_process(false); p.set_physics_process(false); v.set_process(false)
+		var oc := Camera3D.new(); add_child(oc)
+		oc.projection = Camera3D.PROJECTION_ORTHOGONAL
+		var g := v._sg_model.global_transform
+		for k: Array in [["right", Vector3(0, 0, 1), Vector3(-0.02, 0.10, 0), 1.15], ["left", Vector3(0, 0, -1), Vector3(-0.02, 0.10, 0), 1.15],
+				["rhand", Vector3(0, 0.2, 1), Vector3(-0.21, 0.10, 0), 0.30], ["rhand_l", Vector3(0, 0.2, -1), Vector3(-0.21, 0.10, 0), 0.30],
+				["lhand", Vector3(0, -0.4, -1), Vector3(0.20, 0.11, 0), 0.30], ["lhand_r", Vector3(0, -0.3, 1), Vector3(0.20, 0.11, 0), 0.30],
+				["shield", Vector3(0.1, 0.6, 1), Vector3(0.24, 0.15, 0), 0.32]]:
+			var dir_: Vector3 = (g.basis * k[1]).normalized()
+			var centre: Vector3 = g * k[2]
+			oc.size = float(k[3]) * ViewModel.SHRINK
+			oc.global_position = centre + dir_ * 0.8
+			oc.look_at(centre, g.basis.y.normalized())
+			oc.near = 0.005
+			oc.make_current()
+			await _shot("out_" + String(k[0]))
+	print("TRENCH: %d failed" % failed)
 	get_tree().quit()
 
 
-func _make(seed_: int) -> TrenchMaze:
-	var m := TrenchMaze.new()
-	add_child(m)
-	m.generate(0, 0, seed_)
-	return m
-
-
-func _layouts() -> void:
-	print("-- layouts")
-	var bad := 0
-	var lengths: Array[float] = []
-	var routes: Array[float] = []
-	var times: Array[float] = []
-	var missing := {}
-	for s in 30:
-		var t0 := Time.get_ticks_msec()
-		var m := TrenchMaze.new()
-		m.w = TrenchMaze.GRID_W
-		m.d = TrenchMaze.GRID_D
-		m.rng.seed = 1000 + s
-		var ok := false
-		for attempt in 40:
-			m._reset()
-			if m._layout():
-				ok = true
-				break
-		times.append(Time.get_ticks_msec() - t0)
-		if not ok:
-			bad += 1
-			m.free()
-			continue
-		lengths.append(m.open_cells.size() * m.cell)
-		m._astar.clear()
-		for c: Vector2i in m.open_cells:
-			m._astar.add_point(m.idx(c), Vector2(c.x, c.y))
-		for k: String in m.links:
-			var p := k.split("|")
-			m._astar.connect_points(int(p[0]), int(p[1]))
-		routes.append(m._astar.get_id_path(m.idx(m.start_cell), m.idx(m.exit_cell)).size() * m.cell)
-		for need: String in ["dugout", "gunpit", "op", "tree", "flood_junction"]:
-			if not m.landmarks.any(func(l: Dictionary) -> bool: return l.kind == need):
-				missing[need] = missing.get(need, 0) + 1
-		# no stray contact: every pair of touching open cells is linked
-		for c: Vector2i in m.open_cells:
-			for dir in Maze.DIRS:
-				if m.open_cells.has(c + dir) and not m.linked(c, c + dir):
-					bad += 1
-		if s == 0 and OS.get_cmdline_user_args().has("ascii"):
-			print(m.ascii())
-		m.free()
-	print("      %d of 30 failed; trench %.0f-%.0f m (avg %.0f); start to exit %.0f-%.0f m; layout %.0f ms avg; missing %s" % [
-		bad, lengths.min(), lengths.max(), _avg(lengths), routes.min(), routes.max(), _avg(times), missing])
-	_check(bad == 0, "every layout made, every cell reachable, nothing touching unlinked")
-	_check(_avg(lengths) >= 180.0 and _avg(lengths) <= 340.0, "about 2-3x a bunker floor of trench (%.0f m)" % _avg(lengths))
-	_check(missing.get("dugout", 0) + missing.get("op", 0) + missing.get("tree", 0) < 6, "the landmarks are nearly always there (%s)" % missing)
-
-
-func _avg(a: Array) -> float:
-	var s := 0.0
-	for v in a:
-		s += v
-	return s / maxf(a.size(), 1)
-
-
-func _ground() -> void:
-	print("-- ground")
-	var t0 := Time.get_ticks_msec()
-	var m := _make(77)
-	print("      built in %d ms; %d x %d samples" % [Time.get_ticks_msec() - t0, m.hx, m.hz])
-	if OS.get_cmdline_user_args().has("ascii"):
-		print(m.ascii())
-	await _frames(3)
-	var space := m.get_world_3d().direct_space_state
-	var worst := 0.0
-	var depths: Array[float] = []
-	for c: Vector2i in m.route:
-		var p := m.cell_center(c)
-		var q := PhysicsRayQueryParameters3D.create(p + Vector3.UP * 3.0, p + Vector3.DOWN * 3.0, 1)
-		var hit := space.intersect_ray(q)
-		if hit.is_empty():
-			worst = 99.0
-			continue
-		worst = maxf(worst, absf((hit.position as Vector3).y - p.y))
-		depths.append(m.ground_height(p.x + 3.0, p.z) - p.y)
-	print("      collision vs floor_height along the route: worst %.3f m" % worst)
-	_check(worst < 0.03, "the collision is the walked surface")
-	m.queue_free()
-	await _frames(2)
-
-
-var game: Node3D
-
-
-func _new_game(floor_: int) -> void:
-	if game == null:
-		Engine.set_meta(&"test_save", true)
-		game = load("res://scenes/game.tscn").instantiate()
-		add_child(game)
-		await _frames(2)
-		FpsPlayer.god_mode = true
-	game.start_run()
-	game.floor_number = floor_ - 1
-	var t0 := Time.get_ticks_msec()
-	game.next_floor()
-	if game.maze is TrenchMaze:
-		print("      trench floor built in %d ms" % (Time.get_ticks_msec() - t0))
-	await _frames(3)
-
-
-func _game() -> void:
-	print("-- game")
-	var kinds := []
-	for f in [1, 2, 3, 4, 6]:
-		await _new_game(f)
-		kinds.append("%d:%s" % [game.floor_number, "trench" if game.maze is TrenchMaze else "bunker"])
-		if f == 3:
-			var env: Environment = game._world_env.environment
-			_check(env.ambient_light_source == Environment.AMBIENT_SOURCE_SKY and env.ambient_light_energy > 0.5 and env.fog_mode == Environment.FOG_MODE_DEPTH and env.adjustment_color_correction != null, "overcast sky light, depth haze and the cold grade on the trench floor")
-			var counts := {}
-			for c: Clown in game.clowns:
-				counts[c.body] = counts.get(c.body, 0) + 1
-			print("      floor 3 enemies: %s" % counts)
-			var soldiers: int = game.clowns.filter(func(c: Clown) -> bool: return c.body != "clown").size()
-			_check(soldiers >= game.clowns.size() * 0.6, "mostly soldiers (%d of %d)" % [soldiers, game.clowns.size()])
-			var m: TrenchMaze = game.maze
-			var ex: Vector3 = game._exit.global_position
-			_check(m.is_open(m.cell_of(ex)) and absf(ex.y - m.floor_height(ex)) < 0.1, "the exit door stands on the floor in the end of the fire trench")
-			await _walk(m)
-		if f == 4:
-			_check(game._world_env.environment == game._bunker_env, "back to the bunker's dark below ground")
-	print("      floors: %s" % [kinds])
-	_check(kinds == ["1:bunker", "2:bunker", "3:trench", "4:bunker", "6:trench"], "every third floor is the trenches")
-
-
-## Walk the player along the whole route by input-free velocity: he should
-## follow the floor (duckboards, slopes) and never fall through or stick.
-func _walk(m: TrenchMaze) -> void:
-	var p: FpsPlayer = game.player
-	for c: Clown in game.clowns:
-		c.queue_free()
-	game.clowns.clear()
-	await _frames(2)
-	p.global_position = m.cell_center(m.route[0]) + Vector3.UP * 0.2
-	var stuck := 0
-	var worst_off := 0.0
-	var reached := 0
-	_key(KEY_W, true)
-	for i in range(1, m.route.size()):
-		var target := m.cell_center(m.route[i])
-		var t := 0.0
-		while t < 2.5:
-			var to := target - p.global_position
-			to.y = 0.0
-			if to.length() < 0.35:
-				break
-			p.rotation.y = atan2(-to.x, -to.z)        # walk at it (forward is -Z)
-			await get_tree().physics_frame
-			t += 1.0 / 60.0
-			worst_off = maxf(worst_off, absf(p.global_position.y - m.floor_height(p.global_position)))
-		if t >= 2.5:
-			stuck += 1
-		else:
-			reached += 1
-	_key(KEY_W, false)
-	print("      walked the route: %d of %d cells reached, %d stuck, worst height off the walked surface %.2f m" % [reached, m.route.size() - 1, stuck, worst_off])
-	_check(stuck == 0, "the player walks the whole route, start to exit")
-	_check(worst_off < 0.5, "and stays on the ground (%.2f m)" % worst_off)
-
-
-func _key(k: Key, down: bool) -> void:
-	var e := InputEventKey.new()
-	e.keycode = k
-	e.physical_keycode = k
-	e.pressed = down
-	Input.parse_input_event(e)
-
-
-func _bodies() -> void:
-	print("-- bodies")
-	await _new_game(3)
-	var m: TrenchMaze = game.maze
-	for c: Clown in game.clowns:
-		c.queue_free()
-	game.clowns.clear()
-	await _frames(2)
-	game.player.global_position = m.cell_center(m.start_cell) + Vector3.UP * 0.2
-	# spots: on a duckboard, in water, on a fire step, against a wall
-	var spots := {}
-	for d: Dictionary in m.duckboards:
-		if d.sunk == 0.0 and not spots.has("duckboard"):
-			spots["duckboard"] = ((d.a as Vector3) + (d.b as Vector3)) * 0.5
-	for wa: Dictionary in m.water:
-		var cells: Array = wa.cells
-		spots["water"] = m.cell_center(cells[0])
-		break
-	for c: Vector2i in m.bays:
-		var r := m._rect(c)
-		spots["fire step"] = Vector3(r.get_center().x, 0, r.position.y + 0.3)
-		break
-	for c: Vector2i in m.open_cells:
-		if m.wall(c, Vector2i(1, 0)) == "earth":
-			var r := m._rect(c)
-			spots["earth wall"] = Vector3(r.end.x - 0.35, 0, r.get_center().y)
-			break
-	var kinds := ["witzsoldat", "clown", "rattlejack", "klappersoldat"]
-	var i := 0
-	var victims := {}
-	for name_: String in spots:
-		var p: Vector3 = spots[name_]
-		p.y = m.floor_height(p)
-		var c: Clown
-		match kinds[i % kinds.size()]:
-			"rattlejack": c = game.spawn_rattlejack()
-			"klappersoldat": c = game.spawn_klapper()
-			_: c = game._spawn_clown(kinds[i % kinds.size()] == "witzsoldat", false)
-		c.global_position = p
-		var b := c.get_node_or_null("Brain")
-		if b:
-			b.set_process(false)
-			b.set_physics_process(false)
-		victims[name_] = c
-		i += 1
-	await _frames(20)
-	for name_: String in victims:
-		var c: Clown = victims[name_]
-		var chest: PhysicalBone3D = c.ragdoll.bones[&"Chest"]
-		var dir := Vector3(randf_range(-1, 1), -0.1, randf_range(-1, 1)).normalized()
-		c.hit({collider = chest, position = chest.global_position - dir * 0.1, direction = dir, damage = 500.0, impulse = 18.0, shot_id = randi()})
-	# and a Carnival Curse on a WitzSoldat in the middle of a trench
-	var cc: Clown = game._spawn_clown(true, false)
-	var cp := m.cell_center(m.route[m.route.size() / 2])
-	cc.global_position = cp
-	await _frames(15)
-	var cursed: bool = cc.begin_curse({}, cc.global_position + Vector3.UP * 1.3, -cc.global_basis.z)
-	await _frames(60 * 6)
-	for name_: String in victims:
-		var c: Clown = victims[name_]
-		_report(m, name_, c)
-	_check(cursed, "the curse takes a WitzSoldat in the trench")
-	if is_instance_valid(cc):
-		_report(m, "cursed", cc)
-		var info: Dictionary = cc.get_meta(&"curse", {})
-		_check(info.get("handover_at", -1.0) > 2.0, "the execution ran to the ragdoll (%.2f s)" % info.get("handover_at", -1.0))
-	print("      blood pools %d" % Blood.pools().size())
-	_check(Blood.pools().size() >= 2, "blood pools on the trench floor")
-
-
-func _ambience() -> void:
-	print("-- ambience")
-	await _new_game(3)
-	var m: TrenchMaze = game.maze
-	for c: Clown in game.clowns:
-		c.queue_free()
-	game.clowns.clear()
-	var amb: TrenchAmbience = m.get_node("Art/Ambience")
-	var art: TrenchArt = m.get_node("Art")
-	var p: FpsPlayer = game.player
-	var hp := p.health
-	FpsPlayer.god_mode = false
-	await _walk(m)
-	# and through the water
-	for wa: Dictionary in m.water:
-		var cells: Array = wa.cells
-		p.global_position = m.cell_center(cells[0]) + Vector3.UP * 0.2
-		await _frames(5)
-		_key(KEY_W, true)
-		for i in 90:
-			var to := m.cell_center(cells[mini(1, cells.size() - 1)]) - p.global_position
-			if Vector2(to.x, to.z).length() < 0.3:
-				to = m.cell_center(cells[0]) - p.global_position
-			p.rotation.y = atan2(-to.x, -to.z)
-			await get_tree().physics_frame
-		_key(KEY_W, false)
-		break
-	# stand by the music box a while
-	if art.music_box != Vector3.INF:
-		amb._t_tune = 0.5
-		p.global_position = m.cell_center(m.cell_of(art.music_box)) + Vector3.UP * 0.2
-		await _frames(60)
-	print("      steps %s; shells %d (flashes %d); tunes %d; health %.0f -> %.0f" % [amb.steps, amb.booms, amb.flashes, amb.tunes, hp, p.health])
-	_check(amb.steps.get("mud", 0) + amb.steps.get("wood", 0) > 20, "footsteps along the trench (mud and duckboards)")
-	_check(amb.steps.get("wood", 0) > 5, "duckboards sound like wood")
-	_check(amb.steps.get("water", 0) > 0 or m.water.is_empty(), "wading the flooded stretch splashes")
-	_check(amb.booms > 0 and amb.flashes > 0, "the guns far off: flashes and booms")
-	_check(art.music_box == Vector3.INF or amb.tunes > 0, "the music box plays when you are by it")
-	_check(p.health >= hp, "none of it hurts")
-	FpsPlayer.god_mode = true
-	var counts := {}
-	for mmi in art.find_children("*", "MultiMeshInstance3D", false, false):
-		counts[mmi.name] = (mmi as MultiMeshInstance3D).multimesh.instance_count
-	print("      dressing: %s" % counts)
-	_check(art.get_node_or_null("Wire") != null and art.get_node_or_null("Balloon") != null, "wire in No Man's Land, a red balloon caught on it")
-	_check(art.find_children("*", "Label3D", false, false).size() >= 4, "signs at the junctions (%d)" % art.find_children("*", "Label3D", false, false).size())
-	_check(counts.get("crates", 0) >= 4 and counts.get("helmets", 0) + counts.get("tins", 0) > 3, "clutter about the place")
-
-
-func _report(m: TrenchMaze, name_: String, c: Clown) -> void:
-	var lowest := 9.0
-	var hips := 9.0
-	var under := 0.0
-	for bn: StringName in c.ragdoll.bones:
-		var pb: PhysicalBone3D = c.ragdoll.bones[bn]
-		var g := m.floor_height(pb.global_position)
-		var off := pb.global_position.y - g
-		lowest = minf(lowest, off)
-		if bn == &"Hips":
-			hips = off
-		under = minf(under, off)
-	var speed := 0.0
-	for pb: PhysicalBone3D in c.ragdoll.bones.values():
-		speed = maxf(speed, pb.linear_velocity.length())
-	print("      %s (%s): hips %.2f m above the walked surface, lowest bone %.2f, moving %.2f m/s" % [name_, c.body, hips, lowest, speed])
-	# slumped against the sloping earth wall a body can end up sitting: allow more there
-	var top := 0.8 if name_ == "earth wall" else 0.6
-	_check(hips > -0.12 and hips < top and lowest > -0.2, "%s: lying on the ground, not floating or through it" % name_)
-	_check(speed < 0.3, "%s: at rest" % name_)
-
-
-## Render only: normal-map orientation through the mud shader. Textures
-## made the way tools/gen_trench_textures.py makes them (OpenGL: red = -dh/du,
-## green = +dh/drow, i.e. tilted toward the top of the image) from a known
-## slope, compressed to two channels as the import does, on the ground up
-## top, the trench floor and walls facing each way; the shader's world normal
-## (debug_view) must lean away from the uphill side.
-func _normals() -> void:
-	if not render:
-		return
-	print("-- normals")
-	var env := WorldEnvironment.new()
-	var e := Environment.new()
-	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color.BLACK
-	e.ambient_light_source = Environment.AMBIENT_SOURCE_DISABLED
-	e.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
-	e.tonemap_mode = Environment.TONE_MAPPER_LINEAR
-	env.environment = e
-	add_child(env)
-	var cam := Camera3D.new()
-	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-	cam.size = 1.0
-	add_child(cam)
-	cam.make_current()
-	var ramps := {"u": _ramp_tex(true), "row": _ramp_tex(false)}
-	var shader: Shader = load("res://shaders/mud_terrain.gdshader" if not OS.get_cmdline_user_args().has("oldshader") else "res://shaders/zz_old_mud.gdshader")
-	# surfaces: name, centre, outward normal, which world axis the texture's u
-	# runs along, which way image-down (row) runs, floor mask, distance from edge
-	var surfaces := [
-		["ground", Vector3(0, 0, 0), Vector3.UP, Vector3.RIGHT, Vector3.BACK, 0.0, 1.0],
-		["floor", Vector3(0, 0, 0), Vector3.UP, Vector3.RIGHT, Vector3.BACK, 1.0, 0.0],
-		["wall +x", Vector3(0, 0, 0), Vector3.RIGHT, Vector3.BACK, Vector3.DOWN, 0.0, 0.2],
-		["wall -x", Vector3(0, 0, 0), Vector3.LEFT, Vector3.BACK, Vector3.DOWN, 0.0, 0.2],
-		["wall +z", Vector3(0, 0, 0), Vector3.BACK, Vector3.RIGHT, Vector3.DOWN, 0.0, 0.2],
-		["wall -z", Vector3(0, 0, 0), Vector3.FORWARD, Vector3.RIGHT, Vector3.DOWN, 0.0, 0.2],
-	]
-	var bad := 0
-	var lines := []
-	var bimg := Image.create(4, 4, false, Image.FORMAT_RGB8)
-	bimg.fill(Color.BLACK)
-	var black := ImageTexture.create_from_image(bimg)
-	for sf: Array in surfaces:
-		for ramp: String in ramps:
-			var mat := ShaderMaterial.new()
-			mat.shader = shader
-			for k in ["wall_n", "rocks_n", "firm_n", "floor_n"]:
-				mat.set_shader_parameter(k, ramps[ramp])
-			mat.set_shader_parameter("noise_tex", black)        # no puddles over the test surface
-			mat.set_shader_parameter("floor_scan", sf[0] == "floor")
-			mat.set_shader_parameter("floor_depth", 0.0)
-			mat.set_shader_parameter("debug_view", 1)
-			var mi := MeshInstance3D.new()
-			mi.mesh = _quad(sf[2], Color(0.0, sf[5], sf[6] * 0.5, 0.5))
-			mi.material_override = mat
-			add_child(mi)
-			var out: Vector3 = sf[2]
-			cam.global_position = out * 3.0
-			cam.look_at(Vector3.ZERO, Vector3.FORWARD if absf(out.y) > 0.9 else Vector3.UP)
-			await _frames(3 if not lines.is_empty() else 30)   # the first waits for the shader to compile
-			await get_tree().process_frame
-			var img := get_viewport().get_texture().get_image()
-			var c := img.get_pixel(img.get_width() / 2, img.get_height() / 2).srgb_to_linear()
-			var nrm := Vector3(c.r, c.g, c.b) * 2.0 - Vector3.ONE
-			# uphill: along u for the u ramp, along image-down for the row ramp
-			var uphill: Vector3 = sf[3] if ramp == "u" else sf[4]
-			var lean := nrm.dot(uphill)
-			var faces := nrm.dot(out)
-			var ok := lean < -0.1 and faces > 0.5
-			if not ok:
-				bad += 1
-			lines.append("%s, slope along %s: normal (%.2f, %.2f, %.2f), toward uphill %.2f, outward %.2f %s" % [sf[0], ramp, nrm.x, nrm.y, nrm.z, lean, faces, "" if ok else "  <- WRONG"])
-			mi.queue_free()
-			await _frames(1)
-	# the props' shader (pbr_object): a board (grain along it) and an iron
-	# sheet (rust running down), faces each way. Expected (u, v) per face, as
-	# the shader maps them with variation off: the uphill side is +u for a
-	# slope along u, +v (down the image) for a slope down the rows.
-	var obj_shader: Shader = load("res://shaders/pbr_object.gdshader")
-	var props := [
-		["board +z", true, Vector3.BACK, Vector3.UP, Vector3.RIGHT],
-		["board -z", true, Vector3.FORWARD, Vector3.UP, Vector3.RIGHT],
-		["board +y", true, Vector3.UP, Vector3.BACK, Vector3.RIGHT],
-		["board +x", true, Vector3.RIGHT, Vector3.BACK, Vector3.UP],
-		["iron +z", false, Vector3.BACK, Vector3.RIGHT, Vector3.DOWN],
-		["iron -x", false, Vector3.LEFT, Vector3.BACK, Vector3.DOWN],
-		["iron +y", false, Vector3.UP, Vector3.RIGHT, Vector3.BACK],
-	]
-	for pr: Array in props:
-		for ramp: String in ramps:
-			var mat := ShaderMaterial.new()
-			mat.shader = obj_shader
-			mat.set_shader_parameter("normal_tex", ramps[ramp])
-			mat.set_shader_parameter("noise_tex", black)
-			mat.set_shader_parameter("grain", pr[1])
-			mat.set_shader_parameter("vary", false)
-			mat.set_shader_parameter("debug_view", 1)
-			var mi := MeshInstance3D.new()
-			var bm := BoxMesh.new()
-			mi.mesh = bm
-			mi.scale = Vector3(2.0, 0.6, 0.3) if pr[1] else Vector3(1.4, 2.0, 0.4)
-			mi.material_override = mat
-			add_child(mi)
-			var out: Vector3 = pr[2]
-			cam.size = 0.1
-			cam.global_position = out * 3.0
-			cam.look_at(Vector3.ZERO, Vector3.FORWARD if absf(out.y) > 0.9 else Vector3.UP)
-			await _frames(30 if pr == props[0] and ramp == "u" else 3)
-			await get_tree().process_frame
-			var img := get_viewport().get_texture().get_image()
-			var c := img.get_pixel(img.get_width() / 2, img.get_height() / 2).srgb_to_linear()
-			var nrm := Vector3(c.r, c.g, c.b) * 2.0 - Vector3.ONE
-			var uphill: Vector3 = pr[3] if ramp == "u" else pr[4]
-			var lean := nrm.dot(uphill)
-			var faces := nrm.dot(out)
-			var ok := lean < -0.1 and faces > 0.5
-			if not ok:
-				bad += 1
-			lines.append("%s, slope along %s: normal (%.2f, %.2f, %.2f), toward uphill %.2f, outward %.2f %s" % [pr[0], ramp, nrm.x, nrm.y, nrm.z, lean, faces, "" if ok else "  <- WRONG"])
-			mi.queue_free()
-			await _frames(1)
-	for l: String in lines:
-		print("      " + l)
-	_check(bad == 0, "raised detail leans away from the uphill side, and faces out, on every surface (%d wrong)" % bad)
-	env.queue_free()
-	cam.queue_free()
-
-
-## Render only: raised and recessed detail lit. A normal map of three
-## domes and a groove (encoded as the generator does, compressed like the
-## import) on a patch of ground and a wall, a low sun from the right: the
-## domes should be lit on their right, the groove's right-hand bank in shade
-## (/tmp/tr_relief.png; "oldshader" uses shaders/zz_old_mud.gdshader).
-func _relief() -> void:
-	if not render:
-		return
-	print("-- relief")
-	var env := WorldEnvironment.new()
-	var e := Environment.new()
-	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color(0.1, 0.1, 0.12)
-	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(0.25, 0.25, 0.25)
-	env.environment = e
-	add_child(env)
-	var sun := DirectionalLight3D.new()
-	add_child(sun)
-	var tex := _relief_tex()
-	var gimg := Image.create(4, 4, false, Image.FORMAT_RGB8)
-	gimg.fill(Color(0.55, 0.5, 0.45))
-	var grey := ImageTexture.create_from_image(gimg)
-	var bimg := Image.create(4, 4, false, Image.FORMAT_RGB8)
-	bimg.fill(Color.BLACK)
-	var black := ImageTexture.create_from_image(bimg)
-	var path := "res://shaders/mud_terrain.gdshader" if not OS.get_cmdline_user_args().has("oldshader") else "res://shaders/zz_old_mud.gdshader"
-	var mat := ShaderMaterial.new()
-	mat.shader = load(path)
-	for k in ["churned", "sludge", "wall", "firm"]:
-		mat.set_shader_parameter(k + "_n", tex)
-		mat.set_shader_parameter(k + "_a", grey)
-	mat.set_shader_parameter("noise_tex", black)
-	mat.set_shader_parameter("floor_scan", false)
-	mat.set_shader_parameter("mud_tile", 2.0)
-	mat.set_shader_parameter("wall_tile", 2.0)
-	var cam := Camera3D.new()
-	cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-	cam.size = 2.0
-	add_child(cam)
-	cam.make_current()
-	var shots := []
-	for out: Vector3 in [Vector3.UP, Vector3.BACK, Vector3.LEFT]:
-		var mi := MeshInstance3D.new()
-		mi.mesh = _quad(out, Color(0.0, 0.0, 0.5 if out == Vector3.UP else 0.1, 0.5))
-		mi.material_override = mat
-		# the patch lines up with one texture tile
-		mi.position = Vector3(1, 0, 1) if out == Vector3.UP else (Vector3(1, -1, 0) if out == Vector3.BACK else Vector3(0, -1, 1))
-		add_child(mi)
-		# a low sun from the right of the view (and a little from above)
-		var right := Vector3.RIGHT if out == Vector3.UP else (Vector3.RIGHT if out == Vector3.BACK else Vector3.FORWARD)
-		var up := Vector3.FORWARD if out == Vector3.UP else Vector3.UP
-		var toward_light := (right * 0.85 + out * 0.45 + up * 0.25).normalized()
-		sun.look_at_from_position(Vector3.ZERO, -toward_light, Vector3.UP if absf(toward_light.y) < 0.95 else Vector3.RIGHT)
-		cam.global_position = mi.position + out * 3.0
-		cam.look_at(mi.position, up)
-		await _frames(30 if shots.is_empty() else 4)
-		await get_tree().process_frame
-		shots.append(get_viewport().get_texture().get_image())
-		mi.queue_free()
-	var w: int = shots[0].get_width()
-	var h: int = shots[0].get_height()
-	var sheet := Image.create(w * shots.size(), h, false, shots[0].get_format())
-	for i in shots.size():
-		sheet.blit_rect(shots[i], Rect2i(0, 0, w, h), Vector2i(i * w, 0))
-	sheet.save_png("/tmp/tr_relief%s.png" % ("_old" if OS.get_cmdline_user_args().has("oldshader") else ""))
-	env.queue_free()
-	sun.queue_free()
-	cam.queue_free()
-
-
-## Three raised domes and a sunken groove, as a normal map.
-func _relief_tex() -> Texture2D:
-	var n := 128
-	var hgt := PackedFloat32Array()
-	hgt.resize(n * n)
-	for y in n:
-		for x in n:
-			var v := 0.0
-			for d: Vector3 in [Vector3(0.25, 0.3, 0.13), Vector3(0.7, 0.28, 0.1), Vector3(0.3, 0.75, 0.12)]:
-				var r := Vector2(x / float(n) - d.x, y / float(n) - d.y).length() / d.z
-				v += maxf(0.0, 1.0 - r * r)
-			var gx := x / float(n) - 0.72
-			if absf(y / float(n) - 0.72) < 0.18:
-				v -= maxf(0.0, 1.0 - (gx * gx) / (0.06 * 0.06))     # the groove, running down the image
-			hgt[x + y * n] = v
-	var img := Image.create(n, n, false, Image.FORMAT_RGB8)
-	for y in n:
-		for x in n:
-			var gxx := (hgt[(x + 1) % n + y * n] - hgt[(x - 1 + n) % n + y * n]) * 0.5 * n / 6.0
-			var gyy := (hgt[x + ((y + 1) % n) * n] - hgt[x + ((y - 1 + n) % n) * n]) * 0.5 * n / 6.0
-			var nn := Vector3(-gxx, gyy, 1.0).normalized()       # as tools/gen_trench_textures.py: nx = -gx, ny = +gy
-			img.set_pixel(x, y, Color(nn.x * 0.5 + 0.5, nn.y * 0.5 + 0.5, nn.z * 0.5 + 0.5))
-	img.generate_mipmaps()
-	img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_NORMAL)
-	return ImageTexture.create_from_image(img)
-
-
-## A normal map of a plain slope, encoded as the texture generator does
-## (OpenGL), compressed to two channels like the import.
-func _ramp_tex(along_u: bool) -> Texture2D:
-	var img := Image.create(64, 64, false, Image.FORMAT_RGB8)
-	var k := 0.6
-	var nrm := Vector3(-k, 0.0, 1.0) if along_u else Vector3(0.0, k, 1.0)
-	nrm = nrm.normalized()
-	img.fill(Color(nrm.x * 0.5 + 0.5, nrm.y * 0.5 + 0.5, nrm.z * 0.5 + 0.5))
-	img.generate_mipmaps()
-	img.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_NORMAL)
-	return ImageTexture.create_from_image(img)
-
-
-## A 2 m quad through the origin facing `out`, with vertex colour `col`.
-func _quad(out: Vector3, col: Color) -> Mesh:
-	var a := out.cross(Vector3.UP if absf(out.y) < 0.9 else Vector3.RIGHT).normalized()
-	var b := out.cross(a).normalized()
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st.set_normal(out)
-	st.set_color(col)
-	var p := [-a - b, a - b, a + b, -a + b]
-	for i: int in [0, 2, 1, 0, 3, 2]:
-		st.add_vertex(p[i])
-	var m := st.commit()
-	return m
-
-
-## Render only: the walls and the ground up top in the game's light, with the
-## current shader and (if shaders/zz_old_mud.gdshader is there) the old one
-## (/tmp/tr_walls_<view>_new|old.png).
-func _walls() -> void:
-	if not render:
-		return
-	print("-- walls")
-	await _new_game(3)
-	var m: TrenchMaze = game.maze
-	game.player.visible = false
-	for c: Clown in game.clowns:
-		c.queue_free()
-	game.clowns.clear()
-	var cam := Camera3D.new()
-	add_child(cam)
-	cam.make_current()
-	cam.fov = 70.0
-	var mats := _mud_mats(m)
-	var k := m.route.size() / 2
-	var p := m.cell_center(m.route[k])
-	var shots := {
-		"trench": [p + Vector3.UP * 1.65, m.cell_center(m.route[k + 2]) + Vector3.UP * 1.2],
-		"wall": [p + Vector3.UP * 1.3, p + Vector3(0.0, 1.0, -1.0)],
-		"earth": [p + Vector3.UP * 1.3, p + Vector3(0.0, 1.0, -1.0)],
-		"top": [Vector3(m.w * m.cell * 0.5, 2.2, m.d * m.cell * 0.6), Vector3(m.w * m.cell * 0.5 + 4.0, 0.0, m.d * m.cell * 0.6 - 6.0)],
-	}
-	# a bare earth wall, seen across the trench
-	for c: Vector2i in m.open_cells:
-		var hit := false
-		for dir in Maze.DIRS:
-			if m.wall(c, dir) == "earth" and m.wall(c, -dir) == "earth" and m.kind[c] == "comm":
-				var cc := m.cell_center(c)
-				shots["earth"] = [cc + Vector3(-dir.x, 0, -dir.y) * 0.55 + Vector3.UP * 1.4, cc + Vector3(dir.x, 0, dir.y) * 1.2 + Vector3.UP * 0.9]
-				hit = true
-				break
-		if hit:
-			break
-	var old_path := "res://shaders/zz_old_mud.gdshader"
-	var versions := ["new"]
-	if ResourceLoader.exists(old_path):
-		versions.append("old")
-	for v: String in versions:
-		for sm in mats:
-			sm.shader = load("res://shaders/mud_terrain.gdshader" if v == "new" else old_path)
-		for name_: String in shots:
-			cam.global_position = shots[name_][0]
-			cam.look_at(shots[name_][1])
-			await _frames(30 if name_ == "trench" else 4)
-			await _shot("walls_%s_%s" % [name_, v])
-
-
-func _mud_mats(m: TrenchMaze) -> Array[ShaderMaterial]:
-	var mats: Array[ShaderMaterial] = []
-	for mi in m.get_node("Art").get_children():
-		if mi is MeshInstance3D and (mi as MeshInstance3D).material_override is ShaderMaterial:
-			var sm := (mi as MeshInstance3D).material_override as ShaderMaterial
-			if sm.shader.resource_path.contains("mud") and not mats.has(sm):
-				mats.append(sm)
-	return mats
-
-
-## Parallax on the trench floor. Two checks:
-##  - depth: with the height map flat at the bottom (everything 4.5 cm deep),
-##    the parallaxed floor must look like the same floor lowered 4.5 cm
-##    without parallax, seen from steep to grazing (the views compared pixel
-##    by pixel);
-##  - in the trench: down the longest straight stretch at five pitches, with
-##    and without parallax (/tmp/tr_pom_<pitch>_on|off.png), for the eye.
-func _parallax() -> void:
-	if not render:
-		return
-	print("-- parallax")
-	var env := WorldEnvironment.new()
-	var e := Environment.new()
-	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color.BLACK
-	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color.WHITE
-	e.tonemap_mode = Environment.TONE_MAPPER_LINEAR
-	env.environment = e
-	add_child(env)
-	var flat_img := Image.create(8, 8, false, Image.FORMAT_RGB8)
-	flat_img.fill(Color(1.0, 1.0, 0.0))                  # AO 1, roughness 1, height 0: all at the bottom
-	var flat := ImageTexture.create_from_image(flat_img)
-	var nimg := Image.create(8, 8, false, Image.FORMAT_RGB8)
-	nimg.fill(Color(0.5, 0.5, 1.0))
-	var nflat := ImageTexture.create_from_image(nimg)
-	var checker := Image.create(256, 256, false, Image.FORMAT_RGB8)
-	for y in 256:
-		for x in 256:
-			var c := ((x / 16) + (y / 16)) % 2
-			checker.set_pixel(x, y, Color(0.9, 0.2, 0.1) if c == 0 else Color(0.1, 0.3, 0.9))
-	checker.generate_mipmaps()
-	var check := ImageTexture.create_from_image(checker)
-	var bimg := Image.create(4, 4, false, Image.FORMAT_RGB8)
-	bimg.fill(Color.BLACK)
-	var black := ImageTexture.create_from_image(bimg)
-	var mats := []
-	for pom in [true, false]:
-		var mat := ShaderMaterial.new()
-		mat.shader = load("res://shaders/mud_terrain.gdshader")
-		mat.set_shader_parameter("floor_a", check)
-		mat.set_shader_parameter("floor_n", nflat)
-		mat.set_shader_parameter("floor_ard", flat)
-		mat.set_shader_parameter("noise_tex", black)
-		mat.set_shader_parameter("floor_depth", 0.045 if pom else 0.0)
-		mat.set_shader_parameter("floor_parallax_range", 1000.0)
-		mat.set_shader_parameter("floor_water", -1.0)
-		mat.set_shader_parameter("debug_view", 3)
-		mats.append(mat)
-	var cam := Camera3D.new()
-	cam.fov = 50.0
-	add_child(cam)
-	cam.make_current()
-	var worst := 0.0
-	for pitch_deg in [80.0, 60.0, 40.0, 25.0, 17.0]:
-		var imgs := []
-		for i in 3:
-			var mi := MeshInstance3D.new()
-			mi.mesh = _quad(Vector3.UP, Color(1.0, 1.0, 0.0, 0.5))
-			mi.scale = Vector3(6, 1, 6)
-			mi.material_override = mats[mini(i, 1)]
-			mi.position = Vector3(0, -0.045 if i == 1 else 0.0, 0)      # 0 parallax; 1 no parallax, lowered; 2 no parallax, not lowered (control)
-			add_child(mi)
-			var pitch := deg_to_rad(pitch_deg)
-			cam.global_position = Vector3(0.3, 0.6 * sin(pitch) + 0.1, 0.6 * cos(pitch) + 0.2)
-			cam.look_at(Vector3(0.3, 0.0, 0.2))
-			await _frames(30 if imgs.is_empty() and pitch_deg == 80.0 else 4)
-			await get_tree().process_frame
-			imgs.append(get_viewport().get_texture().get_image())
-			mi.queue_free()
-			await _frames(1)
-		var frac := _img_diff(imgs[0], imgs[1])
-		var control := _img_diff(imgs[0], imgs[2])
-		worst = maxf(worst, frac if pitch_deg >= 25.0 else 0.0)
-		print("      looking %2d deg down: parallaxed vs really lowered 4.5 cm: %.1f%% of pixels differ (vs not lowered at all: %.1f%%)" % [int(pitch_deg), frac * 100.0, control * 100.0])
-		if pitch_deg >= 25.0 and control < 0.05:
-			worst = 1.0                     # the parallax did nothing visible: the check means nothing
-	_check(worst < 0.04, "parallax puts the surface where the height map says, from steep to low angles (worst %.1f%%)" % (worst * 100.0))
-	env.queue_free()
-	cam.queue_free()
-	# in the trench, down the longest straight run
-	await _new_game(3)
-	var m: TrenchMaze = game.maze
-	game.player.visible = false
-	for c: Clown in game.clowns:
-		c.queue_free()
-	game.clowns.clear()
-	var best: Array = []
-	for name_: String in m.trenches:
-		var cells: Array = m.trenches[name_]
-		var run: Array = []
-		for c: Vector2i in cells:
-			if run.size() >= 2 and (c - (run.back() as Vector2i)) != ((run.back() as Vector2i) - (run[run.size() - 2] as Vector2i)):
-				run = [run.back()]
-			if not run.is_empty() and ((c - (run.back() as Vector2i)).length_squared() != 1):
-				run = []
-			run.append(c)
-			if run.size() > best.size():
-				best = run.duplicate()
-	var a0 := m.cell_center(best[0])
-	var a1 := m.cell_center(best.back())
-	var dir := (a1 - a0)
-	dir.y = 0.0
-	dir = dir.normalized()
-	var side := Vector3.ZERO
-	var cam2 := Camera3D.new()
-	cam2.fov = 75.0
-	add_child(cam2)
-	cam2.make_current()
-	var gm := _mud_mats(m)
-	print("      longest straight stretch: %d cells (%.1f m)" % [best.size(), best.size() * m.cell])
-	# the duckboards hide most of the floor: lift them out for these views
-	for n in ["db_slats", "db_runners"]:
-		var node := m.get_node_or_null("Art/" + n)
-		if node:
-			node.visible = false
-	for pitch_deg in [3.0, 10.0, 20.0, 35.0, 60.0]:
-		for pom in [true, false]:
-			for sm in gm:
-				sm.set_shader_parameter("floor_depth", 0.045 if pom else 0.0)
-			cam2.global_position = a0 + side + Vector3.UP * 1.65 - dir * 0.3
-			cam2.look_at(cam2.global_position + dir * cos(deg_to_rad(pitch_deg)) + Vector3.DOWN * sin(deg_to_rad(pitch_deg)))
-			await _frames(30 if pitch_deg == 3.0 and pom else 3)
-			await _shot("pom_%02d_%s" % [int(pitch_deg), "on" if pom else "off"])
-	for sm in gm:
-		sm.set_shader_parameter("floor_depth", 0.045)
-	cam2.queue_free()
-
-
-func _img_diff(a: Image, b: Image) -> float:
-	var diff := 0
-	var tot := 0
-	for y in range(a.get_height() / 4, a.get_height() * 3 / 4, 2):
-		for x in range(a.get_width() / 4, a.get_width() * 3 / 4, 2):
-			var ca := a.get_pixel(x, y)
-			var cb := b.get_pixel(x, y)
-			tot += 1
-			if absf(ca.r - cb.r) + absf(ca.b - cb.b) > 0.5:
-				diff += 1
-	return float(diff) / maxf(tot, 1)
-
-
-## Render only: the cinematic look, from first-person height, the same
-## layout every time (seed 4242) so stages compare: down a long trench, over
-## the parapet, an enemy 8 m off, a dark corner, looking up out of the trench
-## (/tmp/tr_cine_<shot>_<tag>.png; "tag=xyz" names the set).
-func _cine() -> void:
-	if not render:
-		return
-	print("-- cine")
-	var tag := "now"
-	for a: String in OS.get_cmdline_user_args():
-		if a.begins_with("tag="):
-			tag = a.substr(4)
-	if game == null:
-		Engine.set_meta(&"test_save", true)
-		game = load("res://scenes/game.tscn").instantiate()
-		add_child(game)
-		await _frames(2)
-		FpsPlayer.god_mode = true
-	game.start_run()
-	game.floor_number = 2
-	game.rng.seed = 4242
-	game.next_floor()
-	await _frames(3)
-	var m: TrenchMaze = game.maze
-	game.player.visible = false
-	for cl in game.find_children("*", "CanvasLayer", true, false):
-		(cl as CanvasLayer).visible = false               # no HUD in these
-	for c: Clown in game.clowns:
-		c.queue_free()
-	game.clowns.clear()
-	# the longest straight stretch
-	var best: Array = []
-	for name_: String in m.trenches:
-		var cells: Array = m.trenches[name_]
-		var run: Array = []
-		for c: Vector2i in cells:
-			if run.size() >= 2 and (c - (run.back() as Vector2i)) != ((run.back() as Vector2i) - (run[run.size() - 2] as Vector2i)):
-				run = [run.back()]
-			if not run.is_empty() and ((c - (run.back() as Vector2i)).length_squared() != 1):
-				run = []
-			run.append(c)
-			if run.size() > best.size():
-				best = run.duplicate()
-	var a0 := m.cell_center(best[0])
-	var a1 := m.cell_center(best.back())
-	var dir := (a1 - a0)
-	dir.y = 0.0
-	dir = dir.normalized()
-	# an enemy 8 m down it, standing still
-	var foe: Clown = game._spawn_clown(true, false)
-	var fp := a0 + dir * minf(8.0, a0.distance_to(a1))
-	fp.y = m.floor_height(fp)
-	foe.global_position = fp
-	foe.rotation.y = atan2(-dir.x, -dir.z)
-	await _frames(2)
-	foe.global_position = fp
-	print("      enemy at %s, %0.1f m from the eye (now at %s, in tree %s, visible %s, body %s, model %s)" % [fp, fp.distance_to(a0), foe.global_position, foe.is_inside_tree(), foe.is_visible_in_tree(), foe.body, foe.get("_model")])
-	var b := foe.get_node_or_null("Brain")
-	if b:
-		b.set_process(false)
-		b.set_physics_process(false)
-	var cam := Camera3D.new()
-	cam.fov = 75.0
-	cam.far = 1500.0
-	add_child(cam)
-	cam.make_current()
-	var shots := {}
-	var eye := a0 + Vector3.UP * 1.65 - dir * 0.4
-	shots["long"] = [eye, eye + dir * 10.0 + Vector3.DOWN * 0.9]
-	shots["enemy"] = [eye, fp + Vector3.UP * 1.2]
-	shots["up"] = [eye, eye + dir * 4.0 + Vector3.UP * 3.0]
-	if OS.get_cmdline_user_args().has("near"):
-		shots["near"] = [fp - dir * 2.5 + Vector3.UP * 1.6, fp + Vector3.UP * 1.0]
-	for c: Vector2i in m.bays:
-		var r := m._rect(c)
-		var p := Vector3(r.get_center().x, 0, r.position.y + 0.3)
-		p.y = m.floor_height(p) + 1.65
-		shots["parapet"] = [p, p + Vector3(0.4, 0.02, -1.0)]
-		# up on the fire step, head over the parapet: the battlefield
-		var v := p + Vector3(0, 0.9, 0.1)
-		shots["vista"] = [v, v + Vector3(0.15, 0.03, -1.0)]
-		break
-	for l: Dictionary in m.landmarks:
-		if l.kind == "dugout":
-			var ent := m.cell_center(l.entrance)
-			var inward := Vector3(l.dir.x, 0, l.dir.y)
-			shots["corner"] = [ent - inward * 0.9 + Vector3.UP * 1.6, ent + inward * 1.5 + Vector3.UP * 0.7]
-			break
-	var first := true
-	for name_: String in shots:
-		cam.global_position = shots[name_][0]
-		cam.look_at(shots[name_][1])
-		await _frames(60 if first else 30)          # the eye adaptation settles
-		first = false
-		await _shot("cine_%s_%s" % [name_, tag])
-		if name_ == "enemy":
-			print("      at the shot: enemy valid %s at %s, cam %s" % [is_instance_valid(foe), foe.global_position if is_instance_valid(foe) else Vector3.ZERO, cam.global_position])
-	foe.queue_free()
-	cam.queue_free()
-
-
-## Render only: representative stretches for the materials, at eye height:
-## a fire bay (sandbags, boards, fire step), an iron-lined support stretch,
-## a bare earth communication trench, the slumped stretch, a duckboard close
-## up, a sandbag wall close up (/tmp/tr_sec_*.png).
-func _section() -> void:
-	if not render:
-		return
-	print("-- section")
-	await _new_game(3)
-	var m: TrenchMaze = game.maze
-	game.player.visible = false
-	for c: Clown in game.clowns:
-		c.queue_free()
-	game.clowns.clear()
-	var cam := Camera3D.new()
-	add_child(cam)
-	cam.make_current()
-	cam.fov = 72.0
-	var shots := {}
-	# looking along a trench from cell c toward the next in its trench list
-	var along := func(c: Vector2i, name_: String) -> void:
-		for t: String in m.trenches:
-			var cells: Array = m.trenches[t]
-			var i := cells.find(c)
-			if i >= 0 and i + 2 < cells.size():
-				shots[name_] = [m.cell_center(c) + Vector3.UP * 1.62, m.cell_center(cells[i + 2]) + Vector3.UP * 1.1]
-				return
-	for c: Vector2i in m.bays:
-		if m.wall(c, Vector2i(0, 1)) != "" or true:
-			along.call(c, "bay")
-			break
-	for c: Vector2i in m.open_cells:
-		if not shots.has("iron") and (m.wall(c, Vector2i(0, 1)) == "iron" or m.wall(c, Vector2i(0, -1)) == "iron"):
-			along.call(c, "iron")
-		if not shots.has("earth") and m.kind[c] == "comm" and m.wall(c, Vector2i(1, 0)) == "earth":
-			along.call(c, "earth")
-		if not shots.has("slump") and m.collapsed.has(c):
-			var p := m.cell_center(c)
-			for dir in Maze.DIRS:
-				if m.open_cells.has(c - dir):
-					var back := m.cell_center(c - dir)
-					shots["slump"] = [back + Vector3.UP * 1.62 - Vector3(dir.x, 0, dir.y) * 0.5, p + Vector3.UP * 0.6]
-					break
-		for dir in Maze.DIRS:
-			if not shots.has("bags") and m.wall(c, dir) == "sandbag" and m.kind[c] in ["fire", "traverse", "sap"]:
-				var p := m.cell_center(c)
-				shots["bags"] = [p - Vector3(dir.x, 0, dir.y) * 0.45 + Vector3.UP * 1.2, p + Vector3(dir.x, 0, dir.y) * 0.8 + Vector3.UP * 0.8]
-	var d: Dictionary = m.duckboards[m.duckboards.size() / 2]
-	var mid: Vector3 = ((d.a as Vector3) + (d.b as Vector3)) * 0.5
-	shots["boards"] = [mid + Vector3(0.35, 1.0, 0.35), mid]
-	for name_: String in shots:
-		cam.global_position = shots[name_][0]
-		cam.look_at(shots[name_][1])
-		await _frames(40 if name_ == shots.keys()[0] else 4)
-		await _shot("sec_" + name_)
-	print("      shots: %s" % [shots.keys()])
-
-
-## Render only: the trench floor close up (eye height down the trench, the
-## ground at your feet, a flooded stretch), with the scanned mud and, for
-## comparison, the old procedural sludge (/tmp/tr_floor_*_new|old.png).
-func _floor() -> void:
-	if not render:
-		return
-	print("-- floor")
-	await _new_game(3)
-	var m: TrenchMaze = game.maze
-	game.player.visible = false
-	for c: Clown in game.clowns:
-		c.queue_free()
-	game.clowns.clear()
-	var cam := Camera3D.new()
-	add_child(cam)
-	cam.make_current()
-	cam.fov = 70.0
-	var mats: Array[ShaderMaterial] = []
-	for mi in m.get_node("Art").get_children():
-		if mi is MeshInstance3D and (mi as MeshInstance3D).material_override is ShaderMaterial:
-			var sm := (mi as MeshInstance3D).material_override as ShaderMaterial
-			if sm.shader.resource_path.ends_with("mud_terrain.gdshader") and not mats.has(sm):
-				mats.append(sm)
-	# a stretch with no duckboards (the flooded side trench or a dugout stub), and the main route
-	var bare := m.route[m.route.size() / 2]
-	for c: Vector2i in m.open_cells:
-		if m.kind[c] in ["gunpit"]:
-			bare = c
-			break
-	var flood := m.start_cell
-	for wa: Dictionary in m.water:
-		flood = (wa.cells as Array)[0]
-		break
-	var k := m.route.size() / 3
-	var shots := {
-		"eye": [m.cell_center(m.route[k]) + Vector3.UP * 1.65, m.cell_center(m.route[k + 3]) + Vector3.UP * 0.2],
-		"feet": [m.cell_center(bare) + Vector3(0.2, 1.6, 0.6), m.cell_center(bare) + Vector3(0.0, 0.0, -0.4)],
-		"low": [m.cell_center(bare) + Vector3(-0.5, 0.45, 0.5), m.cell_center(bare) + Vector3(0.6, 0.0, -0.5)],
-		"flood": [m.cell_center(flood) + Vector3(0.3, 1.6, 0.9), m.cell_center(flood) + Vector3(0, 0, -0.8)],
-	}
-	for scan in [true, false]:
-		for sm in mats:
-			sm.set_shader_parameter("floor_scan", scan)
-		for name_: String in shots:
-			cam.global_position = shots[name_][0]
-			cam.look_at(shots[name_][1])
-			await _frames(3)
-			await _shot("floor_%s_%s" % [name_, "new" if scan else "old"])
-
-
-func _views() -> void:
-	if not render:
-		return
-	print("-- views")
-	await _new_game(3)
-	var m: TrenchMaze = game.maze
-	game.player.visible = false
-	var keep: Clown = null
-	for c: Clown in game.clowns:
-		if keep == null and c.body == "witzsoldat":
-			keep = c
-		else:
-			c.queue_free()
-	game.clowns.clear()
-	if keep:
-		game.clowns.append(keep)
-	for c: Clown in game.clowns:
-		var b := c.get_node_or_null("Brain")
-		if b:
-			b.set_process(false)
-			b.set_physics_process(false)
-	var cam := Camera3D.new()
-	add_child(cam)
-	cam.make_current()
-	cam.far = 500.0
-	cam.fov = 75.0
-	await _frames(30)
-	var mid := Vector3(m.w * m.cell * 0.5, 0, m.d * m.cell * 0.5)
-	cam.global_position = mid + Vector3(-20, 45, 45)
-	cam.look_at(mid)
-	await _frames(2)
-	await _shot("top")
-	var i := 0
-	var picks := [m.start_cell, m.route[m.route.size() / 4], m.route[m.route.size() / 2], m.route[m.route.size() * 3 / 4], m.route[m.route.size() - 3]]
-	for c: Vector2i in picks:
-		var k := m.route.find(c)
-		var p := m.cell_center(c) + Vector3.UP * 1.65
-		cam.global_position = p
-		var look := m.cell_center(m.route[mini(k + 3, m.route.size() - 1)]) + Vector3.UP * 1.4
-		if Vector2(look.x - p.x, look.z - p.z).length() < 0.5:
-			look = p + Vector3(1, -0.1, 0)
-		cam.look_at(look)
-		await _frames(2)
-		await _shot("eye_%d" % i)
-		i += 1
-	# over the parapet from a fire step, into No Man's Land
-	for c: Vector2i in m.bays:
-		var r := m._rect(c)
-		cam.global_position = Vector3(r.get_center().x, m.floor_height(Vector3(r.get_center().x, 0, r.position.y + 0.25)) + 1.65, r.position.y + 0.3)
-		cam.look_at(cam.global_position + Vector3(0.3, 0.05, -1))
-		await _frames(2)
-		await _shot("nml")
-		break
-	# into a dugout from its door
-	var art: TrenchArt = m.get_node("Art")
-	for l: Dictionary in m.landmarks:
-		if l.kind == "dugout":
-			var ent := m.cell_center(l.entrance)
-			cam.global_position = ent + Vector3.UP * 1.5 - Vector3(l.dir.x, 0, l.dir.y) * 0.6
-			cam.look_at(m.cell_center(l.cell) + Vector3(l.dir.x, 0, l.dir.y) * 0.8 + Vector3.UP * 0.8)
-			await _frames(2)
-			await _shot("dugout")
-			break
-	# the music box's dugout, if there is one
-	if art.music_box != Vector3.INF:
-		var room := m.cell_center(m.cell_of(art.music_box))
-		var away := (room - art.music_box)
-		away.y = 0.0
-		cam.global_position = art.music_box + away.normalized() * 1.1 + Vector3.UP * 0.6
-		cam.look_at(art.music_box + Vector3.UP * 0.3)
-		await _frames(2)
-		await _shot("musicbox")
-	# the porcelain head in the mud
-	for mmi in art.find_children("porcelain_head", "MultiMeshInstance3D", false, false):
-		var at: Vector3 = (mmi as MultiMeshInstance3D).multimesh.get_instance_transform(0).origin
-		var c := m.cell_of(at)
-		cam.global_position = m.cell_center(c) + Vector3.UP * 1.0 + (m.cell_center(c) - at).normalized() * 0.3
-		cam.look_at(at)
-		await _frames(2)
-		await _shot("head")
-	# out over the wire from high up behind the parapet
-	cam.global_position = Vector3(m.w * m.cell * 0.5, 3.0, 9.0)
-	cam.look_at(Vector3(m.w * m.cell * 0.5, 0.0, -15.0))
-	await _frames(2)
-	await _shot("wire")
-	# a soldier in a trench, from 6 m: can he be seen?
-	for c: Clown in game.clowns:
-		if is_instance_valid(c) and c.body == "witzsoldat":
-			var at := c.global_position
-			var cc := m.cell_of(at)
-			var k := m.route.find(cc)
-			var from := at + Vector3(4, 1.6, 0)
-			for dir in Maze.DIRS:
-				var n: Vector2i = cc + dir * 3
-				if m.open_cells.has(n) and m.open_cells.has(cc + dir) and m.open_cells.has(cc + dir * 2):
-					from = m.cell_center(n) + Vector3.UP * 1.6
-					break
-			cam.global_position = from
-			cam.look_at(at + Vector3.UP * 1.1)
-			await _frames(2)
-			await _shot("enemy")
-			break
+## For the grip fitting (art/arms/source/fit): the gun's triangles and one arm's
+## skinned vertices and bones, all in gun-model space. --side=L or R.
+func _dump(v: ViewModel, args: PackedStringArray) -> void:
+	var side := "L" if "--side=L" in args else "R"
+	var to_model := v._sg_model.global_transform.affine_inverse()
+	var f := FileAccess.open("/tmp/gun_tris.txt", FileAccess.WRITE)
+	for m in v._sg_model.find_children("*", "MeshInstance3D", true, false):
+		var mi := m as MeshInstance3D
+		var xf := to_model * mi.global_transform
+		for si in mi.mesh.get_surface_count():
+			var a := mi.mesh.surface_get_arrays(si)
+			var vs: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
+			var ix: PackedInt32Array = a[Mesh.ARRAY_INDEX]
+			if ix.is_empty():
+				ix = PackedInt32Array(range(vs.size()))
+			for i in ix.size():
+				var q := xf * vs[ix[i]]
+				f.store_line("%s %f %f %f" % [mi.name, q.x, q.y, q.z])
+	f.close()
+	var r: FPArm = v._arms[ViewModel.TRENCH][side]
+	var sk := r.skeleton
+	var o := FileAccess.open("/tmp/hand_verts.txt", FileAccess.WRITE)
+	for m in r.find_children("*", "MeshInstance3D", true, false):
+		var mi := m as MeshInstance3D
+		var skin := mi.skin
+		if skin == null:
+			continue                               # the shell in the hand, not the arm
+		var bind_xf := []
+		var bind_bone := []
+		for b in skin.get_bind_count():
+			var bi := skin.get_bind_bone(b)
+			if bi < 0:
+				bi = sk.find_bone(skin.get_bind_name(b))
+			bind_bone.append(bi)
+			bind_xf.append(to_model * sk.global_transform * sk.get_bone_global_pose(bi) * skin.get_bind_pose(b))
+		for si in mi.mesh.get_surface_count():
+			var a := mi.mesh.surface_get_arrays(si)
+			var vs: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
+			var bones: PackedInt32Array = a[Mesh.ARRAY_BONES]
+			var wts: PackedFloat32Array = a[Mesh.ARRAY_WEIGHTS]
+			var n := wts.size() / vs.size()
+			for i in vs.size():
+				var q := Vector3.ZERO
+				var best := 0
+				var bw := -1.0
+				for k in n:
+					var w := wts[i * n + k]
+					if w <= 0.0:
+						continue
+					var bind: int = bones[i * n + k]
+					q += (bind_xf[bind] as Transform3D) * vs[i] * w
+					if w > bw:
+						bw = w
+						best = bind_bone[bind]
+				o.store_line("%s %f %f %f" % [sk.get_bone_name(best), q.x, q.y, q.z])
+	o.close()
+	var j := FileAccess.open("/tmp/hand_bones.txt", FileAccess.WRITE)
+	for b in sk.get_bone_count():
+		var rest := sk.get_bone_rest(b)
+		var q := rest.basis.get_rotation_quaternion()
+		var g := to_model * sk.global_transform * sk.get_bone_global_pose(b)
+		j.store_line("%s %d %f %f %f %f %f %f %f %s %s %s %s" % [sk.get_bone_name(b), sk.get_bone_parent(b), q.x, q.y, q.z, q.w, rest.origin.x, rest.origin.y, rest.origin.z,
+			var_to_str(g.basis.x).replace(" ", ""), var_to_str(g.basis.y).replace(" ", ""), var_to_str(g.basis.z).replace(" ", ""), var_to_str(g.origin).replace(" ", "")])
+	j.close()
+	print("DUMP done (%s)" % side)
