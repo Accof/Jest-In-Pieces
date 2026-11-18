@@ -32,6 +32,14 @@ func _run() -> void:
 	p.select_weapon(FpsPlayer.REVOLVER)
 	await get_tree().create_timer(ViewModel.SWAP_TIME + 0.3).timeout
 	var v := p.view
+	if "--dump" in OS.get_cmdline_user_args():
+		p.select_weapon(ViewModel.REVOLVER)
+		await get_tree().create_timer(0.6).timeout
+		if FileAccess.file_exists("/tmp/grip.txt"):
+			v.apply_grip(ViewModel.REVOLVER, str_to_var(FileAccess.get_file_as_string("/tmp/grip.txt")), v._rev_model)
+		_dump(v)
+		get_tree().quit()
+		return
 	if "--measure" in OS.get_cmdline_user_args():
 		p.select_weapon(ViewModel.REVOLVER)
 		await get_tree().create_timer(0.6).timeout
@@ -206,4 +214,69 @@ func _measure(v: ViewModel) -> void:
 		var a := _aabb_in(m, v._rev_model)
 		if a.position.y < 0.0:
 			print("MEASURE low part %s: y %.3f..%.3f x %.3f..%.3f" % [m.name, a.position.y, a.end.y, a.position.x, a.end.x])
+
+
+## The gun's triangles and the right arm's skinned vertices (with each one's
+## strongest bone), both in gun-model space, for the clipping check in Python.
+func _dump(v: ViewModel) -> void:
+	var to_model := v._rev_model.global_transform.affine_inverse()
+	var f := FileAccess.open("/tmp/gun_tris.txt", FileAccess.WRITE)
+	for m in v._rev_model.find_children("*", "MeshInstance3D", true, false):
+		var mi := m as MeshInstance3D
+		var xf := to_model * mi.global_transform
+		for si in mi.mesh.get_surface_count():
+			var a := mi.mesh.surface_get_arrays(si)
+			var vs: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
+			var ix: PackedInt32Array = a[Mesh.ARRAY_INDEX]
+			if ix.is_empty():
+				ix = PackedInt32Array(range(vs.size()))
+			for i in ix.size():
+				var q := xf * vs[ix[i]]
+				f.store_line("%s %f %f %f" % [mi.name, q.x, q.y, q.z])
+	f.close()
+	var r: FPArm = v._arms[ViewModel.REVOLVER]["R"]
+	var sk := r.skeleton
+	var o := FileAccess.open("/tmp/hand_verts.txt", FileAccess.WRITE)
+	for m in r.find_children("*", "MeshInstance3D", true, false):
+		var mi := m as MeshInstance3D
+		var skin := mi.skin
+		var bind_xf := []
+		var bind_bone := []
+		for b in skin.get_bind_count():
+			var bi := skin.get_bind_bone(b)
+			if bi < 0:
+				bi = sk.find_bone(skin.get_bind_name(b))
+			bind_bone.append(bi)
+			bind_xf.append(to_model * sk.global_transform * sk.get_bone_global_pose(bi) * skin.get_bind_pose(b))
+		for si in mi.mesh.get_surface_count():
+			var a := mi.mesh.surface_get_arrays(si)
+			var vs: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
+			var bones: PackedInt32Array = a[Mesh.ARRAY_BONES]
+			var wts: PackedFloat32Array = a[Mesh.ARRAY_WEIGHTS]
+			var n := wts.size() / vs.size()
+			for i in vs.size():
+				var q := Vector3.ZERO
+				var best := 0
+				var bw := -1.0
+				for k in n:
+					var w := wts[i * n + k]
+					if w <= 0.0:
+						continue
+					var bind: int = bones[i * n + k]
+					q += (bind_xf[bind] as Transform3D) * vs[i] * w
+					if w > bw:
+						bw = w
+						best = bind_bone[bind]
+				o.store_line("%s %f %f %f" % [sk.get_bone_name(best), q.x, q.y, q.z])
+	o.close()
+	var j := FileAccess.open("/tmp/hand_bones.txt", FileAccess.WRITE)
+	for b in sk.get_bone_count():
+		var rest := sk.get_bone_rest(b)
+		var q := rest.basis.get_rotation_quaternion()
+		var g := to_model * sk.global_transform * sk.get_bone_global_pose(b)
+		var gb := g.basis
+		j.store_line("%s %d %f %f %f %f %f %f %f %s %s %s %s" % [sk.get_bone_name(b), sk.get_bone_parent(b), q.x, q.y, q.z, q.w, rest.origin.x, rest.origin.y, rest.origin.z,
+			var_to_str(gb.x).replace(" ", ""), var_to_str(gb.y).replace(" ", ""), var_to_str(gb.z).replace(" ", ""), var_to_str(g.origin).replace(" ", "")])
+	j.close()
+	print("DUMP done")
 
