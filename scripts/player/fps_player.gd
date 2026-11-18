@@ -28,7 +28,10 @@ const WEAPONS := [
 	# `pull`: double action. The click starts a pull that turns the cylinder and
 	# raises the hammer; the shot goes when it falls, this many seconds later
 	# (0 fires on the click). The cooldown runs from the shot.
-	{name = "Revolver", damage = 80.0, pellets = 1, spread = 0.0, impulse = 18.0, heavy = true, can_dismember = false, cooldown = 0.38, falloff = 70.0, mag = 6, semi = true, punch = 2.4, pull = 0.12},
+	# The bodies react to it exactly as to the pistol (Andrew, 18 Nov): the same
+	# push, not `heavy` (so the same deaths), and `react` = the pistol's damage
+	# for the flinch, stagger and dying reactions. Only the damage is bigger.
+	{name = "Revolver", damage = 80.0, pellets = 1, spread = 0.0, impulse = 14.0, heavy = false, react = 34.0, can_dismember = false, cooldown = 0.38, falloff = 70.0, mag = 6, semi = true, punch = 2.4, pull = 0.12},
 ]
 ## The machine gun on its mount in the nest: same rounds, steadier.
 const MOUNTED_MG := {name = "Maxim", damage = 60.0, pellets = 1, spread = 1.1, impulse = 22.0, heavy = true, can_dismember = true, cooldown = 0.11, falloff = 120.0, mag = 0}
@@ -490,6 +493,7 @@ func _hit_clown(c: PhysicalBone3D, at: Vector3, from: Vector3, dist: float, dir:
 	(c.get_meta(&"clown") as Clown).hit({
 		collider = c, position = at, direction = dir,
 		damage = w.damage * scale * stats.damage, impulse = w.impulse * scale,
+		react = w.get("react", w.damage) * scale * stats.damage,
 		heavy = w.heavy and scale > 0.5,
 		can_dismember = (w.can_dismember or (stats.pistol_dismember and w.name == "Pistol")) and scale > 0.6,
 		shot_id = shot_id, blood = stats.blood, dist = dist, weapon = w.name,

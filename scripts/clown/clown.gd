@@ -222,6 +222,9 @@ func hit(info: Dictionary) -> void:
 	var zone := _zone(bone)
 	var dir: Vector3 = info.direction.normalized()
 	var raw: float = info.damage
+	# how hard the body reacts (flinch, stagger, arms): the damage, unless the
+	# weapon says otherwise (the revolver reacts like the pistol)
+	var react: float = float(info.get("react", raw))
 	var dmg: float = raw * ZONE_DAMAGE.get(zone, 1.0)
 	var amount := clampf(raw / 35.0, 0.3, 1.6) * float(info.get("blood", 1.0))
 	var break_leg := false
@@ -319,9 +322,9 @@ func hit(info: Dictionary) -> void:
 			_die(info, zone)
 	hurt.emit(self)
 	if not dead and not crawling and not downed and not last_stand:
-		_flinch_from(info.position, dir, raw * (1.8 if severed else 1.0))
+		_flinch_from(info.position, dir, react * (1.8 if severed else 1.0))
 	if not dead and not broken_arms.is_empty():
-		_kick_arms(clampf(raw / 10.0, 1.0, 6.0))
+		_kick_arms(clampf(react / 10.0, 1.0, 6.0))
 	if downed and not dead and ragdoll.active:
 		ragdoll.apply_hit(bone, dir * float(info.get("impulse", 12.0)) * 0.5, info.position)
 	if break_leg and not severed:

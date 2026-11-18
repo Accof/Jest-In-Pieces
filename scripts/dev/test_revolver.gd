@@ -82,6 +82,8 @@ func _run() -> void:
 	# --- the pistol as it was
 	var pw: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.PISTOL]
 	_check(pw.name == "Pistol" and pw.damage == 34.0 and pw.cooldown == 0.22 and pw.mag == 17 and pw.spread == 0.0 and pw.impulse == 14.0 and not pw.has("semi"), "pistol stats unchanged")
+	var rw: Dictionary = FpsPlayer.WEAPONS[FpsPlayer.REVOLVER]
+	_check(rw.impulse == pw.impulse and rw.heavy == pw.heavy and rw.react == pw.damage and rw.damage > pw.damage, "the revolver pushes bodies like the pistol (impulse %.0f, not heavy, reacts as %.0f) but hurts more (%.0f)" % [rw.impulse, rw.react, rw.damage])
 	_check(p.weapon == FpsPlayer.PISTOL and p.ammo[FpsPlayer.PISTOL] == 17 and p.ammo[FpsPlayer.REVOLVER] == 6, "start: pistol in hand, 17 in the pistol, 6 in the revolver")
 	await _shot("3_pistol")
 	var a: Clown = clowns[0]
