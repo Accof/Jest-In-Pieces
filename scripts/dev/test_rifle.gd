@@ -164,6 +164,7 @@ func _run() -> void:
 	var l: FPArm = arms["L"]
 	var rest_r := _hand(r, v)
 	var rest_l := _hand(l, v)
+	var hip_r := rest_r                                # the right hand at the hip (aimed, its wrist drops)
 	var spent0 := v.le_spent.size()
 	p.aim_override = 1.0                               # down the sights (from the hip it scatters 1.6 deg)
 	await _wait(0.5)
@@ -363,7 +364,7 @@ func _run() -> void:
 	await _wait(ViewModel.SWAP_TIME + 0.15)
 	_check(p.ammo[FpsPlayer.RIFLE] == mid and mid == 7 and p.rifle_chambered and not v.reloading() and not v._le_charger.visible,
 		"back to the rifle: the 5 that went in are kept (%d), the bolt closed on one, no reload half-done" % mid)
-	_check(r.is_visible_in_tree() and l.is_visible_in_tree() and _hand(r, v).origin.distance_to(rest_r.origin) < 0.001, "both hands back on it")
+	_check(r.is_visible_in_tree() and l.is_visible_in_tree() and _hand(r, v).origin.distance_to(hip_r.origin) < 0.001, "both hands back on it")
 	p.fire()
 	_check(p.ammo[FpsPlayer.RIFLE] == mid - 1, "and it fires")
 

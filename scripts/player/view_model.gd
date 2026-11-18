@@ -937,6 +937,8 @@ func _animate_rifle() -> void:
 		_le_cock.position = _le_cock_rest + Vector3(-0.005 * lift, 0, 0)     # cocked as the handle goes up
 	# the top round in the magazine shows in the open bolt-way
 	_le_top.visible = draw > 0.6 and le_rounds_in_mag > 0
+	if ra and rkey.is_empty() and a > 0.01:
+		rkey = _le_aim_grip(ra, a)                # aimed: the wrist dropped under the sight picture
 	if ra:
 		if not rkey.is_empty():
 			_rl_apply(ra, rkey)
@@ -947,6 +949,22 @@ func _animate_rifle() -> void:
 			_arm_pull_last = -1.0
 		if rkey.is_empty():
 			_arm_trigger(RIFLE, 1.0 if _since_shot < 0.12 else 0.0)
+
+
+## Aimed, the cheek on the stock: the right hand keeps its fingers on the wrist and
+## trigger but turns about its knuckle line, the wrist and forearm dropping out from
+## under the sight picture (`a` 0..1).
+const L_AIM_WRIST_DROP := -32.0                      # degrees (negative: the wrist and forearm go down)
+var aim_drop := L_AIM_WRIST_DROP                     # (the look tests try other values)
+func _le_aim_grip(arm: FPArm, a: float) -> Array:
+	var key := _rl_grip_for(RIFLE, arm, "R")
+	var m := _le_model.transform
+	var g: Dictionary = ARM_GRIPS[RIFLE]["R"]
+	var ik: Vector3 = m * (g.index_k as Vector3)
+	var axis: Vector3 = (ik - m * (g.little_k as Vector3)).normalized()
+	var h: Transform3D = key[0]
+	var r := Basis(axis, deg_to_rad(aim_drop) * a)
+	return [Transform3D(r * h.basis, ik + r * (h.origin - ik)), (key[1] as Vector3) + Vector3(0, -0.12, 0.02) * a, key[2]]
 
 
 ## The right hand on the knob (wherever the bolt is): pinched from behind and to the right.
