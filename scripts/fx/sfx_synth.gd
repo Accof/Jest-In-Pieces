@@ -124,6 +124,15 @@ static func _make(name: String) -> AudioStreamWAV:
 		# --- the revolver
 		"revolver_shot":
 			data = _gunshot(rng)
+		# --- the MP 18 (synthesized placeholders, not recordings)
+		"mp18_shot":
+			data = _mix(_mp18_shot(rng), _crack(0.03, rng, 0.35))
+		"drum_out":
+			data = _mix(_crack(0.04, rng, 0.8), _ratchet(0.18, 30.0, rng))
+		"drum_in":
+			data = _mix(_thump(0.1, 220.0, 140.0, 0.02, 0.8, rng, 0.015, 0.9), _crack(0.05, rng, 1.0))
+		"mp18_charge":
+			data = _mix(_ratchet(0.12, 55.0, rng), _thump(0.06, 400.0, 250.0, 0.01, 0.5, rng, 0.01, 0.6))
 		# --- the trench shotgun
 		"shotgun_shot":
 			data = _shotgun_boom(rng)
@@ -682,6 +691,33 @@ static func _gunshot(rng: RandomNumberGenerator) -> PackedFloat32Array:
 	return out
 
 
+
+
+## A 9 mm submachine-gun round: a short bark, little boom, a quick tail (it has to
+## sit under the next one 0.12 s later), and the bolt slamming home under it.
+static func _mp18_shot(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var len := 0.45
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var lp := 0.0
+	var lp2 := 0.0
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		lp += (x - lp) * 0.42
+		lp2 += (lp - lp2) * 0.06
+		ph += TAU * lerpf(70.0, 160.0, exp(-t * 30.0)) / RATE
+		var crack := x * exp(-t * 220.0)
+		var body := lp * exp(-t * 34.0) * 0.8
+		var boom := sin(ph) * exp(-t * 18.0) * 0.55
+		var tail := lp2 * exp(-t * 7.0) * 1.6
+		var bolt := 0.0
+		if t > 0.028 and t < 0.05:
+			bolt = sin(TAU * 1900.0 * t) * exp(-(t - 0.028) * 260.0) * 0.35
+		out[i] = clampf((crack + body + boom + tail + bolt) * minf(t / 0.0006, 1.0), -1.0, 1.0)
+	return out
 
 
 ## A 12-bore going off: a deeper, longer boom than the revolver, more body, a long tail.

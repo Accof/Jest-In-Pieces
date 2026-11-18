@@ -17,6 +17,7 @@ const MAXIM := 4
 const RIFLE := 5
 const REVOLVER := 6
 const TRENCH := 7
+const MP18 := 8
 
 ## Seconds the reload animations take. The player script reads these.
 const PISTOL_RELOAD := 1.55
@@ -32,6 +33,8 @@ const RIFLE_RELOAD := 2.5       # bolt open, a stripper clip of five thumbed in,
 const RIFLE_SEAT := 1.55        # the rounds are in the magazine
 const REVOLVER_RELOAD := 3.0    # broken open, the extractor throws everything out, six in, snapped shut
 const REVOLVER_SEAT := 2.35     # the rounds are in (the frame snaps shut)
+const MP18_RELOAD := 3.4        # empty drum out sideways, a full one fetched and seated
+const MP18_SEAT := 2.45         # the new drum is home
 
 var weapon := PISTOL
 var slide_locked := false       # pistol ran dry: slide stays back until reloaded
@@ -80,6 +83,7 @@ func _ready() -> void:
 	_build_rifle()
 	_build_revolver()
 	_build_trench()
+	_build_mp18()
 	for gi in range(1, _guns.size()):
 		_guns[gi].visible = false
 	_flash = OmniLight3D.new()
@@ -120,15 +124,17 @@ func fire() -> void:
 	_since_shot = 0.0
 	var muzzle := _muzzle()
 	_flash.position = muzzle
-	_flash.light_energy = [5.0, 9.0, 4.0, 1.5, 8.0, 8.0, 10.0, 11.0][weapon]
+	_flash.light_energy = [5.0, 9.0, 4.0, 1.5, 8.0, 8.0, 10.0, 11.0, 6.0][weapon]
 	_flash_mesh.position = muzzle
-	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9, 2.4, 2.2, 2.0, 1.9, 2.3][weapon] * randf_range(0.7, 1.25)
+	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9, 2.4, 2.2, 2.0, 1.9, 2.3, 1.2][weapon] * randf_range(0.7, 1.25)
 	if weapon == RIFLE:
 		_cycle_t = 0.0
 	if weapon == REVOLVER:
 		_revolver_fired()
 	if weapon == TRENCH:
 		_trench_fired()
+	if weapon == MP18:
+		_mp_fired()
 	_flash_mesh.rotation.z = randf() * TAU
 	if weapon == SMG or weapon == MAXIM:
 		_jitter = Vector2(randf_range(-1, 1), randf_range(-0.3, 1))
@@ -155,6 +161,7 @@ func start_reload() -> void:
 
 func stop_reload() -> void:
 	_reload_t = -1.0
+	_mp_reset_reload()
 	_revolver_reset_reload()
 
 
@@ -183,6 +190,7 @@ func swap_to(w: int) -> void:
 	_swap_to = w
 	_swap_t = 0.0
 	_reload_t = -1.0
+	_mp_reset_reload()
 	_revolver_reset_reload()
 
 
@@ -198,7 +206,7 @@ func animate(delta: float, speed: float, look: Vector2) -> void:
 	_frame_dt = delta
 	_time += delta
 	_since_shot += delta
-	_kick = move_toward(_kick, 0.0, delta * [7.0, 3.2, 14.0, 2.2, 11.0, 3.0, 3.6, 2.6][weapon])
+	_kick = move_toward(_kick, 0.0, delta * [7.0, 3.2, 14.0, 2.2, 11.0, 3.0, 3.6, 2.6, 12.0][weapon])
 	if _cycle_t >= 0.0:
 		_cycle_t += delta
 		if _cycle_t > RIFLE_CYCLE:
@@ -248,6 +256,8 @@ func animate(delta: float, speed: float, look: Vector2) -> void:
 		_animate_revolver()
 	elif weapon == TRENCH:
 		_animate_trench()
+	elif weapon == MP18:
+		_animate_mp18()
 	else:
 		_animate_maxim()
 
@@ -805,6 +815,8 @@ func _muzzle() -> Vector3:
 		return to_local(_rev_muzzle.global_position)
 	if weapon == TRENCH:
 		return to_local(_sg_muzzle.global_position)
+	if weapon == MP18:
+		return to_local(_mp_muzzle.global_position)
 	var local := [Vector3(0, 0.02, -0.19), Vector3(0, 0.018, -0.64), Vector3(0, 0.012, -0.445), Vector3(0, 0.03, -0.6), Vector3(0, 0.0, -0.76), Vector3(0, 0.03, -0.93)][weapon] as Vector3
 	return to_local(_pose[weapon].to_global(local))
 
@@ -852,6 +864,21 @@ const ARM_GRIPS := {
 			"ring_01": Vector3(10, 0, 0), "ring_02": Vector3(55, 0, 0), "ring_03": Vector3(28, 0, 0),
 			"little_01": Vector3(5, 0, 0), "little_02": Vector3(110, 0, 0), "little_03": Vector3(55, 0, 0),
 			"thumb_01": Vector3(-18, 0, 8), "thumb_02": Vector3(0, 0, 0), "thumb_03": Vector3(15, 0, 0)}}
+	},
+	MP18: {
+		"R": {"index_k": Vector3(-0.170, 0.092, 0.053), "little_k": Vector3(-0.215, 0.039, 0.055), "palm": Vector3(0.0, -0.2, -1.0), "elbow": Vector3(-0.45, -0.18, 0.34),
+			"pose": {"index_01": Vector3(0, 0, 5), "index_02": Vector3(30, 0, 0), "index_03": Vector3(40, 0, 0),
+			"middle_01": Vector3(20, 0, 0), "middle_02": Vector3(75, 0, 0), "middle_03": Vector3(38, 0, 0),
+			"ring_01": Vector3(65, 0, 0), "ring_02": Vector3(0, 0, 0), "ring_03": Vector3(0, 0, 0),
+			"little_01": Vector3(40, 0, 0), "little_02": Vector3(70, 0, 0), "little_03": Vector3(35, 0, 0),
+			"thumb_01": Vector3(-30, 0, -24), "thumb_02": Vector3(0, 0, 0), "thumb_03": Vector3(0, 0, 0)},
+			"pull": {"index_01": Vector3(6, 0, 0), "index_02": Vector3(14, 0, 0), "index_03": Vector3(10, 0, 0)}},
+		"L": {"index_k": Vector3(0.02, 0.032, 0.006), "little_k": Vector3(-0.05, 0.036, 0.010), "palm": Vector3(0.0, 0.92, -0.38), "elbow": Vector3(-0.20, -0.16, -0.25),
+			"pose": {"index_01": Vector3(-10, 0, 0), "index_02": Vector3(20, 0, 0), "index_03": Vector3(18, 0, 0),
+			"middle_01": Vector3(-10, 0, 0), "middle_02": Vector3(35, 0, 0), "middle_03": Vector3(32, 0, 0),
+			"ring_01": Vector3(-10, 0, 0), "ring_02": Vector3(20, 0, 0), "ring_03": Vector3(14, 0, 0),
+			"little_01": Vector3(-10, 0, 0), "little_02": Vector3(0, 0, 0), "little_03": Vector3(0, 0, 0),
+			"thumb_01": Vector3(-6, 0, 16), "thumb_02": Vector3(-10, 0, 0), "thumb_03": Vector3(0, 0, 0)}}
 	},
 }
 ## The arms each gun is using: gun index -> {"R": FPArm, "L": FPArm}
@@ -1743,6 +1770,322 @@ func _throw_hull() -> void:
 	var all := get_tree().get_nodes_in_group("spent_brass")
 	for i in maxi(all.size() - 72, 0):
 		all[i].queue_free()
+
+
+# --- the MP 18 (Tripo Bergmann MP 18/I, refined in Blender) -------------------------------
+# art/weapons/mp18/mp18.glb, built from the untouched Tripo GLB by
+# art/weapons/mp18/source/build_mp18.py: Body and Drum (the snail drum and its neck,
+# cut where the neck leaves the magazine housing on the left; the node sits on the
+# cut and the drum comes out along the housing's axis). Metres, +X the muzzle, +Y
+# up, +Z the right side (the drum is on the left, -Z). Shouldered, real size.
+const M_PATH := "res://art/weapons/mp18/mp18.glb"
+const M_HOME := Vector3(0.12, -0.15, -0.30)
+const M_TILT := Vector3(0.0, 2.5, 3.0)
+const M_BORE := Vector3(0.423, 0.1256, 0.0)
+const M_DRUM_OUT := Vector3(-0.491, 0.0, -0.871)   # out of the housing (model space)
+const M_DRUM_TRAVEL := 0.12
+const M_PORT := Vector3(-0.07, 0.15, 0.022)        # where the empty cases come out (right of the receiver)
+## The reload (s): the hand to the drum, unlatch, draw it out, let it drop, back
+## from the belt with a full one, slide it home, seat it, back to the wood.
+const M_T := {"to_drum": Vector2(0.15, 0.5), "unlatch": Vector2(0.5, 0.62), "out": Vector2(0.62, 0.95), "to_pouch": Vector2(0.95, 1.35),
+	"fetch": Vector2(1.35, 1.55), "up": Vector2(1.55, 2.05), "in": Vector2(2.05, 2.4), "seat": Vector2(2.4, 2.5), "back": Vector2(2.5, 2.95), "present": Vector2(0.0, 0.3), "settle": Vector2(2.95, 3.35)}
+const M_POUCH := Vector3(-0.24, -0.50, 0.16)
+## While the drum is changed: rolled so the left side (and the drum) tips up toward
+## the eye, the muzzle turned a touch right and the gun pushed out a little, so the
+## drum rises into view instead of swinging back at the camera.
+const M_PRESENT_POS := Vector3(0.0, -0.01, -0.05)
+const M_PRESENT_ROT := Vector3(6.0, -8.0, -24.0)
+## The hand on the drum, in the drum's own space: palm on its outer face, fingers
+## over the top edge (filled in from the drum's size when the gun is built).
+var _mp_drum_hand := Transform3D()
+
+var _mp_model: Node3D
+var _mp_muzzle: Node3D
+var _mp_drum: Node3D
+var _mp_drum_rest := Transform3D()
+var _mp_dropped := false
+var _mp_sounds := 0
+var _mp_shots := 0
+var _mp_smoked := true
+var mp_drums: Array[RigidBody3D] = []           # empty drums dropped (for the tests)
+
+
+func _build_mp18() -> void:
+	var root := Node3D.new()
+	root.name = "MP18"
+	add_child(root)
+	_guns.append(root)
+	var pose := Node3D.new()
+	root.add_child(pose)
+	_pose.append(pose)
+	var left := Node3D.new()
+	pose.add_child(left)
+	_left.append(left)
+	root.visible = false
+	if not ResourceLoader.exists(M_PATH):
+		return
+	_mp_model = (load(M_PATH) as PackedScene).instantiate() as Node3D
+	_mp_model.name = "Model"
+	_mp_model.basis = Basis(Vector3.UP, PI * 0.5)
+	_mp_model.position = Vector3(0, 0.018 - M_BORE.y, -0.04)
+	pose.add_child(_mp_model)
+	for mi in _mp_model.find_children("*", "MeshInstance3D", true, false):
+		(mi as MeshInstance3D).layers = 2
+		(mi as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_mp_muzzle = Node3D.new()
+	_mp_muzzle.name = "Muzzle"
+	_mp_muzzle.position = M_BORE + Vector3(0.012, 0, 0)
+	_mp_model.add_child(_mp_muzzle)
+	_mp_drum = _mp_model.find_child("Drum", true, false)
+	if _mp_drum:
+		_mp_drum_rest = _mp_drum.transform
+		var mi := (_mp_drum if _mp_drum is MeshInstance3D else _mp_drum.find_children("*", "MeshInstance3D", true, false)[0]) as MeshInstance3D
+		var ab := mi.get_aabb()
+		# palm on the outer (left) face of the drum, a little below its middle; fingers up over the edge
+		var face := Vector3(ab.get_center().x, ab.position.y + ab.size.y * 0.45, ab.position.z)
+		var along := Vector3.UP
+		var palm := Vector3(0, 0, 1)
+		_mp_drum_hand = FPArm.frame(face - along * 0.07 + Vector3(0, 0, -0.022), along, palm)
+	_build_arms(MP18, pose, _mp_model)
+
+
+func _mp_fired() -> void:
+	_jitter = Vector2(randf_range(-1, 1), randf_range(-0.3, 1))
+	_mp_shots += 1
+	_mp_smoked = false
+	_throw_case()
+	if _mp_shots % 4 == 0:
+		_mp_smoke(0.06)
+
+
+## A wisp of smoke at the real muzzle (the view is drawn shrunk toward the eye).
+func _mp_smoke(seconds: float) -> void:
+	var cam := get_parent() as Node3D
+	var scene := get_tree().current_scene as Node3D
+	if cam == null or scene == null:
+		return
+	var eye := cam.global_position
+	var at := eye + (_mp_muzzle.global_position - eye) / SHRINK
+	var sm := MechFx.smoke(scene, scene.to_local(at), seconds)
+	if sm:
+		sm.scale = Vector3.ONE * 0.6
+
+
+func _mp_reset_reload() -> void:
+	if _mp_drum == null:
+		return
+	_mp_drum.transform = _mp_drum_rest
+	_mp_drum.visible = true
+	_mp_dropped = false
+	_mp_sounds = 0
+
+
+func _animate_mp18() -> void:
+	var pose := _pose[MP18]
+	if _mp_model == null:
+		return
+	var k := _kick * _kick
+	# each round: a short shove back and a little climb, the gun buzzing in the hands
+	var buzz := Vector3(_jitter.x * 0.0025, _jitter.y * 0.002, 0) * _kick
+	var pos := M_HOME + Vector3(0, 0.008 * k, 0.03 * k) + buzz
+	var rot := M_TILT * (PI / 180.0) + Vector3(deg_to_rad(3.0) * k, deg_to_rad(_jitter.x * 0.6) * _kick, deg_to_rad(_jitter.x * 0.8) * _kick)
+	# a longer wisp when a burst ends
+	if not _mp_smoked and _since_shot > 0.2:
+		_mp_smoked = true
+		if _mp_shots >= 3:
+			_mp_smoke(0.4)
+		_mp_shots = 0
+	var t := _reload_t
+	if t >= 0.0:
+		# lowered a little and turned so the drum on the left faces the eye
+		var present := smoothstep(M_T.present.x, M_T.present.y, t) * (1.0 - smoothstep(M_T.settle.x, M_T.settle.y, t))
+		pos += M_PRESENT_POS * present
+		rot += M_PRESENT_ROT * (PI / 180.0) * present
+		var seat := smoothstep(M_T.seat.x, M_T.seat.x + 0.04, t) * (1.0 - smoothstep(M_T.seat.x + 0.04, M_T.seat.y + 0.1, t))
+		rot += Vector3(0, deg_to_rad(-2.5), 0) * seat
+	pose.position = pos
+	pose.rotation = rot
+	_arm_trigger(MP18, 1.0 if _since_shot < 0.14 else 0.0)
+	_mp_hands(t)
+
+
+## The left hand and the drum through the reload (t < 0: on the wood).
+func _mp_hands(t: float) -> void:
+	if not _arms.has(MP18) or not _arms[MP18].has("L") or _mp_drum == null:
+		return
+	var arm: FPArm = _arms[MP18]["L"]
+	var m := _mp_model.transform
+	var g: Dictionary = ARM_GRIPS[MP18]["L"]
+	var grip := [arm.frame_from_knuckles(m * g.index_k, m * g.little_k, m.basis * g.palm), m * g.elbow, g.pose]
+	if t < 0.0:
+		if _mp_dropped or _mp_drum.transform != _mp_drum_rest:
+			_mp_reset_reload()
+		if not _rl_active_mp:
+			return
+		_rl_active_mp = false
+		apply_grip(MP18, _grips_live[MP18], _mp_model)
+		return
+	_rl_active_mp = true
+	var drum_pose := PINCH_POSE.duplicate()
+	for f in ["index", "middle", "ring", "little"]:
+		drum_pose[f + "_01"] = Vector3(55, 0, 0)
+		drum_pose[f + "_02"] = Vector3(50, 0, 0)
+		drum_pose[f + "_03"] = Vector3(30, 0, 0)
+	drum_pose["thumb_01"] = Vector3(10, 0, 0)
+	drum_pose["thumb_02"] = Vector3(10, 0, 0)
+	var elbow_d := Vector3(-0.30, -0.60, 0.10)
+	var e := func(r: Vector2) -> float: return smoothstep(r.x, r.y, t)
+	# where the drum is along its way out (0 home .. 1 drawn out)
+	var out := 0.0
+	if t < M_T.out.x:
+		out = 0.12 * e.call(M_T.unlatch)
+	elif t < M_T.to_pouch.x:
+		out = 0.12 + 0.88 * e.call(M_T.out)
+	elif t < M_T.in.x:
+		out = 1.0
+	else:
+		out = 1.0 - e.call(M_T.in)
+	var drum_at := Transform3D(_mp_drum_rest.basis, _mp_drum_rest.origin + M_DRUM_OUT * M_DRUM_TRAVEL * out)
+	var on_drum := func(d: Transform3D) -> Array: return [m * d * _mp_drum_hand, elbow_d, drum_pose]
+	var pouch := [Transform3D((m * drum_at * _mp_drum_hand).basis.rotated(Vector3.RIGHT, -0.4).orthonormalized(), M_POUCH), Vector3(-0.30, -0.85, 0.20), drum_pose]
+	var key: Array
+	var carried := false
+	if t < M_T.to_drum.x:
+		key = grip
+	elif t < M_T.to_drum.y:
+		key = _rl_blend(grip, on_drum.call(drum_at), e.call(M_T.to_drum))
+	elif t < M_T.to_pouch.x:
+		key = on_drum.call(drum_at)
+	elif t < M_T.fetch.x:
+		key = _rl_blend(on_drum.call(drum_at), pouch, e.call(M_T.to_pouch))
+	elif t < M_T.up.x:
+		key = pouch
+		carried = t > M_T.fetch.x + 0.1
+	elif t < M_T.in.x:
+		key = _rl_blend(pouch, on_drum.call(drum_at), e.call(M_T.up))
+		carried = true
+	elif t < M_T.back.x:
+		key = on_drum.call(drum_at)
+	else:
+		key = _rl_blend(on_drum.call(drum_at), grip, e.call(M_T.back))
+	_rl_apply(arm, key)
+	# the drum: on its housing, drawn out by the hand, dropped, carried back
+	if t >= M_T.to_pouch.x and not _mp_dropped:
+		_mp_dropped = true
+		_drop_drum()
+	if carried:
+		# in the hand: wherever the hand is, the drum is where it sits in it
+		_mp_drum.transform = m.affine_inverse() * (key[0] as Transform3D) * _mp_drum_hand.affine_inverse()
+		_mp_drum.visible = true
+	elif t >= M_T.to_pouch.x and t < M_T.up.x:
+		_mp_drum.visible = false
+	else:
+		_mp_drum.transform = drum_at
+		_mp_drum.visible = true
+	if _mp_sounds == 0 and t >= M_T.unlatch.x:
+		_mp_sounds = 1
+		SfxSynth.play(self, "drum_out", global_position, -6.0, randf_range(0.95, 1.05))
+	if _mp_sounds == 1 and t >= M_T.seat.x:
+		_mp_sounds = 2
+		SfxSynth.play(self, "drum_in", global_position, -4.0, randf_range(0.95, 1.05))
+var _rl_active_mp := false
+
+
+## The empty drum off the gun and down, a real body at full size.
+func _drop_drum() -> void:
+	var cam := get_parent() as Node3D
+	var scene := get_tree().current_scene
+	if cam == null or scene == null:
+		return
+	var src := (_mp_drum if _mp_drum is MeshInstance3D else _mp_drum.find_children("*", "MeshInstance3D", true, false)[0]) as MeshInstance3D
+	var eye := cam.global_position
+	var g := src.global_transform
+	var ab := src.get_aabb()
+	var body := RigidBody3D.new()
+	body.collision_layer = 1 << 3
+	body.collision_mask = 1 | (1 << 3)
+	body.mass = 1.2
+	body.angular_damp = 1.0
+	var shape := BoxShape3D.new()
+	shape.size = ab.size
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	cs.position = ab.get_center()
+	body.add_child(cs)
+	var copy := MeshInstance3D.new()
+	copy.mesh = src.mesh
+	copy.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	body.add_child(copy)
+	scene.add_child(body)
+	body.global_transform = Transform3D(g.basis.orthonormalized(), eye + (g.origin - eye) / SHRINK)
+	var gm := _mp_model.global_transform.basis.orthonormalized()
+	body.linear_velocity = gm * M_DRUM_OUT * 0.8 + Vector3.DOWN * 0.5
+	body.angular_velocity = Vector3(randf_range(-2, 2), randf_range(-2, 2), randf_range(-2, 2))
+	body.contact_monitor = true
+	body.max_contacts_reported = 1
+	var hit := [false]
+	body.body_entered.connect(func(_b: Node) -> void:
+		if not hit[0]:
+			hit[0] = true
+			SfxSynth.play(body, "metal_rattle", body.global_position, -14.0, randf_range(0.9, 1.1)))
+	mp_drums.append(body)
+	get_tree().create_timer(30.0).timeout.connect(body.queue_free)
+
+
+## One spent 9 mm case out of the right side.
+func _throw_case() -> void:
+	var cam := get_parent() as Node3D
+	var scene := get_tree().current_scene
+	if cam == null or scene == null or _mp_model == null:
+		return
+	var eye := cam.global_position
+	var at := eye + (_mp_model.global_transform * M_PORT - eye) / SHRINK
+	var body := RigidBody3D.new()
+	body.collision_layer = 1 << 3
+	body.collision_mask = 1
+	body.mass = 0.008
+	var shape := CylinderShape3D.new()
+	shape.radius = 0.005
+	shape.height = 0.019
+	var cs := CollisionShape3D.new()
+	cs.shape = shape
+	cs.rotation.z = PI * 0.5
+	body.add_child(cs)
+	var mesh := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.005
+	cm.bottom_radius = 0.005
+	cm.height = 0.019
+	cm.radial_segments = 8
+	cm.rings = 1
+	mesh.mesh = cm
+	mesh.material_override = _brass_mat()
+	mesh.rotation.z = PI * 0.5
+	body.add_child(mesh)
+	body.add_to_group("spent_brass")
+	scene.add_child(body)
+	var gm := _mp_model.global_transform.basis.orthonormalized()
+	body.global_transform = Transform3D(gm, at)
+	body.linear_velocity = gm.z * randf_range(1.8, 2.6) + Vector3.UP * randf_range(1.0, 1.7) - gm.x * randf_range(0.0, 0.4)
+	body.angular_velocity = Vector3(randf_range(-20, 20), randf_range(-20, 20), randf_range(-20, 20))
+	body.contact_monitor = true
+	body.max_contacts_reported = 1
+	var hits := [0]
+	body.body_entered.connect(func(_b: Node) -> void:
+		if hits[0] < 1 and body.linear_velocity.length() > 0.6:
+			hits[0] += 1
+			SfxSynth.play(body, "brass_tink", body.global_position, -20.0, randf_range(1.1, 1.4)))
+	get_tree().create_timer(15.0).timeout.connect(body.queue_free)
+	var all := get_tree().get_nodes_in_group("spent_brass")
+	for i in maxi(all.size() - 72, 0):
+		all[i].queue_free()
+var _brass_m: StandardMaterial3D
+
+
+func _brass_mat() -> StandardMaterial3D:
+	if _brass_m == null:
+		_brass_m = _mat(Color(0.75, 0.58, 0.28), 0.3, 0.9)
+	return _brass_m
 
 
 # --- building blocks ------------------------------------------------------------

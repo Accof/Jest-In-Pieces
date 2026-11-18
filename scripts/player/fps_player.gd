@@ -38,6 +38,15 @@ const WEAPONS := [
 	# for it). Six in the tube, loaded one at a time; firing breaks off loading.
 	# `shells`: loads shell by shell (like the Shotgun). `pump`: a pump to work.
 	{name = "Trench Shotgun", damage = 18.0, pellets = 9, spread = 4.0, impulse = 17.0, heavy = true, can_dismember = true, cooldown = 0.85, falloff = 8.5, mag = 6, shells = true, pump = true, semi = true, punch = 4.5, shot_sfx = "shotgun_shot"},
+	# A Bergmann MP 18 (the Tripo model) with its 32-round snail drum: fully
+	# automatic at 500 rounds a minute (`rpm`: the interval is carried from shot to
+	# shot so the rate is exact whatever the frame rate, and never exceeded), less
+	# per round than the revolver, good up close and falling off with distance.
+	# Recoil builds through a burst (`climb` degrees a shot, `climb_grow` more per
+	# shot, `lateral` degrees either way); the spread opens by `spread_grow` a shot
+	# (both up to `burst_cap` shots) and the view springs back when it stops.
+	{name = "MP 18", damage = 26.0, pellets = 1, spread = 1.1, impulse = 9.0, heavy = false, can_dismember = false, cooldown = 0.12, rpm = 500.0, falloff = 24.0, mag = 32,
+		climb = 0.55, climb_grow = 0.07, lateral = 0.25, spread_grow = 0.09, burst_cap = 12, shot_sfx = "mp18_shot", dry = true},
 ]
 ## The machine gun on its mount in the nest: same rounds, steadier.
 const MOUNTED_MG := {name = "Maxim", damage = 60.0, pellets = 1, spread = 1.1, impulse = 22.0, heavy = true, can_dismember = true, cooldown = 0.11, falloff = 120.0, mag = 0}
@@ -49,6 +58,7 @@ const MAXIM := 4
 const RIFLE := 5
 const REVOLVER := 6
 const TRENCH := 7
+const MP18 := 8
 
 ## Testing aid: take no damage. Kept for the whole session, across runs.
 static var god_mode := false
@@ -77,7 +87,7 @@ var health := 100.0
 var dead := false
 var weapon := 0
 ## Rounds loaded in each gun. Spare ammunition is unlimited for now.
-var ammo: Array[int] = [17, 6, 32, 1, 0, 5, 6, 6]
+var ammo: Array[int] = [17, 6, 32, 1, 0, 5, 6, 6, 32]
 ## Inside an event room (gunshots are not heard in the level).
 var in_event := false
 ## The final-kill camera has the view: no moving, looking or shooting, and the
@@ -111,6 +121,10 @@ var _punch := 0.0
 var _punch_v := 0.0
 ## A semi-automatic shot asked for a moment too early: taken when it can be.
 var _queued := -1.0
+var _dry_at := -1000
+## Shots in the current burst (an automatic weapon with `rpm`), and when the last went.
+var burst := 0
+var _burst_at := -10.0
 ## A double-action pull under way: the shot goes when this runs out.
 var _pull_left := -1.0
 var _shake := 0.0
@@ -230,6 +244,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_6: select_weapon(RIFLE)
 			KEY_7: select_weapon(REVOLVER)
 			KEY_8: select_weapon(TRENCH)
+			KEY_9: select_weapon(MP18)
 			KEY_E: _use()
 			KEY_G:
 				god_mode = not god_mode
@@ -344,6 +359,8 @@ func reload() -> void:
 	elif weapon == REVOLVER:
 		_reload_left = ViewModel.REVOLVER_SEAT
 		SfxSynth.play(self, "revolver_open", camera.global_position, -8.0, 1.0)
+	elif weapon == MP18:
+		_reload_left = ViewModel.MP18_SEAT
 	else:
 		_shell_left = view.shell_intro() + view.shell_time() * 0.85
 
@@ -380,7 +397,7 @@ func _tick_reload(delta: float) -> void:
 					view.revolver_loaded()
 				ammo_changed.emit()
 				_update_label()
-		var total: float = {PISTOL: ViewModel.PISTOL_RELOAD, SMG: ViewModel.SMG_RELOAD, STAKE: ViewModel.STAKE_RELOAD, RIFLE: ViewModel.RIFLE_RELOAD, REVOLVER: ViewModel.REVOLVER_RELOAD}.get(weapon, ViewModel.STAKE_RELOAD)
+		var total: float = {PISTOL: ViewModel.PISTOL_RELOAD, SMG: ViewModel.SMG_RELOAD, STAKE: ViewModel.STAKE_RELOAD, RIFLE: ViewModel.RIFLE_RELOAD, REVOLVER: ViewModel.REVOLVER_RELOAD, MP18: ViewModel.MP18_RELOAD}.get(weapon, ViewModel.STAKE_RELOAD)
 		if view.reloading() and view._reload_t >= total:
 			view.stop_reload()
 			view.slide_locked = false
@@ -415,6 +432,9 @@ func fire() -> void:
 	if not _shells() and view.reloading():
 		return
 	if ammo[weapon] <= 0:
+		if WEAPONS[weapon].get("dry", false) and not view.reloading() and Time.get_ticks_msec() - _dry_at > 400:
+			_dry_at = Time.get_ticks_msec()
+			SfxSynth.play(self, "dry_click", camera.global_position, -10.0, 1.1)   # the trigger on an empty drum
 		reload()
 		return
 	if _shells() and view.reloading():
@@ -443,7 +463,17 @@ func _discharge() -> void:
 	if ammo[weapon] <= 0:
 		return
 	var w: Dictionary = WEAPONS[weapon]
-	_cooldown = w.cooldown / stats.fire_rate
+	if w.has("rpm"):
+		# exact rate: carry what is left of the interval into the next one (only
+		# while the burst goes on: a fresh pull starts from now)
+		var interval: float = 60.0 / w.rpm / stats.fire_rate
+		var now := Time.get_ticks_msec() / 1000.0
+		var going := now - _burst_at < interval * 2.5 and _cooldown > -interval
+		_cooldown = (_cooldown + interval) if going else interval
+		burst = (burst + 1) if going else 1
+		_burst_at = now
+	else:
+		_cooldown = w.cooldown / stats.fire_rate
 	_shot_id += 1
 	ammo[weapon] -= 1
 	if weapon == 0 and ammo[0] == 0:
@@ -457,6 +487,13 @@ func _discharge() -> void:
 		_kick += randf_range(-0.05, 0.05)
 		shake(0.14)
 		SfxSynth.play(self, w.get("shot_sfx", "revolver_shot"), camera.global_position + aim * 0.3, 2.0, randf_range(0.95, 1.04))
+	if w.has("climb"):
+		# an automatic: each round lifts the muzzle a little more than the last, and
+		# pushes it a touch to one side; the spring brings the pitch back after
+		var b := float(mini(burst, w.burst_cap))
+		_punch_v += deg_to_rad(w.climb * (1.0 + w.climb_grow * b)) * 14.0 * randf_range(0.85, 1.15)
+		rotate_y(deg_to_rad(randf_range(-1.0, 1.0) * w.lateral * (0.6 + 0.4 * b / w.burst_cap)))
+		SfxSynth.play(self, w.get("shot_sfx", "revolver_shot"), camera.global_position + aim * 0.3, -1.0, randf_range(0.96, 1.05))
 	if w.get("projectile", false):
 		# a stake, not a bullet: it flies, and loads again by itself
 		var world := get_tree().get_first_node_in_group(&"world_root")
@@ -475,6 +512,8 @@ func _discharge() -> void:
 		var d := aim
 		if w.spread > 0.0:
 			var s: float = deg_to_rad(w.spread) * (stats.spread if w.pellets > 1 else 1.0)
+			if w.has("spread_grow"):
+				s *= 1.0 + w.spread_grow * float(mini(burst, w.burst_cap))
 			d = (aim + camera.global_basis.x * randfn(0.0, s * 0.5) + camera.global_basis.y * randfn(0.0, s * 0.5)).normalized()
 		shoot_ray(from, d, w, _shot_id)
 	fired.emit(weapon)
@@ -649,4 +688,4 @@ func heal(amount: float) -> void:
 
 
 func _update_label() -> void:
-	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [7] revolver  [8] trench gun  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]
+	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [7] revolver  [8] trench gun  [9] MP 18  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].name, ammo[weapon], WEAPONS[weapon].mag, " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]
