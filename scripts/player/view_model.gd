@@ -782,6 +782,105 @@ func _muzzle() -> Vector3:
 	return to_local(_pose[weapon].to_global(local))
 
 
+# --- first-person arms (the rigged Tripo WW1 arms, FPArm) ---------------------------
+# Each weapon that uses them says where each hand goes and how it is shaped, in
+# that weapon's own model space (so the numbers follow the model, not the view):
+#   index_k, little_k - where the index and little-finger knuckles go; or
+#   wrist, along - the wrist (hand bone origin) and which way the hand runs
+#   palm   - which way the palm faces
+#   elbow  - where the forearm comes from; the wrist bends to suit
+#   pose   - FPArm finger pose (bone -> degrees, +X curls toward the palm)
+#   pull   - added to the pose by the trigger pull (0..1), trigger hand only
+#   away   - for the support hand: where it goes (offset in metres, in the
+#            view's space) when it lets go (reloads)
+# Guns not listed keep their own procedural hands; the procedural pistol is one.
+const ARM_GRIPS := {
+	REVOLVER: {
+		"R": {"index_k": Vector3(-0.25, 0.37, 0.10), "little_k": Vector3(-0.39, 0.08, 0.11), "palm": Vector3(0.0, 0.0, -1.0), "elbow": Vector3(-1.9, -0.6, 0.55),
+			"pose": {"index_01": Vector3(-30, 0, 0), "index_02": Vector3(60, 0, 0), "index_03": Vector3(60, 0, 0),
+			"middle_01": Vector3(80, 0, 0), "middle_02": Vector3(95, 0, 0), "middle_03": Vector3(55, 0, 0),
+			"ring_01": Vector3(82, 0, 0), "ring_02": Vector3(95, 0, 0), "ring_03": Vector3(55, 0, 0),
+			"little_01": Vector3(84, 0, 0), "little_02": Vector3(92, 0, 0), "little_03": Vector3(55, 0, 0),
+			"thumb_01": Vector3(20, 0, 0), "thumb_02": Vector3(5, 0, 0), "thumb_03": Vector3(10, 0, 0)},
+			"pull": {"index_01": Vector3(8, 0, 0), "index_02": Vector3(15, 0, 0), "index_03": Vector3(10, 0, 0)}},
+		"L": {"wrist": Vector3(-0.56, -0.10, -0.20), "along": Vector3(0.25, 0.15, 0.95), "palm": Vector3(0.0, 1.0, 0.0), "elbow": Vector3(-1.5, -1.0, -0.8),
+			"pose": {"index_01": Vector3(60, 0, 0), "index_02": Vector3(70, 0, 0), "index_03": Vector3(40, 0, 0),
+			"middle_01": Vector3(62, 0, 0), "middle_02": Vector3(70, 0, 0), "middle_03": Vector3(40, 0, 0),
+			"ring_01": Vector3(64, 0, 0), "ring_02": Vector3(70, 0, 0), "ring_03": Vector3(40, 0, 0),
+			"little_01": Vector3(66, 0, 0), "little_02": Vector3(68, 0, 0), "little_03": Vector3(40, 0, 0),
+			"thumb_01": Vector3(10, 0, 0), "thumb_02": Vector3(10, 0, 0), "thumb_03": Vector3(10, 0, 0)},
+			"away": Vector3(-0.12, -0.28, 0.12)}
+	},
+}
+## The arms each gun is using: gun index -> {"R": FPArm, "L": FPArm}
+var _arms := {}
+## Where the support hand sits on its gun (the pose node's space), so it can let go and come back.
+var _arm_home := {}
+
+
+## Build and place the arms a gun asks for (ARM_GRIPS), under its pose node, so
+## they follow everything the gun does. `model` is the node the grip numbers are in.
+func _build_arms(gun: int, pose: Node3D, model: Node3D) -> void:
+	if not ARM_GRIPS.has(gun) or not FPArm.exists("R"):
+		return
+	var arms := {}
+	for side: String in ARM_GRIPS[gun]:
+		var arm := FPArm.new(side)
+		pose.add_child(arm)
+		arms[side] = arm
+	_arms[gun] = arms
+	apply_grip(gun, ARM_GRIPS[gun], model)
+
+
+## Put the hands of `gun` where `grip` says (also used to tune grips by hand).
+func apply_grip(gun: int, grip: Dictionary, model: Node3D) -> void:
+	var xf := model.transform
+	for side: String in grip:
+		var g: Dictionary = grip[side]
+		var arm: FPArm = _arms[gun][side]
+		var hand: Transform3D
+		if g.has("index_k"):
+			hand = arm.frame_from_knuckles(xf * g.index_k, xf * g.little_k, xf.basis * g.palm)
+		else:
+			hand = FPArm.frame(xf * g.wrist, xf.basis * g.along, xf.basis * g.palm)
+		arm.set_pose(g.pose)
+		if g.has("elbow"):
+			arm.place(hand, xf * g.elbow)            # forearm back toward the elbow, the wrist bent to suit
+		else:
+			arm.place_hand(hand)
+		_arm_home[arm] = arm.transform
+	_grips_live[gun] = grip
+var _grips_live := {}
+var _arm_pull_last := -1.0
+
+
+## The trigger finger follows the pull (0..1).
+func _arm_trigger(gun: int, pull: float) -> void:
+	if not _arms.has(gun) or absf(pull - _arm_pull_last) < 0.002:
+		return
+	_arm_pull_last = pull
+	var g: Dictionary = _grips_live[gun]["R"]
+	if not g.has("pull"):
+		return
+	var pose: Dictionary = g.pose.duplicate()
+	for b: String in g.pull:
+		pose[b] = pose.get(b, Vector3.ZERO) + g.pull[b] * pull
+	(_arms[gun]["R"] as FPArm).set_pose(pose)
+
+
+## The support hand lets go (0) or holds on (1), eased.
+func _arm_support(gun: int, hold: float) -> void:
+	if not _arms.has(gun) or not _arms[gun].has("L"):
+		return
+	var arm: FPArm = _arms[gun]["L"]
+	var g: Dictionary = _grips_live[gun]["L"]
+	var home: Transform3D = _arm_home[arm]
+	var away: Vector3 = g.get("away", Vector3(0, -0.3, 0.1))
+	var k := 1.0 - hold
+	arm.transform = Transform3D(home.basis.rotated(Vector3.RIGHT, -0.6 * k).orthonormalized(), home.origin + away * k)
+	arm.visible = k < 0.98
+
+
 # --- the revolver (Tripo model, split into parts) ------------------------------------
 # A WW1 top-break service revolver. `revolver_parts.glb` is the Tripo model cut
 # into its working parts in Blender (see claude/revolver-breakdown.md): the frame,
@@ -920,6 +1019,12 @@ func _animate_revolver_parts() -> void:
 		pull = 1.0 - smoothstep(0.03, 0.22, _since_shot)
 	_rv_hammer.rotation.z = deg_to_rad(V_COCK) * h
 	_rv_trigger.rotation.z = deg_to_rad(V_PULL) * pull
+	_arm_trigger(REVOLVER, pull)
+	# the support hand lets go for the reload and takes hold again after the snap shut
+	var hold := 1.0
+	if t >= 0.0:
+		hold = 1.0 - smoothstep(0.0, 0.25, t) * (1.0 - smoothstep(2.35, 2.75, t))
+	_arm_support(REVOLVER, hold)
 	# rounds and cases
 	for c in 6:
 		var live := rv_live[c]
@@ -1068,7 +1173,10 @@ func _build_revolver() -> void:
 			_rv_cases.append(_rev_model.find_child("Case_%d" % (c + 1), true, false))
 			_rv_round_x.append(_rv_rounds[c].position.x)
 			_rv_cases[c].visible = false
-	# no hands yet: an empty left-arm node keeps the per-gun arrays in step
+	# the rigged WW1 arms (if they are in the project): right hand on the grip,
+	# left hand under it in support
+	_build_arms(REVOLVER, pose, _rev_model)
+	# the per-gun left-arm slot (procedural hands' left arm): empty for the revolver
 	var left := Node3D.new()
 	pose.add_child(left)
 	_left.append(left)
