@@ -39,7 +39,10 @@ static func exists(s: String) -> bool:
 	return ResourceLoader.exists(PATHS[s])
 
 
-func _init(s: String = "R") -> void:
+var hand_k := 1.0           # the hand (and fingers) scaled on the hand bone; the forearm keeps its length
+
+
+func _init(s: String = "R", k: float = 1.0) -> void:
 	side = s
 	name = "Arm" + s
 	if not exists(s):
@@ -49,6 +52,9 @@ func _init(s: String = "R") -> void:
 	add_child(model)
 	skeleton = model.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
 	_hand = skeleton.find_bone("hand." + side)
+	hand_k = k                                         # k: a weapon's own hand size (1 = the shared rig)
+	if k != 1.0:
+		skeleton.set_bone_pose_scale(_hand, Vector3.ONE * k)
 	for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
 		mi.layers = 2                                  # like the guns: no blood decals on it
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -151,7 +157,7 @@ func frame_from_knuckles(index_k: Vector3, little_k: Vector3, palm: Vector3) -> 
 	var f3 := (palm - f1 * palm.dot(f1)).normalized()
 	var world := Basis(f1, f3.cross(f1), f3)
 	var r := world * local.inverse()
-	var mid_local := (pi + pl) * 0.5 * (model.transform * skeleton.transform).basis.get_scale().x
+	var mid_local := (pi + pl) * 0.5 * (model.transform * skeleton.transform).basis.get_scale().x * hand_k
 	return Transform3D(r, (index_k + little_k) * 0.5 - r * mid_local)
 
 
@@ -166,7 +172,7 @@ func pinch_offset() -> Vector3:
 		return x * Vector3(0, skeleton.get_bone_rest(i).origin.length() * 0.85, 0)
 	var mid: Vector3 = ((tip.call("index_03") as Vector3) + (tip.call("thumb_03") as Vector3)) * 0.5
 	var local := hb.affine_inverse() * mid
-	return local * (model.transform * skeleton.transform).basis.get_scale().x
+	return local * (model.transform * skeleton.transform).basis.get_scale().x * hand_k
 
 
 ## A hand frame from where the wrist is, which way the hand points and which way the palm faces.

@@ -1287,20 +1287,20 @@ const ARM_GRIPS := {
 			"little_01": Vector3(5, 0, 0), "little_02": Vector3(110, 0, 0), "little_03": Vector3(55, 0, 0),
 			"thumb_01": Vector3(-18, 0, 8), "thumb_02": Vector3(0, 0, 0), "thumb_03": Vector3(15, 0, 0)}}
 	},
-	RIFLE: {
+	RIFLE: {                    # fitted with the hands at ARM_SIZE 0.8
 		"R": {"index_k": Vector3(-0.283, 0.146, 0.041), "little_k": Vector3(-0.320, 0.099, 0.041), "palm": Vector3(0.0, -0.05, -1.0), "elbow": Vector3(-0.60, -0.10, 0.24),
-			"pose": {"index_01": Vector3(-20, 0, -20), "index_02": Vector3(75, 0, 0), "index_03": Vector3(10, 0, 0),
-			"middle_01": Vector3(45, 0, 0), "middle_02": Vector3(35, 0, 0), "middle_03": Vector3(32, 0, 0),
-			"ring_01": Vector3(75, 0, 0), "ring_02": Vector3(0, 0, 0), "ring_03": Vector3(0, 0, 0),
-			"little_01": Vector3(90, 0, 0), "little_02": Vector3(0, 0, 0), "little_03": Vector3(0, 0, 0),
-			"thumb_01": Vector3(-30, 0, -32), "thumb_02": Vector3(60, 0, 0), "thumb_03": Vector3(15, 0, 0)},
+			"pose": {"index_01": Vector3(10, 0, -15), "index_02": Vector3(10, 0, 0), "index_03": Vector3(40, 0, 0),
+			"middle_01": Vector3(50, 0, 0), "middle_02": Vector3(20, 0, 0), "middle_03": Vector3(10, 0, 0),
+			"ring_01": Vector3(80, 0, 0), "ring_02": Vector3(110, 0, 0), "ring_03": Vector3(99, 0, 0),
+			"little_01": Vector3(100, 0, 0), "little_02": Vector3(0, 0, 0), "little_03": Vector3(0, 0, 0),
+			"thumb_01": Vector3(-30, 0, -40), "thumb_02": Vector3(40, 0, 0), "thumb_03": Vector3(15, 0, 0)},
 			"pull": {"index_01": Vector3(6, 0, 0), "index_02": Vector3(14, 0, 0), "index_03": Vector3(10, 0, 0)}},
-		"L": {"index_k": Vector3(0.122, 0.147, 0.018), "little_k": Vector3(0.057, 0.144, 0.018), "palm": Vector3(0.0, 0.92, -0.38), "elbow": Vector3(-0.15, -0.10, -0.28),
-			"pose": {"index_01": Vector3(20, 0, 0), "index_02": Vector3(55, 0, 0), "index_03": Vector3(28, 0, 0),
-			"middle_01": Vector3(30, 0, 0), "middle_02": Vector3(30, 0, 0), "middle_03": Vector3(15, 0, 0),
-			"ring_01": Vector3(30, 0, 0), "ring_02": Vector3(20, 0, 0), "ring_03": Vector3(10, 0, 0),
-			"little_01": Vector3(20, 0, 0), "little_02": Vector3(100, 0, 0), "little_03": Vector3(50, 0, 0),
-			"thumb_01": Vector3(-30, 0, -24), "thumb_02": Vector3(-10, 0, 0), "thumb_03": Vector3(0, 0, 0)}}
+		"L": {"index_k": Vector3(0.110, 0.147, 0.010), "little_k": Vector3(0.045, 0.144, 0.010), "palm": Vector3(0.0, 0.92, -0.38), "elbow": Vector3(-0.15, -0.10, -0.28),
+			"pose": {"index_01": Vector3(5, 0, 0), "index_02": Vector3(55, 0, 0), "index_03": Vector3(28, 0, 0),
+			"middle_01": Vector3(5, 0, 0), "middle_02": Vector3(55, 0, 0), "middle_03": Vector3(50, 0, 0),
+			"ring_01": Vector3(10, 0, 0), "ring_02": Vector3(45, 0, 0), "ring_03": Vector3(22, 0, 0),
+			"little_01": Vector3(0, 0, 0), "little_02": Vector3(110, 0, 0), "little_03": Vector3(55, 0, 0),
+			"thumb_01": Vector3(-30, 0, -16), "thumb_02": Vector3(-10, 0, 0), "thumb_03": Vector3(0, 0, 0)}}
 	},
 	MP18: {
 		"R": {"index_k": Vector3(-0.170, 0.092, 0.053), "little_k": Vector3(-0.215, 0.039, 0.055), "palm": Vector3(0.0, -0.2, -1.0), "elbow": Vector3(-0.45, -0.18, 0.34),
@@ -1326,12 +1326,18 @@ var _arm_home := {}
 
 ## Build and place the arms a gun asks for (ARM_GRIPS), under its pose node, so
 ## they follow everything the gun does. `model` is the node the grip numbers are in.
+## Hand size per weapon (times the shared rig's). The SMLE is modelled at true size, and the
+## shared glove (8.7 cm across the knuckles there) read as too big on it: 0.8 gives about 7 cm,
+## a man's hand in a leather glove.
+const ARM_SIZE := {RIFLE: 0.8}
+
+
 func _build_arms(gun: int, pose: Node3D, model: Node3D) -> void:
 	if not ARM_GRIPS.has(gun) or not FPArm.exists("R"):
 		return
 	var arms := {}
 	for side: String in ARM_GRIPS[gun]:
-		var arm := FPArm.new(side)
+		var arm := FPArm.new(side, ARM_SIZE.get(gun, 1.0))
 		pose.add_child(arm)
 		arms[side] = arm
 	_arms[gun] = arms
