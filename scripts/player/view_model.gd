@@ -158,6 +158,15 @@ func stop_reload() -> void:
 	_revolver_reset_reload()
 
 
+## Shell-by-shell loading: the lead-in before the first shell, and each shell after.
+func shell_intro() -> float:
+	return T_SHELL_INTRO if weapon == TRENCH else SHELL_INTRO
+
+
+func shell_time() -> float:
+	return T_SHELL_TIME if weapon == TRENCH else SHELL_TIME
+
+
 ## A shell has gone into the tube (the shotguns load one at a time).
 func shell_loaded() -> void:
 	if weapon == TRENCH:
@@ -182,7 +191,11 @@ func swapping() -> bool:
 
 
 ## `speed` is how fast the player is walking; `look` is this frame's mouse movement.
+var _frame_dt := 0.016
+
+
 func animate(delta: float, speed: float, look: Vector2) -> void:
+	_frame_dt = delta
 	_time += delta
 	_since_shot += delta
 	_kick = move_toward(_kick, 0.0, delta * [7.0, 3.2, 14.0, 2.2, 11.0, 3.0, 3.6, 2.6][weapon])
@@ -1419,11 +1432,30 @@ const T_PATH := "res://art/weapons/trench_shotgun/trench_shotgun.glb"
 const T_HOME := Vector3(0.13, -0.15, -0.33)
 const T_TILT := Vector3(0.0, 2.5, 4.0)        # turned in a touch, canted a little
 const T_BORE := Vector3(0.492, 0.1508, 0.0)  # the bore at the muzzle (model space)
-const T_PUMP_TRAVEL := 0.065                  # the pump's stroke toward the receiver
-const T_PUMP := Vector4(0.12, 0.17, 0.05, 0.15)   # after a shot: wait, back, hold, forward (s)
+const T_PUMP_TRAVEL := 0.066                  # the pump's full stroke: its rear stops just short of the receiver
+const T_PUMP := Vector4(0.28, 0.20, 0.07, 0.17)   # after a shot: wait (the kick settles first), back, hold, forward (s)
+## The gun gives with the stroke (most of the pump's travel is toward the eye, so
+## this is what sells it): dips, cants to the left hand, comes back into the shoulder.
+const T_RACK_POS := Vector3(-0.012, -0.022, 0.03)
+const T_RACK_ROT := Vector3(-4.0, 3.0, -9.0)
+## Loading: rolled over to the right (the loading port under the
+## receiver turns toward the eye), brought up and in front, muzzle off to the left.
+const T_LOAD_POS := Vector3(-0.08, 0.0, -0.06)
+## while loading the right elbow stays low on the right (view space), not carried up by the roll
+const T_LOAD_R_ELBOW := Vector3(0.12, -0.85, 0.25)
+const T_LOAD_ROT := Vector3(10.0, 14.0, -62.0)
+## Loading: per shell (the player's clock uses these through shell_intro/shell_time).
+const T_SHELL_INTRO := 0.42
+const T_POUCH := Vector3(-0.22, -0.52, 0.16)     # where the left hand goes for a shell (pose space, below the view)
+const T_SHELL_TIME := 0.62
 const T_HAMMER_DOWN := -22.0                  # degrees about Z from cocked (the model's pose)
 const T_PORT := Vector3(-0.095, 0.168, 0.026)  # the ejection port, right side of the receiver
-const T_LOAD := Vector3(-0.10, 0.07, 0.0)     # the loading port under the receiver
+# a shell's way in: held under the loading port nose up, up into it, forward into the tube
+const T_SHELL_BELOW := Vector3(-0.112, 0.068, 0.0)  # base of the shell, below the port
+const T_SHELL_UP := Vector3(-0.104, 0.1185, 0.0)    # up in the receiver, on the magazine's axis
+const T_SHELL_HOME := Vector3(-0.010, 0.1185, 0.0)  # pushed forward into the tube
+const T_SHELL_TILT := 22.0                           # nose up below the port (degrees)
+const T_SHELL_BASE := 0.034                          # the shell's base from its origin (along -X)
 
 var _sg_root: Node3D
 var _sg_model: Node3D
@@ -1436,7 +1468,6 @@ var _sg_cocked := true
 var _sg_ejected := true
 var _sg_clacked := 0
 var _sg_shell_in := false
-var _sg_shell: Node3D                         # the shell in the left hand while loading
 var sg_hulls: Array[RigidBody3D] = []         # spent hulls thrown (for the tests)
 
 
@@ -1473,18 +1504,6 @@ func _build_trench() -> void:
 	if _sg_pump:
 		_sg_pump_rest = _sg_pump.position
 	_build_arms(TRENCH, pose, _sg_model)
-	# a shell for the left hand to carry while loading
-	if _arms.has(TRENCH) and _arms[TRENCH].has("L"):
-		var arm: FPArm = _arms[TRENCH]["L"]
-		var att := BoneAttachment3D.new()
-		arm.skeleton.add_child(att)
-		att.bone_name = "hand.L"
-		_sg_shell = _shell_mesh()
-		_sg_shell.position = Vector3(0.0, 0.11, 0.035)   # held in the fingers, along the hand (skeleton units)
-		_sg_shell.rotation_degrees = Vector3(0, 0, 90)
-		_sg_shell.scale = Vector3.ONE / FPArm.SIZE
-		att.add_child(_sg_shell)
-		_sg_shell.visible = false
 
 
 ## A 12-bore paper shell, real size, lying along X (brass head at -X).
@@ -1535,16 +1554,17 @@ func _animate_trench() -> void:
 		_sg_cocked = true
 		_throw_hull()
 	_sg_pump_s = s
-	# the whole gun gives a little with the stroke
-	pos += Vector3(0, -0.006, 0.012) * sin(s * PI)
-	rot += Vector3(deg_to_rad(-1.5), 0, deg_to_rad(-2.0)) * sin(s * PI)
-	var load := 0.0
-	if _reload_t >= 0.0:
-		var tilt := smoothstep(0.0, SHELL_INTRO, _reload_t)
-		load = tilt
-		# rolled over to the left and up, the loading port toward the left hand
-		pos += Vector3(-0.03, 0.03, 0.03) * tilt
-		rot += Vector3(deg_to_rad(8.0), deg_to_rad(6.0), deg_to_rad(32.0)) * tilt
+	# the whole gun gives with the stroke, most at the back of it
+	var rack := smoothstep(0.0, 1.0, s)
+	pos += T_RACK_POS * rack
+	rot += T_RACK_ROT * (PI / 180.0) * rack
+	# loading: rolled over to the left and up, the loading port toward the eye and the
+	# left hand; eases in and back out (also when a shot breaks it off)
+	var want := 1.0 if _reload_t >= 0.0 else 0.0
+	_sg_load = move_toward(_sg_load, want, _frame_dt / (T_SHELL_INTRO if want > 0.0 else 0.22))
+	var load := smoothstep(0.0, 1.0, _sg_load)
+	pos += T_LOAD_POS * load
+	rot += T_LOAD_ROT * (PI / 180.0) * load
 	pose.position = pos
 	pose.rotation = rot
 	if _sg_pump:
@@ -1553,42 +1573,124 @@ func _animate_trench() -> void:
 		var cock := 1.0 if _sg_cocked else s
 		_sg_hammer.rotation.z = deg_to_rad(T_HAMMER_DOWN) * (1.0 - cock)
 	# the trigger finger: a quick squeeze at the shot
+	if load > 0.001 and _arms.has(TRENCH):
+		var ra: FPArm = _arms[TRENCH]["R"]
+		var g: Dictionary = ARM_GRIPS[TRENCH]["R"]
+		var m := _sg_model.transform
+		var hand := ra.frame_from_knuckles(m * g.index_k, m * g.little_k, m.basis * g.palm)
+		ra.set_pose(g.pose)
+		ra.place(hand, (m * g.elbow).lerp(T_LOAD_R_ELBOW, load))
+		_sg_r_moved = true
+	elif _sg_r_moved:
+		_sg_r_moved = false
+		apply_grip(TRENCH, _grips_live[TRENCH], _sg_model)
+		_arm_pull_last = -1.0
 	_arm_trigger(TRENCH, 1.0 - smoothstep(0.0, 0.14, t) if t < 0.14 else 0.0)
 	_trench_left(s, load)
 
 
-## The left hand: on the pump (riding it), or fetching shells into the loading port.
+## The left hand: on the pump (riding it), or loading: down to the belt for a
+## shell, up under the loading port holding it by the brass, up into the port and
+## forward into the tube with the thumb behind it, down for the next. The shell
+## follows the hand until it reaches the port; then the hand follows the shell.
+var _sg_load := 0.0                           # 0 on the pump .. 1 loading (eased)
+var _sg_r_moved := false                      # the right elbow has been moved for loading
+var _sg_load_key: Array = []                  # the last loading key (to ease back from)
+var _sg_load_shell: Node3D                    # the shell going in (in the gun model's space)
+
+
+func _sg_pump_key(arm: FPArm, pump_s: float) -> Array:
+	var g: Dictionary = ARM_GRIPS[TRENCH]["L"]
+	var m := _sg_model.transform
+	var off := Vector3(-T_PUMP_TRAVEL * pump_s, 0, 0)
+	var hand := arm.frame_from_knuckles(m * (g.index_k + off), m * (g.little_k + off), m.basis * g.palm)
+	return [hand, m * g.elbow, g.pose]
+
+
+## The hand holding the shell by its base: pinch point on `base`, the hand behind
+## and below it, coming from the left.
+func _sg_shell_key(arm: FPArm, base: Vector3) -> Array:
+	var m := _sg_model.transform
+	var along := (m.basis * Vector3(0.75, 0.45, 0.30)).normalized()
+	var up := m.basis * Vector3.UP
+	var palm := (up - along * up.dot(along)).normalized()
+	var hand := FPArm.frame(Vector3.ZERO, along, palm)
+	if not _pinch_off.has(arm):
+		arm.set_pose(PINCH_POSE)
+		_pinch_off[arm] = arm.pinch_offset()
+	hand.origin = m * base - hand.basis * (_pinch_off[arm] as Vector3)
+	return [hand, Vector3(-0.20, -0.85, 0.15), PINCH_POSE]
+
+
+func _sg_pouch_key(arm: FPArm, pump_hand: Array) -> Array:
+	var h: Transform3D = pump_hand[0]
+	# a fixed spot low on the left of the view (the belt), whatever the gun is doing
+	return [Transform3D(h.basis.rotated(Vector3.RIGHT, -0.5).orthonormalized(), T_POUCH), Vector3(-0.30, -0.90, 0.20), PINCH_POSE]
+
+
+## Where the shell is at loading phase `c` (0..1 of one shell): [base, axis] in model space.
+func _sg_shell_at(c: float) -> Array:
+	var tilted := Vector3(cos(deg_to_rad(T_SHELL_TILT)), sin(deg_to_rad(T_SHELL_TILT)), 0)
+	if c < 0.65:
+		var k := smoothstep(0.5, 0.65, c)
+		return [T_SHELL_BELOW.lerp(T_SHELL_UP, k), tilted.slerp(Vector3.RIGHT, k)]
+	var k2 := smoothstep(0.65, 0.85, c)
+	return [T_SHELL_UP.lerp(T_SHELL_HOME, k2), Vector3.RIGHT]
+
+
+func _sg_place_shell(base: Vector3, axis: Vector3) -> void:
+	if _sg_load_shell == null:
+		_sg_load_shell = _shell_mesh()
+		_sg_model.add_child(_sg_load_shell)
+	var x := axis.normalized()
+	var z := x.cross(Vector3.UP).normalized()
+	var b := Basis(x, z.cross(x), z)
+	_sg_load_shell.transform = Transform3D(b, base + x * T_SHELL_BASE)
+
+
 func _trench_left(pump_s: float, load: float) -> void:
 	if not _arms.has(TRENCH) or not _arms[TRENCH].has("L"):
 		return
 	var arm: FPArm = _arms[TRENCH]["L"]
-	var home: Transform3D = _arm_home[arm]
-	var on_pump := _sg_model.transform.basis * Vector3(-T_PUMP_TRAVEL * pump_s, 0, 0)
-	var at := home.origin + on_pump
-	var basis := home.basis
-	var shell := false
-	if load > 0.0:
-		# from the pump down to the belt, up to the loading port, a thumb push, again
-		var g: Dictionary = _grips_live[TRENCH]["L"]
-		var port: Vector3 = _sg_model.transform * T_LOAD - _sg_model.transform * (g.index_k + g.little_k) * 0.5
-		var pouch := Vector3(-0.06, -0.30, 0.12)
-		var c := 0.0
-		if _reload_t > SHELL_INTRO:
-			c = fposmod(_reload_t - SHELL_INTRO, SHELL_TIME) / SHELL_TIME
-		var to_pouch := sin(clampf(c / 0.5, 0.0, 1.0) * PI * 0.5) * (1.0 - smoothstep(0.5, 0.8, c))
-		var to_port := smoothstep(0.5, 0.8, c) - smoothstep(0.92, 1.0, c) * 0.3
-		var off := pouch * to_pouch + (port + Vector3(0, -0.02, 0)) * to_port
-		if _reload_t <= SHELL_INTRO:
-			off = Vector3(-0.04, -0.12, 0.06) * load
-		at = home.origin + off
-		basis = home.basis.rotated(Vector3.FORWARD, deg_to_rad(-25.0) * load).orthonormalized()
-		shell = c > 0.35 and c < 0.9 and _reload_t > SHELL_INTRO
+	var pump := _sg_pump_key(arm, pump_s)
+	var shell_vis := false
+	var key: Array
+	if _reload_t >= 0.0:
+		var pouch := _sg_pouch_key(arm, pump)
+		var t := _reload_t
+		if t < T_SHELL_INTRO:
+			key = _rl_blend(pump, pouch, smoothstep(0.0, T_SHELL_INTRO * 0.8, t))
+		else:
+			var c := fposmod(t - T_SHELL_INTRO, T_SHELL_TIME) / T_SHELL_TIME
+			var below: Array = _sg_shell_at(0.5)
+			if c < 0.25:
+				key = pouch                                   # a shell from the belt
+			elif c < 0.5:
+				key = _rl_blend(pouch, _sg_shell_key(arm, below[0]), smoothstep(0.25, 0.5, c))
+				shell_vis = c > 0.3
+			elif c < 0.85:
+				var at: Array = _sg_shell_at(c)
+				key = _sg_shell_key(arm, at[0])
+				_sg_place_shell(at[0], at[1])
+				shell_vis = true
+			else:
+				key = _rl_blend(_sg_shell_key(arm, T_SHELL_HOME), pouch, smoothstep(0.85, 1.0, c))
+			if c >= 0.25 and c < 0.5 and shell_vis:
+				# on its way up the shell is in the fingers: put it where the pinch is
+				_rl_apply(arm, key)
+				var pinch := _sg_model.transform.affine_inverse() * ((key[0] as Transform3D) * (_pinch_off[arm] as Vector3))
+				_sg_place_shell(pinch, below[1])
+		_sg_load_key = key
 		if _sg_shell_in:
 			_sg_shell_in = false
 			SfxSynth.play(self, "shell_in", global_position, -8.0, randf_range(0.95, 1.08))
-	arm.transform = Transform3D(basis, at)
-	if _sg_shell:
-		_sg_shell.visible = shell
+	elif load > 0.001 and not _sg_load_key.is_empty():
+		key = _rl_blend(pump, _sg_load_key, load)             # back to the pump
+	else:
+		key = pump
+	_rl_apply(arm, key)
+	if _sg_load_shell:
+		_sg_load_shell.visible = shell_vis
 
 
 ## The spent hull out of the port on the right, spinning, onto the floor.

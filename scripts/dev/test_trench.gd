@@ -102,6 +102,14 @@ func _run() -> void:
 	if "--grip" in OS.get_cmdline_user_args() and FileAccess.file_exists("/tmp/grip_t.txt"):
 		v.apply_grip(ViewModel.TRENCH, str_to_var(FileAccess.get_file_as_string("/tmp/grip_t.txt")), v._sg_model)
 		print("      grip from /tmp/grip_t.txt")
+	if "--seq" in OS.get_cmdline_user_args():
+		await _seq_mode(p, v)
+		get_tree().quit()
+		return
+	if "--frames" in OS.get_cmdline_user_args():
+		await _frames_mode(p, v)
+		get_tree().quit()
+		return
 	if "--dump" in OS.get_cmdline_user_args():
 		_dump(v, OS.get_cmdline_user_args())
 		get_tree().quit()
@@ -158,11 +166,14 @@ func _run() -> void:
 	var climbed := 0.0
 	var t := 0.0
 	var fired_again := false
+	var pump_start := -1.0
 	var shot_pump := false
 	while t < 0.9:
 		await get_tree().process_frame
 		t += get_process_delta_time()
 		max_s = maxf(max_s, v._sg_pump_s)
+		if v._sg_pump_s > 0.02 and pump_start < 0.0:
+			pump_start = t
 		if t < 0.1:
 			hammer_down = minf(hammer_down, rad_to_deg(v._sg_hammer.rotation.z))
 		left_moved = maxf(left_moved, l.position.distance_to(lhome))
@@ -182,6 +193,8 @@ func _run() -> void:
 	print("      near clown: %.0f damage%s" % [near_dmg, " (killed)" if near.dead else ""])
 	_check(near_dmg > 60.0 or near.dead, "up close it hits very hard (%.0f)" % near_dmg)
 	_timed(max_s > 0.98, "the pump comes right back after the shot (%.2f)" % max_s)
+	_timed(pump_start > 0.25, "and only once the kick has settled (starts %.2f s after the shot)" % pump_start)
+	_check(ViewModel.T_PUMP_TRAVEL > 0.06, "a full stroke (%.1f cm)" % (ViewModel.T_PUMP_TRAVEL * 100.0))
 	_check(v._sg_pump_s < 0.01 and v._sg_pump.position.distance_to(v._sg_pump_rest) < 0.0005, "and goes forward again")
 	_timed(hammer_down < -15.0, "the hammer falls on the shot (%.0f deg)" % hammer_down)
 	_check(absf(v._sg_hammer.rotation.z) < 0.01, "and the pump cocks it again")
@@ -223,14 +236,31 @@ func _run() -> void:
 	var last := a0
 	var tt := 0.0
 	var shot_loading := false
-	while tt < ViewModel.SHELL_INTRO + ViewModel.SHELL_TIME * 1.9:
+	var shell_seen := 0
+	var pinch_worst := 0.0
+	var home_gap := 9.0
+	var left_off := 0.0
+	while tt < v.shell_intro() + v.shell_time() * 1.9:
 		await get_tree().process_frame
 		tt += get_process_delta_time()
+		if v._sg_load_shell and v._sg_load_shell.visible:
+			shell_seen += 1
+			var arm_l: FPArm = v._arms[ViewModel.TRENCH]["L"]
+			var sk := arm_l.skeleton
+			var tipf := func(bn: String) -> Vector3:
+				var bi := sk.find_bone(bn)
+				return sk.global_transform * sk.get_bone_global_pose(bi) * Vector3(0, sk.get_bone_rest(bi).origin.length() * 0.85, 0)
+			var mid: Vector3 = ((tipf.call("index_03.L") as Vector3) + (tipf.call("thumb_03.L") as Vector3)) * 0.5
+			var base := v._sg_load_shell.global_transform * Vector3(-ViewModel.T_SHELL_BASE, 0, 0)
+			pinch_worst = maxf(pinch_worst, mid.distance_to(base) * 100.0 / ViewModel.SHRINK)
+			var bm := v._sg_model.global_transform.affine_inverse() * base
+			home_gap = minf(home_gap, bm.distance_to(ViewModel.T_SHELL_HOME))
+		left_off = maxf(left_off, l.position.distance_to(lhome))
 		var now := p.ammo[FpsPlayer.TRENCH]
 		if now != last:
 			steps.append(float(now - last))
 			last = now
-		if render and not shot_loading and tt > ViewModel.SHELL_INTRO + ViewModel.SHELL_TIME * 0.55:
+		if render and not shot_loading and tt > v.shell_intro() + v.shell_time() * 0.55:
 			shot_loading = true
 			v.set_process(false)
 			await _shot("3_loading")
@@ -238,13 +268,18 @@ func _run() -> void:
 	var a1 := p.ammo[FpsPlayer.TRENCH]
 	print("      shells went in one by one: %s (%d -> %d)" % [steps, a0, a1])
 	_timed(steps.size() >= 1 and steps.max() == 1.0 and a1 < 6, "one shell at a time (%d -> %d)" % [a0, a1])
+	_check(left_off > 0.1, "the left hand leaves the pump to load")
+	_check(shell_seen > 5, "a shell is seen going in (%d frames)" % shell_seen)
+	_check(pinch_worst < 1.5, "held by its base between thumb and index (worst %.1f cm)" % pinch_worst)
+	_check(home_gap < 0.005, "and pushed up through the loading port and forward into the tube (%.1f mm from home)" % (home_gap * 1000.0))
 	p.fire()
 	await _frames(3)
 	_check(not v.reloading() and p.ammo[FpsPlayer.TRENCH] == a1 - 1, "a shot breaks off the loading and goes")
+	_check(v._sg_load_shell == null or not v._sg_load_shell.visible, "no shell left hanging when the shot breaks off the loading")
 	await _wait(1.0)
 	_check(l.position.distance_to(lhome) < 0.002, "the left hand is back on the pump")
 	p.reload()
-	await _wait(ViewModel.SHELL_INTRO + ViewModel.SHELL_TIME * 7)
+	await _wait(v.shell_intro() + v.shell_time() * 7)
 	_timed(p.ammo[FpsPlayer.TRENCH] == 6 and not v.reloading(), "loads up to six and stops (%d)" % p.ammo[FpsPlayer.TRENCH])
 
 	# --- switching
@@ -350,3 +385,76 @@ func _dump(v: ViewModel, args: PackedStringArray) -> void:
 			var_to_str(g.basis.x).replace(" ", ""), var_to_str(g.basis.y).replace(" ", ""), var_to_str(g.basis.z).replace(" ", ""), var_to_str(g.origin).replace(" ", "")])
 	j.close()
 	print("DUMP done (%s)" % side)
+
+
+## Frozen moments for checking the animation: the pump after a shot
+## (/tmp/trench_pump_<ms>_*.png) and the loading (/tmp/trench_load_<ms>_*.png),
+## first person and from outside on the left.
+func _frames_mode(p: FpsPlayer, v: ViewModel) -> void:
+	p.camera.rotation.x = 0.0
+	await _wait(0.3)
+	p.set_process(false); p.set_physics_process(false); v.set_process(false)
+	var oc := Camera3D.new()
+	add_child(oc)
+	oc.projection = Camera3D.PROJECTION_ORTHOGONAL
+	oc.size = 0.75 * ViewModel.SHRINK
+	oc.near = 0.005
+	var shoot := func(tag: String) -> void:
+		pass
+	for ts in [0.0, 0.3, 0.4, 0.55]:
+		v._sg_cocked = false
+		v._sg_ejected = true
+		v._since_shot = ts
+		v._kick = maxf(0.0, 1.0 - ts * 2.6)
+		v.animate(0.0, 0.0, Vector2.ZERO)
+		await _frame_shots(p, v, oc, "pump_%04d" % int(ts * 1000))
+	v._since_shot = 9.0
+	v._kick = 0.0
+	v.start_reload()
+	var T := v.shell_intro()
+	var S := v.shell_time()
+	for c in [-1.0, 0.1, 0.4, 0.55, 0.7, 0.8, 0.95]:
+		v._reload_t = T * 0.9 if c < 0.0 else T + S * c
+		v._sg_load = 1.0
+		v.animate(0.0, 0.0, Vector2.ZERO)
+		await _frame_shots(p, v, oc, "load_%04d" % int(maxf(c, 0.0) * 1000 if c >= 0.0 else 9999))
+	print("FRAMES done")
+
+
+func _frame_shots(p: FpsPlayer, v: ViewModel, oc: Camera3D, tag: String) -> void:
+	p.camera.make_current()
+	await _shot(tag + "_fp")
+	var g := v._sg_model.global_transform
+	var centre := g * Vector3(-0.02, 0.10, 0.0)
+	var d := (g.basis * Vector3(0.1, -0.35, -1.0)).normalized()
+	oc.global_position = centre + d * 0.8
+	oc.look_at(centre, g.basis.y.normalized())
+	oc.make_current()
+	await _shot(tag + "_left")
+
+
+## A shot, the pump, then loading two shells and back to the pump, stepped at
+## 30 frames a second of game time: /tmp/trench_seq_<n>.png (first person).
+func _seq_mode(p: FpsPlayer, v: ViewModel) -> void:
+	p.camera.rotation.x = 0.0
+	await _wait(0.3)
+	p.set_process(false); p.set_physics_process(false); v.set_process(false)
+	var n := 0
+	var dt := 1.0 / 30.0
+	v.fire()
+	for i in 27:
+		v.animate(dt, 0.0, Vector2.ZERO)
+		await _shot("seq_%03d" % n)
+		n += 1
+	v.start_reload()
+	while v._reload_t < v.shell_intro() + v.shell_time() * 2.0:
+		v.animate(dt, 0.0, Vector2.ZERO)
+		await _shot("seq_%03d" % n)
+		n += 1
+	v.stop_reload()
+	for i in 10:
+		v.animate(dt, 0.0, Vector2.ZERO)
+		await _shot("seq_%03d" % n)
+		n += 1
+	print("SEQ %d frames" % n)
+

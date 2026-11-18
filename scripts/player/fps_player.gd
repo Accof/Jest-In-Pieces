@@ -345,7 +345,7 @@ func reload() -> void:
 		_reload_left = ViewModel.REVOLVER_SEAT
 		SfxSynth.play(self, "revolver_open", camera.global_position, -8.0, 1.0)
 	else:
-		_shell_left = ViewModel.SHELL_INTRO + ViewModel.SHELL_TIME * 0.85
+		_shell_left = view.shell_intro() + view.shell_time() * 0.85
 
 
 ## The climb after a heavy shot: pitch goes up fast, then settles back over
@@ -396,7 +396,7 @@ func _tick_reload(delta: float) -> void:
 				_shell_left = -1.0
 				view.stop_reload()
 			else:
-				_shell_left = ViewModel.SHELL_TIME
+				_shell_left = view.shell_time()
 
 
 func fire() -> void:
