@@ -131,6 +131,18 @@ func fire() -> void:
 	_flash_mesh.visible = true
 
 
+## A double-action pull has started: the shot comes `length` seconds later.
+func start_pull(length: float) -> void:
+	if weapon == REVOLVER and _rv_parts:
+		_rv_pull_t = 0.0
+		_rv_pull_len = maxf(length, 0.001)
+		_rv_turn()
+
+
+func cancel_pull() -> void:
+	_rv_pull_t = -1.0
+
+
 func start_reload() -> void:
 	_reload_t = 0.0
 	if weapon == REVOLVER:
@@ -819,19 +831,30 @@ var rv_live: Array[bool] = [true, true, true, true, true, true]
 var rv_index := 0
 var _rv_cyl_from := 0.0
 var _rv_cyl_t := 9.0
+var _rv_cyl_len := 0.07
+## A double-action pull: seconds into it (-1 when not pulling) and how long it takes.
+var _rv_pull_t := -1.0
+var _rv_pull_len := 0.08
 var _rv_thrown := false
 var _rv_clicked := 0
 ## Brass thrown out by the last reload (for the tests).
 var rv_spent: Array[RigidBody3D] = []
 
-func _revolver_fired() -> void:
-	if not _rv_parts:
-		return
-	rv_live[rv_index % 6] = false
-	# double action: the pull turns the cylinder a chamber and lets the hammer go
+## The cylinder turns one chamber: during the pull, or on the shot if there was none.
+func _rv_turn() -> void:
 	_rv_cyl_from = _rv_cyl.rotation.x
 	rv_index += 1
 	_rv_cyl_t = 0.0
+	_rv_cyl_len = _rv_pull_len * 0.8 if _rv_pull_t >= 0.0 else 0.07
+
+
+func _revolver_fired() -> void:
+	if not _rv_parts:
+		return
+	if _rv_pull_t < 0.0:
+		_rv_turn()                               # no pull (pull = 0): turn on the shot
+	_rv_pull_t = -1.0
+	rv_live[rv_index % 6] = false                # the chamber under the hammer
 
 
 func _animate_revolver() -> void:
@@ -882,12 +905,18 @@ func _animate_revolver_parts() -> void:
 	var from := _rv_cyl_from
 	if target < from - 0.01:
 		from -= TAU                              # always turn the same way
-	_rv_cyl.rotation.x = lerpf(from, target, smoothstep(0.0, 0.07, _rv_cyl_t))
-	# hammer falls on the shot (back to full cock at the end of the pull), trigger comes back
+	_rv_cyl.rotation.x = lerpf(from, target, smoothstep(0.0, _rv_cyl_len, _rv_cyl_t))
+	# the pull: trigger back, hammer up to full cock; on the shot the hammer
+	# falls (a couple of frames) and the trigger goes forward again
 	var h := 0.0
 	var pull := 0.0
-	if _since_shot < 0.25 and _reload_t < 0.0:
-		h = 1.0 - smoothstep(0.0, 0.035, _since_shot)
+	if _rv_pull_t >= 0.0:
+		_rv_pull_t += dt
+		var k := smoothstep(0.0, _rv_pull_len, _rv_pull_t)
+		h = k
+		pull = k
+	elif _since_shot < 0.25 and _reload_t < 0.0:
+		h = 1.0 - smoothstep(0.0, 0.03, _since_shot)
 		pull = 1.0 - smoothstep(0.03, 0.22, _since_shot)
 	_rv_hammer.rotation.z = deg_to_rad(V_COCK) * h
 	_rv_trigger.rotation.z = deg_to_rad(V_PULL) * pull
@@ -921,6 +950,7 @@ func revolver_loaded() -> void:
 
 
 func _revolver_reset_reload() -> void:
+	_rv_pull_t = -1.0
 	_rv_thrown = false
 	_rv_clicked = 0
 

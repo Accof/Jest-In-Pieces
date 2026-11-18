@@ -25,7 +25,10 @@ const WEAPONS := [
 	# one per pull of the trigger (semi: holding the button does not repeat),
 	# a hard upward kick, slow to reload. The procedural Pistol stays as the
 	# testing gun.
-	{name = "Revolver", damage = 80.0, pellets = 1, spread = 0.0, impulse = 18.0, heavy = true, can_dismember = false, cooldown = 0.48, falloff = 70.0, mag = 6, semi = true, punch = 2.4},
+	# `pull`: double action. The click starts a pull that turns the cylinder and
+	# raises the hammer; the shot goes when it falls, this many seconds later
+	# (0 fires on the click). The cooldown runs from the shot.
+	{name = "Revolver", damage = 80.0, pellets = 1, spread = 0.0, impulse = 18.0, heavy = true, can_dismember = false, cooldown = 0.42, falloff = 70.0, mag = 6, semi = true, punch = 2.4, pull = 0.08},
 ]
 ## The machine gun on its mount in the nest: same rounds, steadier.
 const MOUNTED_MG := {name = "Maxim", damage = 60.0, pellets = 1, spread = 1.1, impulse = 22.0, heavy = true, can_dismember = true, cooldown = 0.11, falloff = 120.0, mag = 0}
@@ -98,6 +101,8 @@ var _punch := 0.0
 var _punch_v := 0.0
 ## A semi-automatic shot asked for a moment too early: taken when it can be.
 var _queued := -1.0
+## A double-action pull under way: the shot goes when this runs out.
+var _pull_left := -1.0
 var _shake := 0.0
 var _cross: Control
 ## The super kill, charged by kills.
@@ -268,6 +273,12 @@ func _physics_process(delta: float) -> void:
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
 			and not WEAPONS[weapon].get("semi", false):
 		fire()
+	if _pull_left >= 0.0:
+		_pull_left -= delta
+		if dead or view.swapping() or view.reloading():
+			_cancel_pull()
+		elif _pull_left < 0.0:
+			_discharge()
 	if _queued >= 0.0:
 		_queued -= delta
 		if _cooldown <= 0.0:
@@ -294,6 +305,7 @@ func select_weapon(w: int) -> void:
 	_reload_left = -1.0
 	_shell_left = -1.0
 	_queued = -1.0
+	_cancel_pull()
 	weapon = w
 	view.swap_to(w)
 	_cooldown = maxf(_cooldown, ViewModel.SWAP_TIME)
@@ -372,6 +384,8 @@ func fire() -> void:
 	if mount:
 		mount.trigger()
 		return
+	if _pull_left >= 0.0:
+		return                                   # already pulling: the shot is on its way
 	if _cooldown > 0.0 and WEAPONS[weapon].get("semi", false) and not dead:
 		_queued = 0.15                           # pulled a moment early: fire when it can
 	if _cooldown > 0.0 or dead or view.swapping():
@@ -387,6 +401,26 @@ func fire() -> void:
 	if weapon == 1 and view.reloading():
 		_shell_left = -1.0                      # break off loading to shoot
 		view.stop_reload()
+	var pull: float = WEAPONS[weapon].get("pull", 0.0)
+	if pull > 0.0:
+		# double action: the trigger comes back, the cylinder turns, the hammer rises
+		_pull_left = pull
+		view.start_pull(pull)
+		return
+	_discharge()
+
+
+func _cancel_pull() -> void:
+	if _pull_left >= 0.0:
+		_pull_left = -1.0
+		view.cancel_pull()
+
+
+## The shot itself (after the pull, for a double-action gun).
+func _discharge() -> void:
+	_pull_left = -1.0
+	if ammo[weapon] <= 0:
+		return
 	var w: Dictionary = WEAPONS[weapon]
 	_cooldown = w.cooldown / stats.fire_rate
 	_shot_id += 1

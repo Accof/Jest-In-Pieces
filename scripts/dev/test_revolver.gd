@@ -136,8 +136,19 @@ func _run() -> void:
 	p.camera.look_at(b.ragdoll.bones[&"Chest"].global_position)
 	var pitch0 := p.camera.rotation.x
 	var hb := b.health
+	var pull_s: float = FpsPlayer.WEAPONS[FpsPlayer.REVOLVER].pull
 	p.fire()
-	await get_tree().process_frame
+	# double action: nothing goes off on the click; the hammer rises and the cylinder turns first
+	await get_tree().physics_frame
+	_check(p.ammo[FpsPlayer.REVOLVER] == 6 and p.view._rv_pull_t >= 0.0, "the click starts a double-action pull; no shot yet")
+	var peak := 0.0
+	var waited := 0.0
+	while p.ammo[FpsPlayer.REVOLVER] == 6 and waited < 0.5:
+		peak = maxf(peak, rad_to_deg(p.view._rv_hammer.rotation.z))
+		await get_tree().process_frame
+		waited += get_process_delta_time()
+	_timed(peak > 25.0, "the hammer comes back during the pull (%.0f deg)" % peak)
+	_timed(waited > pull_s * 0.6 and waited < pull_s + 0.1, "the shot goes when the pull is through (%.0f ms)" % (waited * 1000.0))
 	var kicked := p.view._kick
 	var flash_at := p.view._flash_mesh.global_position
 	_timed(p.view._flash_mesh.visible and flash_at.distance_to(p.view._rev_muzzle.global_position) < 0.002, "the flash is at the revolver's muzzle")
@@ -151,7 +162,8 @@ func _run() -> void:
 	await _frames(10)
 	var rev_dmg := hb - b.health if not b.dead else hb
 	_check(p.ammo[FpsPlayer.REVOLVER] == 5 and p.ammo[FpsPlayer.PISTOL] == 16, "a revolver shot uses a revolver round only")
-	_check(p.view.rv_index == 1 and p.view._rv_cases[0].visible and not p.view._rv_rounds[0].visible, "the fired chamber now holds a fired case")
+	var fired_c := p.view.rv_index % 6
+	_check(p.view.rv_index == 1 and p.view._rv_cases[fired_c].visible and not p.view._rv_rounds[fired_c].visible, "the fired chamber now holds a fired case")
 	_check(absf(p.view._rv_cyl.rotation.x - PI / 3.0) < 0.02, "the cylinder turned one chamber (%.1f deg)" % rad_to_deg(p.view._rv_cyl.rotation.x))
 	_timed(absf(p.view._rv_barrel.rotation.z) < 0.001 and absf(p.view._rv_hammer.rotation.z) < 0.01, "barrel shut, hammer down after the shot")
 	_check(rev_dmg > pistol_dmg, "the revolver hits harder than the pistol (%.0f vs %.0f)" % [rev_dmg, pistol_dmg])

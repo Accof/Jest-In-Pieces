@@ -181,7 +181,11 @@ Key 6. A WW1 service rifle: five rounds, one shot per pull of the bolt (you see 
 Key 7. A WW1 top-break service revolver, separate from the procedural pistol (key 1), which stays as it was as the testing gun. Six rounds of 80 damage (the pistol's are 34), one shot per pull (holding the button does not repeat; a pull up to 0.15 s early is taken as soon as it can fire), about two shots a second at most, dead accurate. Each shot kicks: the view climbs about 2 degrees and springs back on target in about half a second, the gun jumps up and back in the hand, a big flash at its own muzzle, a heavy report (synthesised `revolver_shot`), and clowns hear it as far as the shotgun.
 
 The model is `art/weapons/revolver/revolver_parts.glb`: the Tripo model split in Blender into its working parts (how it was done: `claude/revolver-breakdown.md`). The frame, the barrel assembly on its hinge pin, a rebuilt six-chamber cylinder riding with the barrel, the extractor star, six live rounds and six fired cases, and the hammer and trigger on their own pivots.
-- **Firing:** the hammer falls, the trigger comes back, the cylinder turns one chamber, and the chamber that fired now shows a fired case.
+- **Firing (double action, like the real Webley):**
+  - the click starts an 80 ms trigger pull (`pull` in the Revolver's `WEAPONS` entry; 0 fires on the click);
+  - during the pull the trigger comes back, the cylinder turns one chamber and the hammer rises to full cock;
+  - the shot goes as the hammer falls, and the chamber that fired now shows a fired case;
+  - the 0.42 s cooldown runs from the shot, so it is still about two shots a second.
 - **Reload (3 s; the rounds count at 2.35 s):** the wrist turns the gun over to watch the breech. The barrel falls open on the hinge, and at the end of the opening the extractor throws everything in the cylinder (fired cases and any live rounds left) out as real brass in the world. The brass is full size, bounces, tinks and lies on the floor for 25 s, with at most 72 pieces around. The extractor snaps back, six rounds slide in one after another, and the barrel snaps shut.
 - **Swapping away before the rounds are in** abandons the reload: the chambers keep what they had.
 - **No hands yet:** the rounds go in by themselves.
