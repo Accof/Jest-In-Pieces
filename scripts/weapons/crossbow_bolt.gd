@@ -19,7 +19,9 @@ const SPEED := 72.0          ## m/s off the string
 const GRAVITY := 9.8         ## real drop: about 0.4 m at 20 m
 const LENGTH := 0.46         ## tip to nock
 const DAMAGE := 70.0
-const PIN_REACH := 0.36      ## entry point to wall: the most a bolt can cross and still bite
+const PIN_REACH := 0.5       ## entry point to wall: a limb is pinned if a wall is this close behind
+const DRIVE_REACH := 1.4     ## through the body (or neck): a wall this far back still takes it,
+							 ## the heavy bolt driving them back onto it
 const WALL_BITE := 0.05      ## how far the point goes into the wall
 const MAX_LOOSE := 40
 const LAYER_WORLD := 1
@@ -111,10 +113,13 @@ func _hit_body(pb: PhysicalBone3D, at: Vector3) -> bool:
 	# solid wall (or floor) close behind, along the line: can it nail them to it?
 	var wall := {}
 	if not through:
-		var wq := PhysicsRayQueryParameters3D.create(at, at + dir * (PIN_REACH + WALL_BITE), LAYER_WORLD)
+		var reach := DRIVE_REACH if zone in [&"Chest", &"Spine", &"Hips", &"Neck"] else PIN_REACH
+		var wq := PhysicsRayQueryParameters3D.create(at, at + dir * (reach + WALL_BITE), LAYER_WORLD)
 		wall = get_world_3d().direct_space_state.intersect_ray(wq)
 		if not wall.is_empty() and ((wall.collider as Object).has_method("shot") or (wall.normal as Vector3).dot(dir) > -0.25):
 			wall = {}                           # a drum, or only grazing it
+		elif not wall.is_empty() and at.distance_to(wall.position) > PIN_REACH and absf((wall.normal as Vector3).y) > 0.5:
+			wall = {}                           # only a wall is worth driving them back onto, not the floor
 	var pin := not wall.is_empty()
 	var was_dead := who.dead
 	who.hit({

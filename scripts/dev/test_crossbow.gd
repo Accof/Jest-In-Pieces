@@ -182,6 +182,7 @@ func _run() -> void:
 	await _wait(0.3)
 	_check(bolt_w.state == "pinned" and w.pinned and not w.dead, "torso into the wall: pinned, alive (%s, %.0f)" % [bolt_w.state, w.health])
 	_check(bolt_w.global_position.z < wall_z, "the point is in the wall (tip z %.3f, wall %.2f)" % [bolt_w.global_position.z, wall_z])
+	w0 = w.global_position                  # (after the bolt has seated it against the wall)
 	var hand_moved := 0.0
 	var drift := 0.0
 	var pin_err := 0.0
@@ -268,6 +269,45 @@ func _run() -> void:
 	m1.health = 3.0
 	await _wait(2.0)
 	_check(m1.dead and m1.pins.size() > 0 and (m1.pins[0].joint as RID).is_valid(), "a body pin bleeds it out, and the corpse stays pinned")
+
+	print("== a wall further back: the bolt drives them onto it")
+	# where clowns really stand: their bodies keep about 0.3 m off a wall
+	for dist: float in [0.6, 1.1]:
+		var d := _clown(Vector3(-4.5 + dist * 3.0, 0, wall_z + dist))
+		await _frames(10)
+		var d0 := d.global_position
+		var bolt_d := _fire_at(d, &"Chest")
+		var peak_d := 0.0
+		var tt2 := 0.0
+		var d_last := d.global_position
+		while tt2 < 0.8:
+			await get_tree().physics_frame
+			var dt := get_physics_process_delta_time()
+			tt2 += dt
+			peak_d = maxf(peak_d, d.global_position.distance_to(d_last) / dt)
+			d_last = d.global_position
+		var back := d0.z - d.global_position.z
+		_check(bolt_d.state == "pinned" and d.pinned and not d.dead, "%.1f m off the wall, chest: driven back and pinned alive (%s)" % [dist, bolt_d.state])
+		_check(back > dist - 0.45 and back < dist + 0.05 and peak_d <= Clown.PIN_DRIVE_SPEED + 0.5, "  shoved back %.2f m at up to %.1f m/s, not teleported" % [back, peak_d])
+		_check(bolt_d.global_position.z < wall_z and _bone_pos(d, &"Chest").z - wall_z < 0.35, "  the point in the wall, the back against it (chest %.2f m out)" % (_bone_pos(d, &"Chest").z - wall_z))
+		await _shot("6_driven_%d" % int(dist * 10), _bone_pos(d, &"Chest"), _bone_pos(d, &"Chest") + Vector3(1.2, 0.1, 1.6))
+	# killed outright with the wall a metre back: the corpse is driven onto it and hangs
+	var k := _clown(Vector3(3.5, 0, wall_z + 1.0))
+	await _frames(10)
+	var bolt_k := _fire_at(k, &"Neck", Vector3(0, 0.05, 0))
+	var peak_k := 0.0
+	for i in 150:
+		await get_tree().physics_frame
+		peak_k = maxf(peak_k, _max_speed(k))
+	_check(k.dead and bolt_k.state == "pinned" and k.pins.size() > 0 and (k.pins[0].joint as RID).is_valid(), "killed a metre off the wall: driven onto it and pinned (%s)" % bolt_k.state)
+	_check(_bone_pos(k, &"Neck").z - wall_z < 0.4 and peak_k < 8.0, "  the head at the wall (%.2f m out), no explosive physics (%.1f m/s)" % [_bone_pos(k, &"Neck").z - wall_z, peak_k])
+	await _shot("7_driven_corpse", _bone_pos(k, &"Chest"), _bone_pos(k, &"Chest") + Vector3(1.2, 0.1, 1.6))
+	# a leg a metre off a wall: not pinned (only a body shot carries that far)
+	var lg := _clown(Vector3(5.5, 0, wall_z + 1.0))
+	await _frames(10)
+	var bolt_lg := _fire_at(lg, &"RightUpperLeg")
+	await _wait(0.5)
+	_check(not lg.pinned and (not is_instance_valid(bolt_lg) or bolt_lg.state != "pinned"), "a leg a metre off the wall: not pinned")
 
 	print("== loose bolts")
 	var before := get_tree().get_nodes_in_group(&"__none").size()

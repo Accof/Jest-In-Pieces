@@ -1336,6 +1336,13 @@ func bleed_out() -> void:
 ## Each pin: {bolt, bone, local (the pinned point in the bone's frame), wall, normal, joint}.
 var pins: Array = []
 var pinned := false
+## How far behind the entry wound the wall ends up once the bolt has driven a
+## body back onto it: about the body's depth there (its back against the wall).
+const PIN_SEAT := {&"Neck": 0.14, &"Chest": 0.22, &"Spine": 0.22, &"Hips": 0.2, &"UpperArm": 0.1,
+	&"LowerArm": 0.07, &"Hand": 0.04, &"UpperLeg": 0.13, &"LowerLeg": 0.09, &"Foot": 0.07}
+const PIN_DRIVE_SPEED := 5.0          ## m/s the bolt drives a body back onto the wall
+var _pin_drive := 0.0                 ## still to go back (living)
+var _pin_drive_dir := Vector3.ZERO
 var _pin_root := Vector3.ZERO
 var _pin_t := 0.0
 var _pin_free_at := INF
@@ -1383,15 +1390,72 @@ func bolt_pin(bolt: Node3D, pb: PhysicalBone3D, at: Vector3, wall: Vector3, norm
 		return false
 	if dead and not ragdoll.active:
 		return false                      # a staged death still playing: no physics to hold
+	# the wall further back than the body is deep: the bolt drives them back onto
+	# it (along the ground: a body is shoved, not lifted), unless it is coming
+	# down too steeply to shove anyone anywhere
+	var to_wall := wall - at
+	var flat := Vector3(to_wall.x, 0.0, to_wall.z)
+	var drive := maxf(0.0, flat.length() - float(PIN_SEAT.get(Clown._zone(b), 0.15)))
+	if drive > 0.12 and flat.length() < to_wall.length() * 0.6:
+		return false
 	var bone_xf := skeleton.global_transform * skeleton.get_bone_global_pose(bi)
-	var pin := {bolt = bolt, bone = b, local = bone_xf.affine_inverse() * at, at = at, wall = wall, normal = normal, joint = RID(), anchor = null}
+	var pin := {bolt = bolt, bone = b, local = bone_xf.affine_inverse() * at, at = at, wall = wall, normal = normal, joint = RID(), anchor = null,
+		dir = to_wall.normalized()}
 	pins.append(pin)
 	bolt.tree_exiting.connect(_unpin_bolt.bind(bolt), CONNECT_ONE_SHOT)
 	if living:
 		_begin_living_pin(b)
+		if drive > 0.02:
+			_pin_drive = maxf(_pin_drive, drive)
+			_pin_drive_dir = flat.normalized()
+			_place_pin_bolt(pin)
+	elif drive > 0.04:
+		_drive_corpse(pin, flat.normalized(), drive)
 	else:
 		_pin_ragdoll(pin)
 	return true
+
+
+## While the body is driven back the bolt goes with it, its point just out of
+## the back; once there, the point is in the wall.
+func _place_pin_bolt(p: Dictionary) -> void:
+	var bolt := p.bolt as Node3D
+	if not is_instance_valid(bolt):
+		return
+	var dir: Vector3 = p.dir
+	var seat := float(PIN_SEAT.get(Clown._zone(p.bone), 0.15))
+	var left := ((p.wall as Vector3) - (p.at as Vector3)).dot(dir)
+	bolt.global_position = (p.at as Vector3) + dir * (minf(left, seat + 0.02) + CrossbowBolt.WALL_BITE)
+
+
+## Dead (a ragdoll): shoved back along the bolt until the pinned point gets to
+## the wall (or stops getting closer), then held there.
+func _drive_corpse(p: Dictionary, flat: Vector3, drive: float) -> void:
+	var pb: PhysicalBone3D = ragdoll.bones.get(p.bone)
+	if pb == null:
+		_pin_ragdoll(p)
+		return
+	p.pending = true
+	var on_bone := pb.global_transform.affine_inverse() * (p.at as Vector3)
+	var v := clampf(drive * 5.0, 1.5, PIN_DRIVE_SPEED)
+	for b: PhysicalBone3D in ragdoll.bones.values():
+		if is_instance_valid(b):
+			b.linear_velocity += flat * v * (1.0 if b == pb else 0.8)
+	var seat := float(PIN_SEAT.get(Clown._zone(p.bone), 0.15))
+	var t := 0.0
+	while t < 0.6:
+		await get_tree().physics_frame
+		t += get_physics_process_delta_time()
+		if not is_instance_valid(pb) or not pins.has(p):
+			return
+		p.at = pb.global_transform * on_bone
+		_place_pin_bolt(p)
+		var left := Vector3((p.wall as Vector3).x - (p.at as Vector3).x, 0.0, (p.wall as Vector3).z - (p.at as Vector3).z).dot(flat) - seat
+		if left <= 0.03 or (t > 0.1 and pb.linear_velocity.dot(flat) < 0.3):
+			break
+	p.pending = false
+	_place_pin_bolt(p)
+	_pin_ragdoll(p)
 
 
 func _begin_living_pin(b: StringName) -> void:
@@ -1456,6 +1520,19 @@ func _pinned_hold(delta: float) -> void:
 	if dead:
 		return
 	var off := Vector3.ZERO
+	if _pin_drive > 0.0:
+		# driven back by the bolt: along the ground, stopping short of anything
+		# else in the way (a crate, a doorframe)
+		var step := minf(_pin_drive, PIN_DRIVE_SPEED * delta)
+		var move := _pin_drive_dir * step
+		var q := PhysicsRayQueryParameters3D.create(_pin_root + Vector3.UP * 0.5, _pin_root + Vector3.UP * 0.5 + _pin_drive_dir * (step + 0.04), 1)
+		if not get_world_3d().direct_space_state.intersect_ray(q).is_empty():
+			move = Vector3.ZERO
+		_pin_root += move
+		_pin_drive = 0.0 if move == Vector3.ZERO else _pin_drive - step
+		for p: Dictionary in pins:
+			p.at = (p.at as Vector3) + move
+			_place_pin_bolt(p)
 	if not pins.is_empty():
 		var p: Dictionary = pins[0]
 		var bi := skeleton.find_bone(p.bone)
@@ -1502,6 +1579,7 @@ func _end_living_pin() -> void:
 	if not pinned:
 		return
 	pinned = false
+	_pin_drive = 0.0
 	_pin_free_at = INF
 	_pin_grab = 0.0
 	var br := get_node_or_null("Brain") as ClownBrain
