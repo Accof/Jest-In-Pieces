@@ -255,6 +255,8 @@ func _process(delta: float) -> void:
 		reload_t = maxf(reload_t - delta, 0.0)
 		aim_amount = minf(aim_amount, 0.35)
 	super._process(delta)
+	if pinned:
+		return                          # the shared pose has him heaving at the bolt
 	if reload_t > 0.0 and _pan and has_rifle and not dead and main_arm() != "":
 		_reload_pose()
 	elif _pan:
@@ -283,6 +285,7 @@ func _die(info: Dictionary, zone: StringName) -> void:
 		_begin_throat(info, zone)
 		return
 	var staged: bool = enable_hybrid_deaths and not (info.get("blast", false) or info.get("stake", false) or info.has("profile") \
+		or pinned or not pins.is_empty() or info.get("pinned", false) \
 		or crawling or downed or last_stand or ragdoll.active or _halved or info.get("heavy", false) \
 		or (info.get("can_dismember", false) and float(info.damage) >= dismember_damage) or broken_leg != "")
 	var kind := ""

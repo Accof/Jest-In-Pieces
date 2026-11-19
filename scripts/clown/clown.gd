@@ -1325,12 +1325,16 @@ func bleed_out() -> void:
 ## ragdoll hangs from the pin: a joint holds the pinned bone at the bolt (a
 ## little swing allowed) and gravity does the rest. Nothing is moved to the wall.
 @export_group("Crossbow")
-## Living clowns can be pinned (subclasses with their own staged posing set false:
-## their bolts stay in the body instead).
+## Living clowns can be pinned: they drop what they hold, stop fighting, and
+## heave at the bolt with whatever hands they have free until they die there.
 @export var can_be_pinned_alive := true
-@export var pin_free_after := Vector2(5.0, 9.0)     ## seconds before a limb pin tears free
+## Off: every pin holds until death. On: a limb pin tears free after
+## `pin_free_after` seconds (costing `pin_free_damage`).
+@export var pinned_tear_free := false
+@export var pin_free_after := Vector2(5.0, 9.0)     ## seconds before a limb pin tears free (if allowed)
 @export var pin_free_damage := 16.0
 @export var pin_bleed := 2.5                        ## health a second, pinned through the body
+@export var pin_bleed_limb := 1.0                   ## health a second, pinned through a limb
 @export var bolt_arm_impair := 2.5                  ## seconds a bolted arm cannot aim or swing
 @export var bolt_leg_slow := Vector2(0.45, 4.0)     ## speed scale and seconds after a bolt in the leg
 ## Each pin: {bolt, bone, local (the pinned point in the bone's frame), wall, normal, joint}.
@@ -1342,6 +1346,10 @@ const PIN_SEAT := {&"Neck": 0.14, &"Chest": 0.22, &"Spine": 0.22, &"Hips": 0.2, 
 	&"LowerArm": 0.07, &"Hand": 0.04, &"UpperLeg": 0.13, &"LowerLeg": 0.09, &"Foot": 0.07}
 const PIN_DRIVE_SPEED := 5.0          ## m/s the bolt drives a body back onto the wall
 var _pin_drive := 0.0                 ## still to go back (living)
+var _pin_bleed_rate := 0.0            ## health a second while pinned alive
+var _pin_tug := 0.0                   ## 1 at a heave on the bolt, dying away
+var _pin_slip := {}                   ## side -> seconds until that hand slips and grabs again
+var _pin_off := {}                    ## side -> seconds that hand is off the shaft
 var _pin_drive_dir := Vector3.ZERO
 var _pin_root := Vector3.ZERO
 var _pin_t := 0.0
@@ -1383,10 +1391,7 @@ func bolt_pin(bolt: Node3D, pb: PhysicalBone3D, at: Vector3, wall: Vector3, norm
 	if bi < 0:
 		return false
 	var living := not dead and not ragdoll.active
-	# the ones with their own staged posing (Rattlejack, Zornhauptmann, Klappersoldat)
-	# do not use the posing the living pin works through: the bolt stays in them
-	var staged := (self as Object) is Rattlejack or (self as Object) is Klappersoldat
-	if living and (not can_be_pinned_alive or staged or crawling or downed or last_stand or executing or bleeding_out):
+	if living and (not can_be_pinned_alive or crawling or downed or last_stand or executing or bleeding_out):
 		return false
 	if dead and not ragdoll.active:
 		return false                      # a staged death still playing: no physics to hold
@@ -1468,12 +1473,22 @@ func _begin_living_pin(b: StringName) -> void:
 	if first:
 		_pin_t = 0.0
 		_pin_jerk_at = randf_range(0.25, 0.5)
+		_pin_grab = 0.0
+		_pin_grab_v = 0.0
+		_pin_tug = 0.0
+		_pin_slip = {"Left": randf_range(1.2, 2.6), "Right": randf_range(1.8, 3.4)}
+		# whatever it was holding goes: both hands are wanted for the bolt
+		_drop_weapons()
+		attack_amount = 0.0
+		aim_amount = 0.0
+		aim_point = Vector3.INF
 	var zone := Clown._zone(b)
 	if zone in [&"UpperArm", &"LowerArm", &"Hand", &"UpperLeg", &"LowerLeg", &"Foot"]:
-		if _pin_free_at == INF:
+		if pinned_tear_free and _pin_free_at == INF:
 			_pin_free_at = _pin_t + randf_range(pin_free_after.x, pin_free_after.y)
 	else:
 		_pin_free_at = INF                # through the body: it is not getting off that
+	_pin_bleed_rate = maxf(_pin_bleed_rate if not first else 0.0, pin_bleed if zone in [&"Chest", &"Spine", &"Hips", &"Neck"] else pin_bleed_limb)
 	var br := get_node_or_null("Brain") as ClownBrain
 	if br:
 		br.pinned_now()
@@ -1483,35 +1498,79 @@ func _begin_living_pin(b: StringName) -> void:
 ## Held at the pin: the body cannot go anywhere, and it fights it.
 func _pinned_pose(delta: float) -> void:
 	_pin_t += delta
-	# jerks: it throws itself against the pin, now this way, now that
+	# heaves: it throws its weight against the bolt, now this way, now that
 	if _pin_t >= _pin_jerk_at:
 		_pin_jerk_at = _pin_t + randf_range(0.45, 1.2)
 		var n: Vector3 = pins[0].normal if not pins.is_empty() else -global_basis.z
 		var inv := skeleton.global_transform.affine_inverse().basis
 		var pull := (inv * (n + Vector3(randf_range(-0.6, 0.6), randf_range(-0.2, 0.4), randf_range(-0.6, 0.6)))).normalized()
 		_flinch_vel += Vector3(pull.z, randf_range(-0.6, 0.6), -pull.x) * randf_range(2.5, 4.5)
-		# between jerks the free hand goes for the shaft and pulls at it, or lets go
-		_pin_grab_want = 1.0 if randf() < 0.65 else 0.0
-	# the hand gets there quickly and tugs (a little shake while it holds)
-	_pin_grab_v += ((_pin_grab_want - _pin_grab) * 40.0 - _pin_grab_v * 9.0) * delta
-	_pin_grab = clampf(_pin_grab + _pin_grab_v * delta, 0.0, 1.0)
+		_pin_tug = 1.0
+	_pin_tug = move_toward(_pin_tug, 0.0, delta * 3.0)
+	_pin_grab = minf(_pin_grab + delta * 3.5, 1.0)       # the hands go to the bolt at once
+	# head down over it, shaking with the effort
+	var g := smoothstep(0.0, 1.0, _pin_grab)
+	_turn("Neck", Vector3.RIGHT, deg_to_rad(12.0 + 7.0 * _pin_tug + 3.0 * sin(_pin_t * 31.0)) * g)
+	_turn("Chest", Vector3.RIGHT, deg_to_rad(8.0 * _pin_tug) * g)
+
+
+## Both free hands on the bolt where it comes out of the body (one behind the
+## other), heaving at it on every jerk; now and then a hand slips off and
+## grabs again. A hand is free if its arm is there, not broken and not itself
+## pinned. Run after all the other arm posing, so nothing else moves them.
+func _pinned_arms(delta: float) -> void:
 	if pins.is_empty():
 		return
+	# the pin to fight: one through the body first, else the first
 	var p: Dictionary = pins[0]
-	var side := "Left" if not String(p.bone).begins_with("Left") else "Right"
-	if arm_out(side) or (attack_amount > 0.05 and main_arm() == side) or (aim_amount > 0.05 and main_arm() == side):
+	for q: Dictionary in pins:
+		if Clown._zone(q.bone) in [&"Chest", &"Spine", &"Hips", &"Neck"]:
+			p = q
+			break
+	if not is_instance_valid(p.bolt as Node3D):
 		return
-	var bolt: Node3D = p.bolt
-	if not is_instance_valid(bolt):
+	var free: Array[String] = []
+	for side: String in ["Right", "Left"]:
+		var pinned_arm := false
+		for q: Dictionary in pins:
+			pinned_arm = pinned_arm or String(q.bone).begins_with(side)
+		if not arm_out(side) and not pinned_arm:
+			free.append(side)
+	if free.is_empty():
 		return
-	var grip := skeleton.global_transform.affine_inverse() * (p.at as Vector3)
-	var hb := skeleton.find_bone(side + "Hand")
-	var hand := skeleton.get_bone_global_pose(hb).origin
-	var g := smoothstep(0.15, 0.85, _pin_grab)
-	if g > 0.01:
-		var chest := skeleton.get_bone_global_pose(skeleton.find_bone("Chest")).origin
-		reach(side, hand.lerp(grip + (chest - grip).normalized() * 0.06, g), chest + Vector3(0.0, -0.3, 0.0) + (Vector3(0.4, 0, 0) if side == "Left" else Vector3(-0.4, 0, 0)))
-
+	var to_skel := skeleton.global_transform.affine_inverse()
+	var out: Vector3 = -(p.get("dir", -(p.normal as Vector3)) as Vector3)      # back along the bolt, toward the shooter
+	var entry: Vector3 = p.at
+	var chest := skeleton.get_bone_global_pose(skeleton.find_bone("Chest")).origin
+	var g := smoothstep(0.0, 1.0, _pin_grab)
+	for k in free.size():
+		var side := free[k]
+		# slips: off the shaft for a moment, then back on it hard
+		_pin_slip[side] = float(_pin_slip.get(side, 2.0)) - delta
+		if _pin_slip[side] <= 0.0:
+			_pin_slip[side] = randf_range(1.4, 3.2)
+			_pin_off[side] = randf_range(0.18, 0.32)
+		var off := maxf(float(_pin_off.get(side, 0.0)) - delta, 0.0)
+		_pin_off[side] = off
+		# one hand near the wound, the other further out along the shaft; the
+		# side the hand is on keeps it to that side of the shaft
+		var along := (0.07 if free.size() == 1 or k == 0 else 0.15) + 0.035 * _pin_tug
+		var shake := Vector3(sin(_pin_t * 27.0 + k * 2.0), sin(_pin_t * 23.0 + k), 0.0) * 0.006
+		var grip := to_skel * (entry + out * along) + shake
+		# which way is this hand's side (from the shoulder, not assumed): the
+		# wrist sits just outboard of the shaft, a little under it, so the hand
+		# wraps in over it; the elbow out and down
+		var shoulder := skeleton.get_bone_global_pose(skeleton.find_bone(side + "UpperArm")).origin
+		var outward := Vector3(shoulder.x - chest.x, 0.0, shoulder.z - chest.z)
+		outward = outward.normalized() if outward.length() > 0.01 else Vector3.RIGHT
+		var out_sk := (to_skel.basis * out).normalized()
+		var wrist := grip + outward * 0.07 + Vector3(0, -0.04, 0)
+		var hand := skeleton.get_bone_global_pose(skeleton.find_bone(side + "Hand")).origin
+		var w := g * (1.0 - smoothstep(0.0, 0.12, off))
+		if off > 0.0:
+			wrist += out_sk * 0.06 + outward * 0.06 + Vector3(0, -0.05, 0)   # torn off it, coming back
+		var pole := shoulder + outward * 0.55 + Vector3(0, -0.3, 0) - out_sk * 0.15     # elbows out: forearms come in level
+		reach(side, hand.lerp(wrist, maxf(w, g * 0.6)), pole)
 
 ## After the pose: the pinned point stays on the bolt. The body is moved (a
 ## little: the struggle only bends the chain) so the pinned point is where it
@@ -1545,7 +1604,7 @@ func _pinned_hold(delta: float) -> void:
 	global_position = _pin_root + off
 	velocity = Vector3.ZERO
 	if _pin_free_at == INF:
-		health -= pin_bleed * delta
+		health -= _pin_bleed_rate * delta
 		if health <= 0.0:
 			_die({position = pins[0].at if not pins.is_empty() else global_position + Vector3.UP, direction = Vector3.DOWN,
 				collider = ragdoll.bones.get(pins[0].bone if not pins.is_empty() else &"Chest"), weapon = "Crossbow", crossbow = true}, Clown._zone(pins[0].bone if not pins.is_empty() else &"Chest"))
@@ -1581,6 +1640,7 @@ func _end_living_pin() -> void:
 	pinned = false
 	_pin_drive = 0.0
 	_pin_free_at = INF
+	_pin_bleed_rate = 0.0
 	_pin_grab = 0.0
 	var br := get_node_or_null("Brain") as ClownBrain
 	if br:
@@ -1885,6 +1945,7 @@ func _process(delta: float) -> void:
 	for side: String in broken_arms:
 		dangle_arm(side, gait)
 	if pinned:
+		_pinned_arms(delta)
 		_pinned_hold(delta)
 		return
 	if not always_pose and _flinch.length() < 0.002 and _flinch_vel.length() < 0.02 and _stagger.length() < 0.002 and _stagger_vel.length() < 0.02:

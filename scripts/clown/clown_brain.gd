@@ -260,53 +260,16 @@ func slow_for(scale: float, seconds: float) -> void:
 ## is in front of it: a swing at arm's length, a shot if it has a gun and the
 ## player is not behind it.
 func _pinned(delta: float) -> void:
+	# nothing to fight with and no wish to: it is busy with the bolt
 	intended_speed = 0.0
 	intended_dir = Vector3.ZERO
 	clown.velocity = Vector3.ZERO
 	clown.walk_amount = move_toward(clown.walk_amount, 0.0, delta * 6.0)
 	clown.run_amount = 0.0
-	if player == null or player.dead:
-		clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 4.0)
-		return
-	var to_player := player.global_position - clown.global_position
-	var flat := Vector3(to_player.x, 0, to_player.z)
-	var dist := flat.length()
-	var facing := Vector3(clown.global_basis.z.x, 0, clown.global_basis.z.z).normalized()
-	var in_front := dist > 0.01 and facing.dot(flat / dist) > 0.35
-	if _arm_out_t > 0.0 or clown.main_arm() == "":
-		clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 4.0)
-		clown.attack_amount = 0.0
-		return
-	if _attack_t >= 0.0:
-		_attack_t += delta
-		clown.attack_amount = sin(clampf(_attack_t / attack_time, 0.0, 1.0) * PI)
-		if not _attack_hit and _attack_t > attack_hit_at:
-			_attack_hit = true
-			if dist < melee_range + 0.2 and absf(to_player.y) < 1.6 and in_front:
-				player.take_damage(melee_damage, flat.normalized())
-		if _attack_t > attack_time:
-			_attack_t = -1.0
-			_cooldown = attack_recover * 1.4
-			clown.attack_amount = 0.0
-		return
-	if in_front and dist < melee_range and _cooldown <= 0.0 and absf(to_player.y) < 1.4:
-		_attack_t = 0.0
-		_attack_hit = false
-		return
-	if clown.has_gun and in_front and dist < gun_range and _can_see_player():
-		clown.aim_point = player.global_position + Vector3.UP * 1.3
-		clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 3.0)
-		if _aim_t < 0.0 and _cooldown <= 0.0 and not clown.cycling():
-			_aim_t = 0.0
-		if _aim_t >= 0.0:
-			_aim_t += delta
-			if _aim_t > aim_time * 1.5 and clown.aim_amount > 0.9:
-				_fire(dist)
-				_aim_t = -1.0
-				_cooldown = randf_range(shot_gap.x, shot_gap.y) * 1.5
-	else:
-		_aim_t = -1.0
-		clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 3.0)
+	clown.aim_amount = 0.0
+	clown.attack_amount = 0.0
+	_attack_t = -1.0
+	_aim_t = -1.0
 
 
 func _physics_process(delta: float) -> void:

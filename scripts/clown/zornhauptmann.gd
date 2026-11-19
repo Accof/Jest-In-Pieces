@@ -442,7 +442,7 @@ func _process(delta: float) -> void:
 		super._process(delta)
 		return
 	super._process(delta)
-	if dead or dying != "":
+	if dead or dying != "" or pinned:
 		return
 	var d := minf(delta, 1.0 / 30.0)
 	# the shoulders are not among the bones the base pose resets each frame:
@@ -544,7 +544,7 @@ func _defiance_ok(info: Dictionary, zone: StringName) -> bool:
 	if not enable_last_defiance:
 		return false
 	# (a heavy round, a rifle or a shotgun, is fine: only what blows him apart is not)
-	if info.get("blast", false) or info.get("stake", false) or info.has("profile"):
+	if info.get("blast", false) or info.get("stake", false) or info.has("profile") or pinned or info.get("pinned", false):
 		return false
 	if info.get("can_dismember", false) and float(info.get("damage", 0.0)) >= dismember_damage:
 		return false

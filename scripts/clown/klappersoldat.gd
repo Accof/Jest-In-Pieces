@@ -312,6 +312,10 @@ func _process(delta: float) -> void:
 	super._process(delta)
 	if dead:
 		return
+	if pinned:
+		_eyes_update(d)                 # the shared pose has it heaving at the bolt
+		_twitch_update(d)
+		return
 	_arms(d)
 	if attacking:
 		_attack_pose(d)
@@ -884,6 +888,7 @@ func _on_part_severed(segment: StringName, gib: Node3D) -> void:
 ## ragdoll as for anything else. Every death smokes and arcs from the wounds.
 func _die(info: Dictionary, zone: StringName) -> void:
 	var scripted: bool = not (info.get("blast", false) or info.get("stake", false) or info.has("profile") \
+		or pinned or not pins.is_empty() or info.get("pinned", false) \
 		or crawling or downed or last_stand or ragdoll.active or _halved)
 	if scripted:
 		dead = true

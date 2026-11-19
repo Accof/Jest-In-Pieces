@@ -85,6 +85,34 @@ func _max_speed(c: Clown) -> float:
 
 
 func _run() -> void:
+	if "--grabview" in OS.get_cmdline_user_args():
+		await _grab_view()
+		get_tree().quit()
+		return
+	if "--armpin" in OS.get_cmdline_user_args():
+		room = load("res://scenes/gore_sandbox.tscn").instantiate()
+		add_child(room)
+		await get_tree().physics_frame
+		for c in room.clowns:
+			c.queue_free()
+		room.clowns.clear()
+		(room.player as FpsPlayer).god_mode = true
+		var g := _clown(Vector3(1.4, 0, -9.25 + 0.16))
+		g.pinned_tear_free = true
+		g.pin_free_after = Vector2(2.0, 2.0)
+		await _frames(10)
+		print("start health ", g.health)
+		for attempt in 4:
+			var bg := _fire_at(g, &"LeftUpperArm")
+			await _wait(0.3)
+			print("attempt ", attempt, " state ", bg.state, " health ", g.health, " pinned ", g.pinned, " dead ", g.dead, " log ", g.hit_log.map(func(h): return [h.zone, h.get("damage", 0)]))
+			if bg.state == "pinned":
+				break
+		for i in 6:
+			await _wait(0.5)
+			print("t ", i, " health ", g.health, " pinned ", g.pinned, " dead ", g.dead, " free_at ", g._pin_free_at, " rate ", g._pin_bleed_rate)
+		get_tree().quit()
+		return
 	if "--dump" in OS.get_cmdline_user_args() or "--fp" in OS.get_cmdline_user_args():
 		await _view_modes()
 		get_tree().quit()
@@ -245,8 +273,11 @@ func _run() -> void:
 
 	# a limb pin: through the upper arm into the wall; it tears itself free
 	var g := _clown(Vector3(1.4, 0, wall_z + 0.16))
+	g.pinned_tear_free = true                # (off by default: pins hold until death)
 	g.pin_free_after = Vector2(2.0, 2.0)
 	await _frames(10)
+	g.max_health = 400.0                     # (a bolt through the arm and on into the chest would kill it)
+	g.health = 400.0
 	var bolt_g: CrossbowBolt = null
 	for attempt in 4:
 		bolt_g = _fire_at(g, &"LeftUpperArm")
@@ -308,6 +339,96 @@ func _run() -> void:
 	var bolt_lg := _fire_at(lg, &"RightUpperLeg")
 	await _wait(0.5)
 	_check(not lg.pinned and (not is_instance_valid(bolt_lg) or bolt_lg.state != "pinned"), "a leg a metre off the wall: not pinned")
+
+	print("== pinned alive: weapons dropped, both hands on the bolt, no fighting")
+	var kinds := ["rifleman", "gunman", "rattlejack", "zornhauptmann", "klappersoldat"]
+	var held: Array[Clown] = []
+	for i in kinds.size():
+		var kind: String = kinds[i]
+		var e: Clown
+		match kind:
+			"rattlejack": e = Rattlejack.new()
+			"zornhauptmann": e = Zornhauptmann.new()
+			"klappersoldat": e = Klappersoldat.new()
+			_: e = Clown.new()
+		room.add_child(e)
+		match kind:
+			"rifleman", "rattlejack": e.give_rifle()
+			"gunman": e.give_gun()
+			"zornhauptmann": (e as Zornhauptmann).give_officer_kit()
+		e.global_position = Vector3(-5.0 + i * 2.4, 0, wall_z + 0.8)
+		room.clowns.append(e)
+		held.append(e)
+	await _frames(15)
+	for e in held:
+		e.max_health = 2000.0
+		e.health = 2000.0
+		e.set_meta(&"armed", e.has_rifle or e.has_gun or e.has_club or (e is Zornhauptmann and (e as Zornhauptmann).has_sabre()))
+		e.set_meta(&"bolt", _fire_at(e, &"Chest"))
+	await _wait(0.9)
+	# the rifleman gets a brain (it only has to cope with being pinned) and the
+	# player right in front of it, in reach: it used to swing
+	var br := ClownBrain.new()
+	br.player = p
+	br.name = "Brain"
+	held[0].add_child(br)
+	br.pinned_now()
+	p.global_position = held[0].global_position + Vector3(0, 0, 0.9)
+	var on_shaft := {}
+	var swung := false
+	for i in 120:
+		await get_tree().physics_frame
+		swung = swung or held[0].attack_amount > 0.05 or br._attack_t >= 0.0 or held[0].aim_amount > 0.05
+		for e in held:
+			if e.pins.is_empty():
+				continue
+			var pin: Dictionary = e.pins[0]
+			var out: Vector3 = -(pin.dir as Vector3)
+			var a0: Vector3 = pin.at
+			var both := true
+			for side in ["Left", "Right"]:
+				var hw: Vector3 = e.skeleton.global_transform * e.skeleton.get_bone_global_pose(e.skeleton.find_bone(side + "Hand")).origin
+				var u := clampf((hw - a0).dot(out), 0.0, 0.22)
+				both = both and hw.distance_to(a0 + out * u) < 0.13
+			on_shaft[e] = int(on_shaft.get(e, 0)) + (1 if both else 0)
+	p.global_position = Vector3(0, 0, 4.0)
+	for i in held.size():
+		var e := held[i]
+		var bolt_e: CrossbowBolt = e.get_meta(&"bolt")
+		var dropped := not (e.has_rifle or e.has_gun or e.has_club or (e is Zornhauptmann and (e as Zornhauptmann).has_sabre()))
+		_check(e.pinned and not e.dead and bolt_e.state == "pinned", "%s: pinned alive" % kinds[i])
+		_check(e.get_meta(&"armed") == false or dropped, "  it dropped its weapon (was armed: %s)" % e.get_meta(&"armed"))
+		_check(int(on_shaft.get(e, 0)) > 84, "  both hands on the bolt (%d of 120 frames; a hand slips off now and then)" % int(on_shaft.get(e, 0)))
+	_check(not swung, "pinned, with the player in reach right in front: no swing, no aim")
+	await _shot("8_hands_on_bolt", _bone_pos(held[0], &"Chest"), _bone_pos(held[0], &"Chest") + Vector3(0.9, 0.1, 1.2))
+	await _shot("9_hands_rattlejack", _bone_pos(held[2], &"Chest"), _bone_pos(held[2], &"Chest") + Vector3(-0.9, 0.1, 1.2))
+	await _shot("10_hands_klapper", _bone_pos(held[4], &"Chest"), _bone_pos(held[4], &"Chest") + Vector3(-0.9, 0.1, 1.2))
+	# held there until it bleeds out: the corpse goes straight to the ragdoll and hangs
+	for e in held:
+		e.health = 4.0
+	await _wait(3.5)
+	for i in held.size():
+		var e := held[i]
+		_check(e.dead and e.ragdoll.active and e.pins.size() > 0 and (e.pins[0].joint as RID).is_valid(), "%s: bled out on the wall, the corpse hangs from the bolt" % kinds[i])
+	# an arm pinned: only the other hand on the bolt, and it does not get away
+	var ap := _clown(Vector3(5.6, 0, wall_z + 0.16))
+	await _frames(10)
+	ap.max_health = 400.0
+	ap.health = 400.0
+	var bolt_ap: CrossbowBolt = null
+	for attempt in 4:
+		bolt_ap = _fire_at(ap, &"LeftUpperArm")
+		await _wait(0.3)
+		if bolt_ap.state == "pinned":
+			break
+	var h_ap := ap.health
+	await _wait(1.0)
+	var lh: Vector3 = ap.skeleton.global_transform * ap.skeleton.get_bone_global_pose(ap.skeleton.find_bone("LeftHand")).origin
+	var rh: Vector3 = ap.skeleton.global_transform * ap.skeleton.get_bone_global_pose(ap.skeleton.find_bone("RightHand")).origin
+	_check(ap.pinned and rh.distance_to(ap.pins[0].at) < 0.3, "arm pinned: the other hand goes to the bolt (%.2f m from it)" % rh.distance_to(ap.pins[0].at))
+	await _wait(9.0)
+	_check(ap.pinned or ap.dead, "  and it never tears free (still pinned after 10 s: %s, dead: %s)" % [ap.pinned, ap.dead])
+	_check(ap.health < h_ap, "  bleeding the while (%.0f -> %.0f)" % [h_ap, ap.health])
 
 	print("== loose bolts")
 	var before := get_tree().get_nodes_in_group(&"__none").size()
@@ -447,3 +568,57 @@ func _dump(v: ViewModel, args: PackedStringArray) -> void:
 			var_to_str(g.basis.x).replace(" ", ""), var_to_str(g.basis.y).replace(" ", ""), var_to_str(g.basis.z).replace(" ", ""), var_to_str(g.origin).replace(" ", "")])
 	j.close()
 	print("DUMP done (%s)" % side)
+
+
+## --grabview: each kind pinned to the wall alive, filmed from the front and
+## the side at a few moments (/tmp/xbow_grab_<kind>_<n>.png), with where its
+## hands are against the shaft.
+func _grab_view() -> void:
+	room = load("res://scenes/gore_sandbox.tscn").instantiate()
+	add_child(room)
+	await get_tree().physics_frame
+	for c in room.clowns:
+		c.queue_free()
+	room.clowns.clear()
+	for b in get_tree().get_nodes_in_group(&"barrels"):
+		b.queue_free()
+	(room.player as FpsPlayer).god_mode = true
+	render = true
+	var kinds := ["rifleman", "rattlejack", "zornhauptmann", "klappersoldat"]
+	var held: Array[Clown] = []
+	for i in kinds.size():
+		var e: Clown
+		match kinds[i]:
+			"rattlejack": e = Rattlejack.new()
+			"zornhauptmann": e = Zornhauptmann.new()
+			"klappersoldat": e = Klappersoldat.new()
+			_: e = Clown.new()
+		room.add_child(e)
+		match kinds[i]:
+			"rifleman", "rattlejack": e.give_rifle()
+			"zornhauptmann": (e as Zornhauptmann).give_officer_kit()
+		e.global_position = Vector3(-4.5 + i * 3.0, 0, -9.25 + 0.8)
+		room.clowns.append(e)
+		held.append(e)
+	await _frames(15)
+	for e in held:
+		e.max_health = 2000.0
+		e.health = 2000.0
+		_fire_at(e, &"Chest", Vector3(0.03, -0.05, 0))
+	for n in 3:
+		await _wait(0.7)
+		for i in held.size():
+			var e := held[i]
+			if e.pins.is_empty():
+				print(kinds[i], " not pinned")
+				continue
+			var pin: Dictionary = e.pins[0]
+			var line := "%s t%d" % [kinds[i], n]
+			for side in ["Left", "Right"]:
+				var hw: Vector3 = e.skeleton.global_transform * e.skeleton.get_bone_global_pose(e.skeleton.find_bone(side + "Hand")).origin
+				line += "  %s hand %.2f m from the entry, %.2f out along" % [side, hw.distance_to(pin.at), (hw - (pin.at as Vector3)).dot(-(pin.dir as Vector3))]
+			print(line)
+			var c: Vector3 = _bone_pos(e, &"Chest")
+			if n == 1:
+				await _shot("grab_%s_front" % kinds[i], c, c + Vector3(0.0, 0.05, 1.4))
+				await _shot("grab_%s_side" % kinds[i], c, c + Vector3(1.1, 0.1, 0.9))
