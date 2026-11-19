@@ -13,6 +13,7 @@ uniform sampler2D noise_tex : repeat_enable, filter_linear_mipmap;
 uniform vec3 thin_color : source_color = vec3(0.22, 0.013, 0.016);
 uniform vec3 deep_color : source_color = vec3(0.085, 0.004, 0.007);
 uniform vec3 dry_color : source_color = vec3(0.06, 0.016, 0.011);
+uniform vec3 brown_color : source_color = vec3(0.13, 0.035, 0.022);   // oxidised patches
 // Oil (the Klappersoldat): a faint rainbow film over the dark surface. 0 for blood.
 uniform float sheen = 0.0;
 uniform float edge_irregularity : hint_range(0.0, 2.0) = 1.0;
@@ -78,6 +79,15 @@ void fragment() {
 	float thick = clamp(e * 3.2, 0.0, 1.0) * (0.35 + 0.65 * max(pot, 1.0 - rel)) * (0.85 + 0.3 * n1);
 	thick = max(thick, drop * 0.3);
 	vec3 col = mix(thin_color, deep_color, smoothstep(0.0, 0.55, thick));
+	// mottling: patches of crimson (light through it) and near-black, a brownish
+	// oxidised cast in places, and a fine grain
+	float m1 = texture(noise_tex, p * 0.55 + vec2(seed * 1.9, seed * 0.3)).r;
+	float m2 = texture(noise_tex, p * 5.3 + vec2(seed * 0.2, seed * 2.7)).r;
+	float m3 = texture(noise_tex, p * 21.0 + vec2(seed * 3.1, seed * 1.1)).r;
+	col = mix(col, thin_color * 0.85, smoothstep(0.6, 0.85, m1) * 0.25 * thick);
+	col = mix(col, deep_color * 0.55, smoothstep(0.42, 0.18, m1) * 0.35 * thick);
+	col = mix(col, brown_color, smoothstep(0.55, 0.8, m2) * 0.12);
+	col *= 0.93 + 0.14 * m3;
 	// clots: darker, duller clumps where it lies thick
 	float clot = smoothstep(0.58, 0.78, texture(noise_tex, p * 1.7 + vec2(seed * 3.3, seed * 0.6)).r) * smoothstep(0.25, 0.7, thick) * clotting;
 	col *= 1.0 - 0.35 * clot;
@@ -93,14 +103,22 @@ void fragment() {
 		col += rainbow * sheen * 0.012 * (1.0 - thick * 0.7);
 	}
 	ALBEDO = col;
-	// wet but not a mirror: satin at the edge, glossy where deep, dulled by clots and the skin
-	float r = mix(0.4, 0.19, smoothstep(0.0, 0.6, thick)) + (n2 - 0.5) * 0.06 + clot * 0.12;
+	// roughness that varies across the pool, never one even gloss: thick fresh blood
+	// 0.2-0.4 with broken wet patches (the small sharp highlights), duller clotted
+	// islands, matte thin film and rough stretches along parts of the edge
+	float r = mix(0.55, 0.24, smoothstep(0.0, 0.6, thick));
+	float wetp = smoothstep(0.58, 0.72, texture(noise_tex, p * 1.25 + vec2(seed * 0.7, seed * 2.2)).r);
+	r -= wetp * 0.14 * smoothstep(0.2, 0.6, thick);           // down to about 0.1: small sharp highlights
+	r += clot * 0.3;
+	r += smoothstep(0.5, 0.75, m2) * 0.12;                       // dull mottles
+	r += lip * smoothstep(0.45, 0.7, n2) * 0.25;                 // rough, tacky stretches of the rim
+	r += (m3 - 0.5) * 0.1;
 	r = mix(r, 0.62, dry);
 	if (!wet_reflections) {
 		r = max(r, 0.55);
 	}
 	ROUGHNESS = clamp(r, 0.08, 0.9);
-	SPECULAR = 0.3;
+	SPECULAR = 0.25;                                             // F0 about 0.02, as water (blood n = 1.35)
 	METALLIC = 0.0;
 	// the surface: the lip rounds down to the floor at the edge (bend the normal
 	// out along the front's slope), and thick blood has a faint crinkled skin
@@ -120,6 +138,11 @@ void fragment() {
 		float h0 = hgt(p);
 		vec2 g2 = vec2(hgt(p + vec2(eps, 0.0)) - h0, hgt(p + vec2(0.0, eps)) - h0) / eps;
 		nw -= vec3(g2.x, 0.0, g2.y) * 0.0008 * thick * clotting;
+		// a faint ripple in the wet patches: the bulb breaks into glints there
+		float q0 = texture(noise_tex, p * 9.0 + vec2(seed * 1.3, seed)).r;
+		vec2 gq = vec2(texture(noise_tex, (p + vec2(eps, 0.0)) * 9.0 + vec2(seed * 1.3, seed)).r - q0,
+			texture(noise_tex, (p + vec2(0.0, eps)) * 9.0 + vec2(seed * 1.3, seed)).r - q0) / eps;
+		nw -= vec3(gq.x, 0.0, gq.y) * 0.006 * wetp * thick;
 	}
 	nw = normalize(nw);
 	NORMAL = normalize((VIEW_MATRIX * vec4(nw, 0.0)).xyz);

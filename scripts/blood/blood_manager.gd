@@ -16,9 +16,16 @@ const DRY_TIME := 50.0                 # seconds for fresh blood to darken
 const FRESH := Color(1, 1, 1, 1)
 const DRIED := Color(0.55, 0.42, 0.40, 1)
 
-var _tex := {}                          # kind -> Array of [albedo, normal]
+var _tex := {}                          # kind -> Array of [albedo, normal, orm]
 var _tex_oil := {}                      # the same, in oil
-var _orm: Texture2D
+var _orm: Texture2D                     # the old set's single wet-look ORM
+var _tint := PackedColorArray()         # each decal's own colour variation (drying lerps from it)
+## The splatter library (tools/gen_blood_splatters.py, art/blood/splat/): 26
+## variants in six kinds, each with its own colour, normal and roughness (ORM)
+## maps. The first set (tools/gen_blood_textures.py: 10 variants, one shared
+## glossy ORM) is kept and comes back with this switch.
+@export var use_legacy_splatters := false
+const SPLAT_KINDS := {spray = 6, impact = 5, small = 4, streak = 4, drip = 3, death = 4}
 var _decals: Array[Decal] = []
 var _born := PackedFloat32Array()
 var _next := 0
@@ -66,17 +73,7 @@ var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	_rng.randomize()
-	for spec in [["impact", 3], ["spray", 3], ["drip", 2], ["streak", 2]]:
-		var list := []
-		for i in spec[1]:
-			var base := "res://art/blood/splat_%s_%d" % [spec[0], i]
-			list.append([load(base + ".png"), load(base + "_n.png")])
-		_tex[spec[0]] = list
-		var oil := []
-		for i in spec[1]:
-			oil.append([load("res://art/oil/splat_%s_%d.png" % [spec[0], i]), list[i][1]])
-		_tex_oil[spec[0]] = oil
-	_orm = load("res://art/blood/splat_orm.png")
+	_load_splatters()
 	for i in MAX_DECALS:
 		var d := Decal.new()
 		d.visible = false
@@ -91,6 +88,7 @@ func _ready() -> void:
 		add_child(d)
 		_decals.append(d)
 	_born.resize(MAX_DECALS)
+	_tint.resize(MAX_DECALS)
 	_decal_oil.resize(MAX_DECALS)
 	_pool_material = ShaderMaterial.new()
 	_pool_material.shader = load("res://shaders/blood_pool.gdshader")
@@ -99,10 +97,43 @@ func _ready() -> void:
 	_oil_material.set_shader_parameter("thin_color", Color(0.055, 0.048, 0.036))
 	_oil_material.set_shader_parameter("deep_color", Color(0.011, 0.010, 0.008))
 	_oil_material.set_shader_parameter("dry_color", Color(0.03, 0.028, 0.022))
+	_oil_material.set_shader_parameter("brown_color", Color(0.05, 0.045, 0.035))
 	_oil_material.set_shader_parameter("sheen", 1.0)
 	_apply_pool_settings()
 	_mist = _build_mist(Color(0.2, 0.01, 0.012, 0.9))
 	_mist_oil = _build_mist(Color(0.03, 0.027, 0.02, 0.92))
+
+
+## Load the splatter library (or, with use_legacy_splatters, the first set).
+func _load_splatters() -> void:
+	_tex = {}
+	_tex_oil = {}
+	_orm = load("res://art/blood/splat_orm.png")
+	if use_legacy_splatters:
+		for spec in [["impact", 3], ["spray", 3], ["drip", 2], ["streak", 2]]:
+			var list := []
+			for i in spec[1]:
+				var base := "res://art/blood/splat_%s_%d" % [spec[0], i]
+				list.append([load(base + ".png"), load(base + "_n.png"), _orm])
+			_tex[spec[0]] = list
+			var oil := []
+			for i in spec[1]:
+				oil.append([load("res://art/oil/splat_%s_%d.png" % [spec[0], i]), list[i][1], _orm])
+			_tex_oil[spec[0]] = oil
+		_tex["small"] = _tex["spray"]; _tex_oil["small"] = _tex_oil["spray"]
+		_tex["death"] = _tex["impact"]; _tex_oil["death"] = _tex_oil["impact"]
+	else:
+		for kind: String in SPLAT_KINDS:
+			var list := []
+			var oil := []
+			for i in int(SPLAT_KINDS[kind]):
+				var base := "res://art/blood/splat/splat_%s_%d" % [kind, i]
+				var n: Texture2D = load(base + "_n.png")
+				var o: Texture2D = load(base + "_orm.png")
+				list.append([load(base + ".png"), n, o])
+				oil.append([load("res://art/oil/splat/splat_%s_%d.png" % [kind, i]), n, o])
+			_tex[kind] = list
+			_tex_oil[kind] = oil
 
 
 func clear() -> void:
@@ -164,6 +195,8 @@ func _splat_on(pos: Vector3, normal: Vector3, travel: Vector3, size: float, oil 
 		spawn_decal(pos, normal, size * 1.1, "streak", along, 1.0, lerpf(2.2, 1.3, facing * 2.0), oil)
 	elif size > 0.3:
 		spawn_decal(pos, normal, size, "impact", Vector3.ZERO, 1.0, 1.0, oil)
+	elif size < 0.2:
+		spawn_decal(pos, normal, size * 1.3, "small", along, 1.0, 1.0, oil)
 	else:
 		spawn_decal(pos, normal, size * 1.3, "spray", along, 1.0, 1.0, oil)
 
@@ -174,10 +207,20 @@ func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along
 	_born[_next] = Time.get_ticks_msec() / 1000.0
 	_decal_oil[_next] = 1 if oil else 0
 	_next = (_next + 1) % MAX_DECALS
+	if kind == "impact" and size >= 0.6:
+		kind = "death"                  # a body's worth: the broad death splatters
 	var set_: Dictionary = _tex_oil if oil else _tex
 	var pair: Array = set_[kind][_rng.randi() % set_[kind].size()]
 	d.texture_albedo = pair[0]
 	d.texture_normal = pair[1]
+	d.texture_orm = pair[2]
+	# each one a little different: size, angle, and a shade darker, redder or browner
+	size *= _rng.randf_range(0.88, 1.14)
+	if along.length() > 0.01:
+		along = along.rotated(normal.normalized(), _rng.randf_range(-0.18, 0.18))
+	var shade := _rng.randf_range(0.82, 1.06)
+	var brown := _rng.randf_range(0.0, 0.12)
+	_tint[(_next - 1 + MAX_DECALS) % MAX_DECALS] = Color(shade, shade * (1.0 + brown * 1.6), shade * (1.0 + brown * 0.6), 1.0) if not oil else FRESH
 	var y := normal.normalized()
 	var z := along - y * along.dot(y)
 	if z.length() < 0.01:
@@ -188,7 +231,7 @@ func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along
 	var x := y.cross(z).normalized()
 	d.size = Vector3(size * stretch_x, 0.3, size * stretch_z)
 	d.global_transform = Transform3D(Basis(x, y, z), pos)
-	d.modulate = FRESH
+	d.modulate = _tint[(_next - 1 + MAX_DECALS) % MAX_DECALS]
 	d.visible = true
 
 
@@ -325,7 +368,7 @@ func _process(delta: float) -> void:
 		_dry_cursor = (_dry_cursor + 1) % MAX_DECALS
 		var d := _decals[_dry_cursor]
 		if d.visible and _decal_oil[_dry_cursor] == 0:      # oil does not dry
-			d.modulate = FRESH.lerp(DRIED, clampf((now - _born[_dry_cursor]) / DRY_TIME, 0.0, 1.0))
+			d.modulate = _tint[_dry_cursor].lerp(_tint[_dry_cursor] * DRIED, clampf((now - _born[_dry_cursor]) / DRY_TIME, 0.0, 1.0))
 
 
 func _physics_process(delta: float) -> void:
