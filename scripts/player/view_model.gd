@@ -125,7 +125,7 @@ func fire() -> void:
 	_flash_mesh.position = muzzle
 	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9, 2.4, 2.2, 2.0, 1.9, 2.3, 1.2][weapon] * randf_range(0.7, 1.25)
 	if weapon == RIFLE:
-		_cycle_t = 0.0
+		rifle_cycle()          # a fresh cycle: its case and bolt sounds happen again
 	if weapon == REVOLVER:
 		_revolver_fired()
 	if weapon == TRENCH:

@@ -223,6 +223,22 @@ func _run() -> void:
 	await _wait(0.8)
 	_check(is_instance_valid(case) and case.global_position.y < 0.3, "the case is on the floor")
 
+	# --- every shot after the first ejects a case and plays the whole bolt cycle too
+	# (a shot once restarted the cycle without clearing what the last one had done)
+	var cases_ok := 0
+	var sounds_ok := 0
+	for i in 3:
+		var spent_before := v.le_spent.size()
+		p.fire()
+		var fresh := not v._le_done.has("s_up") and not v._le_done.has("s_back")
+		await _wait(1.25)
+		if v.le_spent.size() == spent_before + 1:
+			cases_ok += 1
+		if fresh and v._le_done.has("s_up") and v._le_done.has("s_back") and v._le_done.has("s_fwd") and v._le_done.has("s_down"):
+			sounds_ok += 1
+	_check(cases_ok == 3, "three more shots, a case out each time (%d of 3)" % cases_ok)
+	_check(sounds_ok == 3, "three more shots, the bolt's four sounds each time (%d of 3)" % sounds_ok)
+
 	# --- empty: dry, and the reload: two chargers, counted as they go in
 	cam.rotation.x = 0.0
 	p.ammo[FpsPlayer.RIFLE] = 1
