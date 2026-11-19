@@ -529,6 +529,20 @@ static func profile_blast() -> Dictionary:
 	}
 
 
+## Pinned to a wall by a bolt: the joint at the pin carries the weight. A
+## moment of strength (arms and head jerk against it), then everything goes:
+## the legs fold under, the head drops, the body hangs from the pin.
+static func profile_pinned() -> Dictionary:
+	return {
+		support = [Vector2(0, 0.0)],
+		legs = [Vector2(0, 0.1), Vector2(0.25, 0)],
+		spine = [Vector2(0, 0.45), Vector2(0.5, 0.2), Vector2(1.6, 0)],
+		neck = [Vector2(0, 0.5), Vector2(0.6, 0.15), Vector2(1.4, 0)],
+		arms = [Vector2(0, 0.18), Vector2(0.6, 0.06), Vector2(1.4, 0)],
+		drift = 0.0, drift_time = 0.1,
+	}
+
+
 static func profile_limp() -> Dictionary:
 	# Already on the floor and out of strength (a crawler dying).
 	return {

@@ -26,8 +26,8 @@ const SHELL_INTRO := 0.3
 const SWAP_TIME := 0.3
 const SMG_RELOAD := 1.9
 const SMG_SEAT := 1.12          # the new magazine clicks home
-const STAKE_RELOAD := 2.9
-const STAKE_SEAT := 1.5         # the new stake is on the rail
+const STAKE_RELOAD := 3.2       # the crossbow (the stake gun's slot): span, stow the lever, load a bolt
+const STAKE_SEAT := 2.75        # the new bolt is home against the string
 const RIFLE_CYCLE := 0.95       # working the bolt after a shot (the SMLE: see L_CYCLE)
 const REVOLVER_RELOAD := 3.0    # broken open, the extractor throws everything out, six in, snapped shut
 const REVOLVER_SEAT := 2.35     # the rounds are in (the frame snaps shut)
@@ -48,12 +48,19 @@ var _pump: Node3D
 var _shell: Node3D
 var _smg_mag: Node3D
 var _smg_bolt: Node3D
-var _stake_loaded: Node3D
-var _stake_in_hand: Node3D
-var _stake_lever: Node3D
-var _gauge_needle: Node3D
+var _xb_model: Node3D           # the crossbow (art/weapons/crossbow/crossbow.glb)
+var _xb_bolt: Node3D            # the bolt on the stock
+var _xb_bolt_hand: Node3D       # the next bolt, in the left hand
+var _xb_string: Array[MeshInstance3D] = []
+var _xb_prod: Array[Node3D] = []
+var _xb_lever: Node3D
+var _xb_nut: Node3D
+var _xb_trigger: Node3D
+var _xb_mark := {}
+var _xb_shot_t := -1.0          # time since the string was let go (it slaps forward and quivers)
+var _xb_done := {}
 var _cycle_t := -1.0            # >= 0 while the bolt is being worked after a shot
-var stake_ready := true         # set by the player: is a stake on the rail
+var stake_ready := true         # set by the player: is a bolt on the crossbow
 var _left: Array[Node3D] = []   # per gun: the left arm
 var _flash: OmniLight3D
 var _flash_mesh: MeshInstance3D
@@ -121,7 +128,7 @@ func fire() -> void:
 	_since_shot = 0.0
 	var muzzle := _muzzle()
 	_flash.position = muzzle
-	_flash.light_energy = [5.0, 9.0, 4.0, 1.5, 8.0, 8.0, 10.0, 11.0, 6.0][weapon]
+	_flash.light_energy = [5.0, 9.0, 4.0, 0.0, 8.0, 8.0, 10.0, 11.0, 6.0][weapon]      # a crossbow has no flash
 	_flash_mesh.position = muzzle
 	_flash_mesh.scale = Vector3.ONE * [1.0, 1.8, 0.9, 2.4, 2.2, 2.0, 1.9, 2.3, 1.2][weapon] * randf_range(0.7, 1.25)
 	if weapon == RIFLE:
@@ -135,7 +142,9 @@ func fire() -> void:
 	_flash_mesh.rotation.z = randf() * TAU
 	if weapon == SMG or weapon == MAXIM:
 		_jitter = Vector2(randf_range(-1, 1), randf_range(-0.3, 1))
-	_flash_mesh.visible = true
+	_flash_mesh.visible = weapon != STAKE
+	if weapon == STAKE:
+		_xb_shot_t = 0.0
 
 
 ## A double-action pull has started: the shot comes `length` seconds later.
@@ -240,7 +249,7 @@ func animate(delta: float, speed: float, look: Vector2) -> void:
 	var root := _guns[weapon]
 	var bob := Vector3(sin(_bob) * 0.006, -absf(cos(_bob)) * 0.008, 0) * _bob_amount
 	var breathe := Vector3(0, sin(_time * 1.6) * 0.0018, 0)
-	var steady := 1.0 - 0.85 * (ads if weapon == RIFLE else 0.0)          # aimed: the sway and bob mostly go
+	var steady := 1.0 - 0.85 * (ads if weapon == RIFLE or weapon == STAKE else 0.0)          # aimed: the sway and bob mostly go
 	root.position = (bob + breathe + Vector3(_sway.x, _sway.y, 0)) * steady + Vector3(0, -drop * 0.35, 0)
 	root.rotation = Vector3(-drop * 0.9 + _sway.y * 1.2 * steady, _sway.x * 1.5 * steady, _sway.x * 0.8 * steady)
 
@@ -542,119 +551,266 @@ func _build_smg() -> void:
 	_left.append(left)
 
 
-# --- stake gun --------------------------------------------------------------------
-# A compressed-air stake launcher: a long open rail with the stake lying on it,
-# a brass air tank underneath with a pressure gauge, a pump lever, a heavy
-# wooden stock. One stake at a time, slow to load.
-const K_HOME := Vector3(0.15, -0.165, -0.38)
+# --- the crossbow (the stake gun's slot) -------------------------------------------
+# A WW1 trench-made heavy crossbow (art/weapons/crossbow/source/build_crossbow.py):
+# a walnut tiller with a pistol grip, a prod of three steel leaves off a lorry
+# spring, a brass rolling nut, a long trigger lever, an iron foot stirrup, and a
+# spanning lever that lies forward along the fore-end. One bolt at a time.
+#   fire:   the nut rolls, the string slaps forward and quivers, the prod arms spring
+#           back, the bolt is gone
+#   reload: the crossbow is tipped up; the left hand takes the lever's handle and
+#           swings it back over the top (the claws drag the string back, the prod arms
+#           bend, the nut catches it: click), pushes the lever forward again to stow
+#           it, fetches a bolt from the belt, lays it in the groove and slides it back
+#           under the clip until it is home against the string
+#   aim:    the peep and the front post on the camera's axis
+const C_PATH := "res://art/weapons/crossbow/crossbow.glb"
+const C_HOME := Vector3(0.12, -0.16, -0.34)
+const C_TILT := Vector3(4.0, 3.0, -2.0)        # degrees
+const C_EYE := 0.21                            # eye behind the peep, aimed
+const C_LEVER_OPEN := 150.0                    # degrees the lever swings up and back over the top
+const C_PROD_BEND := 9.0                       # degrees each prod arm bends when spanned
+## The reload, step by step (seconds): [name, start, end]
+const C_STEPS := [["tip", 0.0, 0.25], ["to_lever", 0.1, 0.35], ["span", 0.35, 1.15], ["stow", 1.25, 1.75],
+	["fetch", 1.75, 2.3], ["lay", 2.3, 2.5], ["slide", 2.5, STAKE_SEAT], ["back", STAKE_SEAT, STAKE_RELOAD]]
+
+
+func _xb_step(t: float, name: String) -> float:
+	for st: Array in C_STEPS:
+		if st[0] == name:
+			return clampf((t - float(st[1])) / (float(st[2]) - float(st[1])), 0.0, 1.0)
+	return 0.0
+
 
 func _animate_stake() -> void:
 	var pose := _pose[STAKE]
-	var left := _left[STAKE]
+	if _xb_model == null:
+		return
+	var m := _xb_model.transform
 	var k := _kick * _kick
-	var pos := K_HOME + Vector3(0, 0.03 * k, 0.11 * k)
-	var rot := Vector3(deg_to_rad(14.0) * k, deg_to_rad(-2.0) * k, 0)
-	var left_pos := Vector3.ZERO
-	var loaded := stake_ready
+	var a := smoothstep(0.0, 1.0, ads)
+	var pos := C_HOME
+	var rot := C_TILT * (PI / 180.0)
+	if a > 0.0:
+		# aimed: the peep and the front post on the camera's axis, the eye behind the peep
+		var rear: Vector3 = m * (_xb_mark.get("SightRear", Vector3.ZERO) as Vector3)
+		pos = pos.lerp(Vector3(-rear.x, -rear.y, -C_EYE - rear.z), a)
+		rot = rot.lerp(Vector3.ZERO, a)
+	# loosing it: a jolt up and back, much less than a gun
+	pos += Vector3(0, 0.006 * k, 0.025 * k) * (1.0 - 0.5 * a)
+	rot += Vector3(deg_to_rad(3.0) * k, 0, 0)
+	var lever := 0.0              # 0 stowed .. 1 thrown back over the top
+	var drawn := 1.0 if stake_ready else 0.0      # 1: the string on the nut
+	var bolt_on := stake_ready
+	var bolt_slide := 0.0          # forward of home, while being slid back
 	var in_hand := false
-	var slide := 0.0
-	var lever := 0.0
-	var needle := 1.0 if stake_ready else 0.15
-	if _reload_t >= 0.0:
-		var t := _reload_t
-		# 0.00-0.30  tip the muzzle up, rail toward you
-		# 0.30-0.95  hand down for a stake from the belt and back up with it
-		# 0.95-1.50  lay it on the rail and slide it forward till it locks
-		# 1.50-2.40  three strokes of the pump lever: the gauge climbs
-		# 2.40-2.90  back on target
-		var tilt := smoothstep(0.0, 0.3, t) * (1.0 - smoothstep(2.4, STAKE_RELOAD, t))
-		pos += Vector3(-0.04, 0.05, 0.05) * tilt
-		rot += Vector3(deg_to_rad(16.0), deg_to_rad(16.0), deg_to_rad(24.0)) * tilt
-		var rail := Vector3(0.0, 0.07, 0.05)                 # where the hand lays the stake down
-		if t < 0.95:
-			var down := sin(clampf((t - 0.3) / 0.65, 0.0, 1.0) * PI)
-			left_pos = rail * smoothstep(0.75, 0.95, t) + Vector3(-0.06, -0.35, 0.15) * down
-			in_hand = t > 0.62
-			loaded = false
-		elif t < STAKE_SEAT:
-			var push := smoothstep(1.1, 1.45, t)
-			left_pos = rail + Vector3(0, 0, -0.16) * push
-			in_hand = false
-			loaded = true
-			slide = 1.0 - push
-		elif t < 2.4:
-			var c := clampf((t - STAKE_SEAT) / 0.9, 0.0, 1.0)
-			lever = absf(sin(c * PI * 3.0))
-			left_pos = Vector3(0.0, -0.05, -0.02) + Vector3(0, -0.07, 0.02) * lever
-			needle = 0.15 + 0.85 * c
-		else:
-			left_pos = Vector3(0.0, -0.05, -0.02) * (1.0 - smoothstep(2.4, 2.65, t))
+	var lkey: Array = []
+	var la: FPArm = _arms[STAKE]["L"] if _arms.has(STAKE) else null
+	var t := _reload_t
+	if t >= 0.0:
+		var tilt := smoothstep(0.0, 1.0, _xb_step(t, "tip")) * (1.0 - smoothstep(0.0, 1.0, _xb_step(t, "back")))
+		# held out and down, nose up, canted towards the left hand, so the lever's
+		# swing stays clear of the face
+		pos += Vector3(-0.03, -0.07, -0.12) * tilt
+		rot += Vector3(deg_to_rad(22.0), deg_to_rad(14.0), deg_to_rad(12.0)) * tilt
+		var span := smoothstep(0.0, 1.0, _xb_step(t, "span"))
+		var stow := smoothstep(0.0, 1.0, _xb_step(t, "stow"))
+		lever = span * (1.0 - stow)
+		drawn = span
+		bolt_on = t >= _xb_step_start("lay")
+		bolt_slide = 0.12 * (1.0 - smoothstep(0.0, 1.0, _xb_step(t, "slide")))
+		in_hand = t >= 1.95 and t < _xb_step_start("lay")
+		if t >= 1.15 and not _xb_done.has("latch"):
+			_xb_done["latch"] = true
+			SfxSynth.play(self, "xbow_latch", global_position, -4.0)
+		if t >= 0.4 and not _xb_done.has("span"):
+			_xb_done["span"] = true
+			SfxSynth.play(self, "xbow_span", global_position, -6.0)
+		if t >= STAKE_SEAT and not _xb_done.has("seat"):
+			_xb_done["seat"] = true
+			SfxSynth.play(self, "bolt_seat", global_position, -5.0)
+		if la:
+			lkey = _xb_left_key(la, t, lever)
+	else:
+		_xb_done.clear()
 	pose.position = pos
 	pose.rotation = rot
-	left.position = left_pos
-	_stake_loaded.visible = loaded
-	_stake_loaded.position.z = 0.18 * slide
-	_stake_in_hand.visible = in_hand
-	_stake_lever.rotation.x = deg_to_rad(-38.0) * lever
-	_gauge_needle.rotation.x = lerpf(2.2, -2.2, needle)
+	# the lever, the nut, the trigger
+	_xb_lever.rotation.z = deg_to_rad(C_LEVER_OPEN) * lever          # up over the top and back
+	var shot := _xb_shot_t
+	var nut_turn := 0.0 if drawn > 0.99 else 1.0
+	if shot >= 0.0 and shot < 0.3:
+		nut_turn = 1.0
+	_xb_nut.rotation.z = -1.1 * nut_turn
+	_xb_trigger.rotation.z = deg_to_rad(9.0) * clampf(1.0 - _since_shot * 6.0, 0.0, 1.0)
+	# the string: from the nut (drawn) to the prod (loose); just loosed, it slaps
+	# forward past rest and quivers
+	var nock: Vector3 = _xb_mark.NockRest
+	var free: Vector3 = _xb_mark.StringFree
+	var sx := lerpf(free.x, nock.x, drawn)
+	var bend := drawn
+	if shot >= 0.0 and shot < 0.6:
+		var q := sin(shot * 95.0) * exp(-shot * 9.0)
+		sx = free.x + 0.012 * q
+		bend = -0.08 * q
+	for i in 2:
+		_xb_prod[i].rotation.y = (-1.0 if i == 0 else 1.0) * deg_to_rad(C_PROD_BEND) * bend
+	_xb_set_string(Vector3(sx, nock.y, 0.0))
+	# the bolt
+	_xb_bolt.visible = bolt_on
+	_xb_bolt.position = Vector3(_xb_mark.BoltNock.x + 0.46 + bolt_slide, _xb_mark.BoltNock.y + 0.004, 0.0)
+	_xb_bolt_hand.visible = in_hand
+	# the hands: the right on the grip, the trigger finger following the trigger;
+	# the left under the fore-end, or on the lever, or fetching and laying a bolt
+	_arm_trigger(STAKE, clampf(1.0 - _since_shot * 6.0, 0.0, 1.0))
+	if la:
+		if lkey.is_empty():
+			la.transform = _arm_home[la]
+			_rl_apply(la, _rl_grip_for(STAKE, la, "L"))
+		else:
+			_rl_apply(la, lkey)
+		_xb_bolt_hand.global_transform = la.skeleton.global_transform * la.skeleton.get_bone_global_pose(la.skeleton.find_bone("hand.L")) * Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(0.0, 0.09, 0.02))
+	if shot >= 0.0:
+		_xb_shot_t += get_process_delta_time()
+		if _xb_shot_t > 1.0:
+			_xb_shot_t = -1.0
+
+
+func _xb_step_start(name: String) -> float:
+	for st: Array in C_STEPS:
+		if st[0] == name:
+			return float(st[1])
+	return 0.0
+
+
+## The string: two thin cords from the prod's tips to `mid` (model space).
+func _xb_set_string(mid: Vector3) -> void:
+	for i in 2:
+		var tip: Vector3 = _xb_model.to_local((_xb_prod[i].find_child("Tip*", false, false) as Node3D).global_position)
+		var cord := _xb_string[i]
+		var d := tip - mid
+		var len := d.length()
+		cord.position = (tip + mid) * 0.5
+		cord.basis = Basis(Quaternion(Vector3.UP, d.normalized())) * Basis.from_scale(Vector3(1, len, 1))
+
+
+## The left hand through the reload (`lever` is the lever's swing, 0..1).
+func _xb_left_key(arm: FPArm, t: float, lever: float) -> Array:
+	var m := _xb_model.transform
+	var grip := _rl_grip_for(STAKE, arm, "L")
+	var handle := m * (_xb_lever.transform * (_xb_mark.LeverHandleRel as Vector3))
+	var on_lever := _xb_pinch(arm, handle, Vector3(0, -0.2, 0.0))
+	if t < _xb_step_start("to_lever"):
+		return grip
+	if t < _xb_step_start("span"):
+		return _rl_blend(grip, on_lever, smoothstep(0.0, 1.0, _xb_step(t, "to_lever")))
+	if t < _xb_step_start("fetch"):
+		return on_lever                         # spanning and stowing: on the handle
+	var belt := [Transform3D(Basis.from_euler(Vector3(-1.2, 0.3, 0.4)), m * Vector3(-0.05, -0.62, -0.2)), m * Vector3(-0.15, -0.8, -0.35), PINCH_POSE]
+	var groove := _xb_pinch(arm, m * Vector3(_xb_mark.BoltNock.x + 0.16 + 0.12, 0.012, 0.0), Vector3(0, -0.4, 0.2))
+	var slid := _xb_pinch(arm, m * Vector3(_xb_mark.BoltNock.x + 0.16, 0.012, 0.0), Vector3(0, -0.4, 0.2))
+	if t < _xb_step_start("lay"):
+		var f := _xb_step(t, "fetch")
+		return _rl_blend(_rl_blend(on_lever, belt, smoothstep(0.0, 0.5, f) * 2.0), groove, smoothstep(0.55, 1.0, f))
+	if t < _xb_step_start("slide"):
+		return groove
+	if t < STAKE_SEAT:
+		return _rl_blend(groove, slid, smoothstep(0.0, 1.0, _xb_step(t, "slide")))
+	return _rl_blend(slid, grip, smoothstep(0.0, 1.0, _xb_step(t, "back")))
+
+
+## The left hand pinching at `at` (pose space), the arm coming from `elbow_dir`.
+func _xb_pinch(arm: FPArm, at: Vector3, lean: Vector3) -> Array:
+	var m := _xb_model.transform
+	var along := (m.basis * Vector3(0.75, -0.35, 0.5) + lean).normalized()
+	var toward := (m.basis * Vector3(0, -1, 0)).normalized()
+	var palm := (toward - along * toward.dot(along)).normalized()
+	var hand := FPArm.frame(Vector3.ZERO, along, palm)
+	if not _pinch_off.has(arm):
+		arm.set_pose(PINCH_POSE)
+		_pinch_off[arm] = arm.pinch_offset()
+	hand.origin = at - hand.basis * (_pinch_off[arm] as Vector3)
+	return [hand, m * Vector3(-0.15, -0.55, -0.35), PINCH_POSE]
 
 
 func _build_stake() -> void:
 	var root := Node3D.new()
+	root.name = "Crossbow"
 	add_child(root)
 	_guns.append(root)
 	var pose := Node3D.new()
 	root.add_child(pose)
 	_pose.append(pose)
-	var steel := _mat(Color(0.13, 0.13, 0.14), 0.4, 0.75)
-	var brass := _mat(Color(0.55, 0.4, 0.17), 0.35, 0.9)
-	var wood := _mat(Color(0.28, 0.15, 0.07), 0.6, 0.0)
-	var stake_wood := _mat(Color(0.5, 0.36, 0.22), 0.8, 0.0)
-	var iron := _mat(Color(0.18, 0.17, 0.16), 0.45, 0.8)
-	# the rail: two side bars and a floor, open on top
-	_box(pose, Vector3(0.05, 0.012, 0.62), Vector3(0, 0.0, -0.27), Vector3.ZERO, steel)
-	for side: float in [-1.0, 1.0]:
-		_box(pose, Vector3(0.008, 0.03, 0.62), Vector3(side * 0.024, 0.015, -0.27), Vector3.ZERO, steel)
-	_box(pose, Vector3(0.06, 0.05, 0.03), Vector3(0, 0.012, -0.585), Vector3.ZERO, steel)          # muzzle block
-	_box(pose, Vector3(0.06, 0.06, 0.1), Vector3(0, 0.0, 0.05), Vector3.ZERO, steel)               # breech / valve
-	_cyl(pose, 0.012, 0.03, Vector3(0, 0.04, 0.05), Vector3.ZERO, brass)                           # valve cap
-	# brass air tank under the rail, banded, with a gauge on its side
-	_cyl(pose, 0.032, 0.36, Vector3(0, -0.05, -0.2), Vector3(90, 0, 0), brass)
-	for z: float in [-0.05, -0.35]:
-		_cyl(pose, 0.034, 0.012, Vector3(0, -0.05, z), Vector3(90, 0, 0), steel)
-	_cyl(pose, 0.022, 0.012, Vector3(-0.038, -0.02, 0.0), Vector3(0, 0, 90), steel)               # gauge body
-	_cyl(pose, 0.018, 0.004, Vector3(-0.045, -0.02, 0.0), Vector3(0, 0, 90), _mat(Color(0.85, 0.82, 0.72), 0.6, 0.0))   # face
-	_gauge_needle = Node3D.new()
-	_gauge_needle.position = Vector3(-0.048, -0.02, 0.0)
-	pose.add_child(_gauge_needle)
-	_box(_gauge_needle, Vector3(0.002, 0.014, 0.002), Vector3(0, 0.006, 0), Vector3.ZERO, _mat(Color(0.6, 0.05, 0.03), 0.5, 0.0))
-	_cyl(pose, 0.006, 0.12, Vector3(0.03, -0.02, 0.06), Vector3(70, 0, 0), _mat(Color(0.08, 0.07, 0.06), 0.9, 0.0))   # hose
-	# pump lever under the tank, hinged at the front
-	_stake_lever = Node3D.new()
-	_stake_lever.position = Vector3(0, -0.085, -0.3)
-	pose.add_child(_stake_lever)
-	_box(_stake_lever, Vector3(0.02, 0.014, 0.26), Vector3(0, 0, 0.13), Vector3.ZERO, steel)
-	_box(_stake_lever, Vector3(0.03, 0.03, 0.07), Vector3(0, -0.01, 0.2), Vector3.ZERO, wood)
-	# stock, grip, trigger
-	_box(pose, Vector3(0.045, 0.08, 0.3), Vector3(0, -0.05, 0.25), Vector3(-8, 0, 0), wood)
-	_box(pose, Vector3(0.036, 0.08, 0.05), Vector3(0, -0.07, 0.12), Vector3(22, 0, 0), wood)
-	_box(pose, Vector3(0.012, 0.005, 0.06), Vector3(0, -0.04, 0.07), Vector3.ZERO, steel)
-	# the stake on the rail, iron point at the muzzle
-	_stake_loaded = Node3D.new()
-	pose.add_child(_stake_loaded)
-	_cyl(_stake_loaded, 0.014, 0.5, Vector3(0, 0.024, -0.29), Vector3(90, 0, 0), stake_wood)
-	_cyl(_stake_loaded, 0.0, 0.08, Vector3(0, 0.024, -0.58), Vector3(-90, 0, 0), iron).mesh.top_radius = 0.0
-	(_stake_loaded.get_child(1) as MeshInstance3D).mesh.bottom_radius = 0.017
-	# right hand on the grip; left hand under the tank, carrying the next stake
-	_hand(pose, Vector3(0, -0.07, 0.13), Vector3(0.09, -0.30, 0.48), false)
 	var left := Node3D.new()
 	pose.add_child(left)
-	_hand(left, Vector3(-0.004, -0.07, -0.12), Vector3(-0.28, -0.32, 0.22), true)
-	_stake_in_hand = Node3D.new()
-	left.add_child(_stake_in_hand)
-	_cyl(_stake_in_hand, 0.014, 0.5, Vector3(0, -0.04, -0.3), Vector3(90, 0, 0), stake_wood)
-	_stake_in_hand.visible = false
 	_left.append(left)
+	root.visible = false
+	if not ResourceLoader.exists(C_PATH):
+		return
+	_xb_model = (load(C_PATH) as PackedScene).instantiate() as Node3D
+	_xb_model.name = "Model"
+	# +X (the point) down -Z; the bolt's line where the other guns' bores are
+	_xb_model.basis = Basis(Vector3.UP, PI * 0.5)
+	_xb_model.position = Vector3(0, 0.018, -0.06)
+	pose.add_child(_xb_model)
+	# dress it: walnut, blued steel, brass, black iron, waxed cord
+	var wood := StandardMaterial3D.new()
+	wood.albedo_texture = load("res://art/trench/timber.png")
+	wood.albedo_color = Color(0.62, 0.38, 0.22)
+	wood.roughness = 0.55
+	wood.uv1_triplanar = true
+	wood.uv1_scale = Vector3(6, 6, 6)
+	var steel := _mat(Color(0.16, 0.16, 0.17), 0.42, 0.8)
+	var brass := _mat(Color(0.5, 0.36, 0.15), 0.38, 0.9)
+	var iron := _mat(Color(0.1, 0.095, 0.09), 0.62, 0.65)
+	var cord := _mat(Color(0.36, 0.3, 0.2), 0.85, 0.0)
+	var by_name := {"Wood": wood, "Steel": steel, "Brass": brass, "Iron": iron, "Cord": cord}
+	for mi in _xb_model.find_children("*", "MeshInstance3D", true, false):
+		var mm := mi as MeshInstance3D
+		mm.layers = 2
+		mm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		for si in mm.mesh.get_surface_count():
+			var src := mm.mesh.surface_get_material(si)
+			if src and by_name.has(src.resource_name):
+				mm.set_surface_override_material(si, by_name[src.resource_name])
+	for n: String in ["NockRest", "StringFree", "BoltNock", "SightRear", "SightFront", "Muzzle", "LeverPivot"]:
+		var node := _xb_model.find_child(n, true, false) as Node3D
+		_xb_mark[n] = node.position if node else Vector3.ZERO
+	_xb_lever = _xb_model.find_child("Lever", true, false)
+	_xb_mark["LeverHandleRel"] = (_xb_model.find_child("LeverHandle", true, false) as Node3D).position
+	_xb_nut = _xb_model.find_child("Nut", true, false)
+	_xb_trigger = _xb_model.find_child("Trigger", true, false)
+	_xb_prod = [_xb_model.find_child("ProdL", true, false), _xb_model.find_child("ProdR", true, false)]
+	for i in 2:
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = 0.0022
+		cyl.bottom_radius = 0.0022
+		cyl.height = 1.0
+		cyl.radial_segments = 6
+		cyl.rings = 1
+		var mi := MeshInstance3D.new()
+		mi.mesh = cyl
+		mi.material_override = cord
+		mi.layers = 2
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_xb_model.add_child(mi)
+		_xb_string.append(mi)
+	# the bolt on the stock (CrossbowBolt's mesh: point at the origin, back along +Z)
+	_xb_bolt = Node3D.new()
+	_xb_model.add_child(_xb_bolt)
+	var bm := MeshInstance3D.new()
+	bm.mesh = CrossbowBolt.bolt_mesh()
+	bm.layers = 2
+	bm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	bm.basis = Basis(Vector3.UP, -PI * 0.5)          # its +Z (the shaft) back along the model's -X
+	_xb_bolt.add_child(bm)
+	_xb_bolt_hand = Node3D.new()
+	add_child(_xb_bolt_hand)
+	var bh := bm.duplicate() as MeshInstance3D
+	bh.basis = Basis()
+	_xb_bolt_hand.add_child(bh)
+	_xb_bolt_hand.visible = false
+	_build_arms(STAKE, pose, _xb_model)
 
 
 # --- the Maxim, torn off its mount ------------------------------------------------
@@ -1239,6 +1395,8 @@ func _muzzle() -> Vector3:
 		return to_local(_mp_muzzle.global_position)
 	if weapon == RIFLE and _le_muzzle:
 		return to_local(_le_muzzle.global_position)
+	if weapon == STAKE and _xb_model:
+		return to_local(_xb_model.to_global(_xb_mark.get("Muzzle", Vector3(0.4, 0, 0))))
 	var local := [Vector3(0, 0.02, -0.19), Vector3(0, 0.018, -0.64), Vector3(0, 0.012, -0.445), Vector3(0, 0.03, -0.6), Vector3(0, 0.0, -0.76), Vector3(0, 0.03, -0.93)][weapon] as Vector3
 	return to_local(_pose[weapon].to_global(local))
 
@@ -1302,6 +1460,21 @@ const ARM_GRIPS := {
 			"little_01": Vector3(15, 0, 0), "little_02": Vector3(105, 0, 0), "little_03": Vector3(52, 0, 0),
 			"thumb_01": Vector3(-30, 0, 0), "thumb_02": Vector3(-10, 0, 0), "thumb_03": Vector3(0, 0, 0)}}
 	},
+	STAKE: {                    # the crossbow; fitted with the hands at ARM_SIZE 0.8
+		"R": {"index_k": Vector3(-0.162, -0.046, 0.05), "little_k": Vector3(-0.196, -0.112, 0.05), "palm": Vector3(0.0, -0.05, -1.0), "elbow": Vector3(-0.55, -0.32, 0.26),
+			"pose": {"index_01": Vector3(25, 0, -15), "index_02": Vector3(5, 0, 0), "index_03": Vector3(0, 0, 0),
+			"middle_01": Vector3(65, 0, 0), "middle_02": Vector3(105, 0, 0), "middle_03": Vector3(52, 0, 0),
+			"ring_01": Vector3(100, 0, 0), "ring_02": Vector3(55, 0, 0), "ring_03": Vector3(28, 0, 0),
+			"little_01": Vector3(95, 0, 0), "little_02": Vector3(15, 0, 0), "little_03": Vector3(8, 0, 0),
+			"thumb_01": Vector3(-30, 0, 0), "thumb_02": Vector3(-10, 0, 0), "thumb_03": Vector3(45, 0, 0)},
+			"pull": {"index_01": Vector3(6, 0, 0), "index_02": Vector3(14, 0, 0), "index_03": Vector3(10, 0, 0)}},
+		"L": {"index_k": Vector3(0.122, -0.056, 0.012), "little_k": Vector3(0.057, -0.058, 0.012), "palm": Vector3(-0.003, 0.992, -0.077), "elbow": Vector3(-0.15, -0.32, -0.28),
+			"pose": {"index_01": Vector3(25, 0, 0), "index_02": Vector3(60, 0, 0), "index_03": Vector3(30, 0, 0),
+			"middle_01": Vector3(45, 0, 0), "middle_02": Vector3(15, 0, 0), "middle_03": Vector3(14, 0, 0),
+			"ring_01": Vector3(50, 0, 0), "ring_02": Vector3(5, 0, 0), "ring_03": Vector3(2, 0, 0),
+			"little_01": Vector3(25, 0, 0), "little_02": Vector3(110, 0, 0), "little_03": Vector3(55, 0, 0),
+			"thumb_01": Vector3(-30, 0, -32), "thumb_02": Vector3(-10, 0, 0), "thumb_03": Vector3(0, 0, 0)}}
+	},
 	MP18: {
 		"R": {"index_k": Vector3(-0.170, 0.092, 0.053), "little_k": Vector3(-0.215, 0.039, 0.055), "palm": Vector3(0.0, -0.2, -1.0), "elbow": Vector3(-0.45, -0.18, 0.34),
 			"pose": {"index_01": Vector3(0, 0, 5), "index_02": Vector3(30, 0, 0), "index_03": Vector3(40, 0, 0),
@@ -1329,7 +1502,7 @@ var _arm_home := {}
 ## Hand size per weapon (times the shared rig's). The SMLE and the trench gun are modelled at
 ## true size, and the shared glove (8.4-8.7 cm across the knuckles there) read as too big on
 ## them: 0.8 gives about 7 cm, a man's hand in a leather glove.
-const ARM_SIZE := {RIFLE: 0.8, TRENCH: 0.8}
+const ARM_SIZE := {RIFLE: 0.8, TRENCH: 0.8, STAKE: 0.8}
 
 
 func _build_arms(gun: int, pose: Node3D, model: Node3D) -> void:
@@ -2568,7 +2741,7 @@ func _mp_bolt(t: float) -> void:
 
 ## A side's grip on gun `gun` (ARM_GRIPS), as a key.
 func _rl_grip_for(gun: int, arm: FPArm, side: String) -> Array:
-	var model: Node3D = _mp_model if gun == MP18 else (_sg_model if gun == TRENCH else (_le_model if gun == RIFLE else _rev_model))
+	var model: Node3D = _mp_model if gun == MP18 else (_sg_model if gun == TRENCH else (_le_model if gun == RIFLE else (_xb_model if gun == STAKE else _rev_model)))
 	var m := model.transform
 	var g: Dictionary = ARM_GRIPS[gun][side]
 	var hand := arm.frame_from_knuckles(m * g.index_k, m * g.little_k, m.basis * g.palm) if g.has("index_k") else FPArm.frame(m * g.wrist, m.basis * g.along, m.basis * g.palm)

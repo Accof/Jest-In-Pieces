@@ -15,7 +15,9 @@ const WEAPONS := [
 	{name = "Pistol", damage = 34.0, pellets = 1, spread = 0.0, impulse = 14.0, heavy = false, can_dismember = false, cooldown = 0.22, falloff = 60.0, mag = 17},
 	{name = "Shotgun", damage = 16.0, pellets = 9, spread = 4.5, impulse = 16.0, heavy = true, can_dismember = true, cooldown = 0.8, falloff = 9.0, mag = 6, shells = true},
 	{name = "SMG", damage = 21.0, pellets = 1, spread = 1.8, impulse = 8.0, heavy = false, can_dismember = false, cooldown = 0.085, falloff = 28.0, mag = 32},
-	{name = "Stake Gun", damage = 500.0, pellets = 1, spread = 0.0, impulse = 2.0, heavy = true, can_dismember = false, cooldown = 0.5, falloff = 100.0, mag = 1, projectile = true},
+	# the crossbow (the old stake gun's slot): one bolt, spanned by hand. Its damage is
+	# CrossbowBolt.DAMAGE times the clown's zone multiplier (head x4, torso x1, limbs less)
+	{name = "Crossbow", label = "Crossbow", damage = 70.0, pellets = 1, spread = 0.0, impulse = 1.6, heavy = false, can_dismember = false, cooldown = 0.5, falloff = 100.0, mag = 1, projectile = true, ads = true},
 	{name = "Maxim", damage = 60.0, pellets = 1, spread = 2.4, impulse = 22.0, heavy = true, can_dismember = true, cooldown = 0.11, falloff = 80.0, mag = 250, belt = true},
 	# A WW1 Lee-Enfield SMLE Mk III (the rifle slot; `name` stays "Rifle", what the
 	# saves and stats know it by; `label` is what the HUD shows). Ten rounds; one heavy
@@ -355,6 +357,11 @@ func select_weapon(w: int) -> void:
 	_cooldown = maxf(_cooldown, ViewModel.SWAP_TIME)
 	ammo_changed.emit()
 	_update_label()
+	if w == STAKE and ammo[STAKE] == 0:
+		# drawn empty: span it and lay a bolt as soon as it is up
+		get_tree().create_timer(ViewModel.SWAP_TIME + 0.05).timeout.connect(func() -> void:
+			if weapon == STAKE and ammo[STAKE] == 0 and not dead:
+				reload())
 
 
 ## Rounds a gun holds: the MP 18 takes a 20-round stick magazine until the Snail
@@ -470,10 +477,11 @@ func _tick_punch(delta: float) -> void:
 ## Aiming down the rifle's sights (right mouse held): the view narrows, the gun comes
 ## up to the eye; not while reloading or changing guns. Other guns: none.
 func _tick_ads(delta: float) -> void:
-	var want := weapon == RIFLE and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	var can_aim: bool = weapon == RIFLE or WEAPONS[weapon].get("ads", false)
+	var want := can_aim and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	if aim_override >= 0.0:
-		want = aim_override > 0.5 and weapon == RIFLE
-	if view.reloading() or view.swapping() or weapon != RIFLE:
+		want = aim_override > 0.5 and can_aim
+	if view.reloading() or view.swapping() or not can_aim:
 		want = false
 	ads = move_toward(ads, 1.0 if want else 0.0, delta * 5.0)
 	view.ads = ads
@@ -614,11 +622,13 @@ func _discharge() -> void:
 		rotate_y(deg_to_rad(randf_range(-1.0, 1.0) * w.lateral * (0.6 + 0.4 * b / w.burst_cap)))
 		SfxSynth.play(self, w.get("shot_sfx", "revolver_shot"), camera.global_position + aim * 0.3, -1.0, randf_range(0.96, 1.05))
 	if w.get("projectile", false):
-		# a stake, not a bullet: it flies, and loads again by itself
+		# a bolt, not a bullet: it flies, and the crossbow is spanned again by itself
 		var world := get_tree().get_first_node_in_group(&"world_root")
-		Stake.launch(world if world else get_parent(), from + aim * 0.4, aim, _shot_id)
-		_kick = 0.35
-		shake(0.25)
+		var ex: Array[RID] = [get_rid()]
+		CrossbowBolt.launch(world if world else get_parent(), from + aim * 0.25, aim, _shot_id, ex)
+		SfxSynth.play(self, "xbow_shot", camera.global_position + aim * 0.3, 0.0, randf_range(0.95, 1.05))
+		_kick = 0.22
+		shake(0.1)
 		get_tree().create_timer(0.45).timeout.connect(func() -> void:
 			if weapon == STAKE and ammo[STAKE] == 0:
 				reload())
@@ -808,4 +818,4 @@ func heal(amount: float) -> void:
 
 
 func _update_label() -> void:
-	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] stake gun  [6] rifle  [7] revolver  [8] trench gun  [9] MP 18  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].get("label", WEAPONS[weapon].name), ammo[weapon], mag_of(weapon), " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]
+	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] crossbow  [6] rifle  [7] revolver  [8] trench gun  [9] MP 18  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].get("label", WEAPONS[weapon].name), ammo[weapon], mag_of(weapon), " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]

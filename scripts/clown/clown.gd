@@ -303,7 +303,7 @@ func hit(info: Dictionary) -> void:
 			break_arm = true
 
 	# Bullets add up: enough rounds into one part slowly tears it open.
-	if not info.get("can_dismember", false) and not info.get("stake", false):
+	if not info.get("can_dismember", false) and not info.get("stake", false) and not info.get("crossbow", false):
 		_wear(zone, bone, info.position, dir, raw)
 
 	var was_dead := dead
@@ -322,7 +322,9 @@ func hit(info: Dictionary) -> void:
 			_die(info, zone)
 	hurt.emit(self)
 	if not dead and not crawling and not downed and not last_stand:
-		_flinch_from(info.position, dir, react * (1.8 if severed else 1.0))
+		_flinch_from(info.position, dir, react * (1.8 if severed else 1.0) * (0.35 if pinned else 1.0))
+	if info.get("crossbow", false) and not dead:
+		_bolt_impair(zone, limb_side)
 	if not dead and not broken_arms.is_empty():
 		_kick_arms(clampf(react / 10.0, 1.0, 6.0))
 	if downed and not dead and ragdoll.active:
@@ -335,7 +337,7 @@ func hit(info: Dictionary) -> void:
 		var impulse: Vector3 = dir * float(info.get("impulse", 12.0))
 		if was_dead:
 			impulse *= 0.6              # a corpse soaks up a shot, it does not leap
-		elif zone == &"Neck" and not info.get("heavy", false):
+		elif zone == &"Neck" and not info.get("heavy", false) and not info.get("crossbow", false):
 			impulse = dir * 27.0 + Vector3.UP * 3.0   # a sharp whip of the head, not a launch
 		ragdoll.apply_hit(bone, impulse, info.position)
 	if severed:
@@ -404,7 +406,13 @@ func _die(info: Dictionary, zone: StringName) -> void:
 		_begin_throat(info, zone)
 		return
 	dead = true
+	_end_living_pin()
+	if not pins.is_empty() or info.get("pinned", false):
+		info = info.duplicate()
+		info["profile"] = ClownRagdoll.profile_pinned()
+		info["impulse"] = minf(float(info.get("impulse", 2.0)), 2.0)
 	_start_ragdoll(info, zone)
+	_pin_corpse()
 	_record_death(info, zone)
 
 
@@ -453,7 +461,7 @@ func is_throat_hit(info: Dictionary, zone: StringName) -> bool:
 func _throat_ok(info: Dictionary, zone: StringName) -> bool:
 	if not enable_throat_death or mechanical or skeleton == null:
 		return false
-	if info.get("blast", false) or info.get("stake", false) or info.has("profile"):
+	if info.get("blast", false) or info.get("stake", false) or info.has("profile") or pinned or info.get("pinned", false):
 		return false
 	if _fatal_severed or _head_open or crawling or downed or last_stand or _halved or ragdoll.active:
 		return false
@@ -744,7 +752,7 @@ func _record_death(info: Dictionary, zone: StringName) -> void:
 		m >>= 1
 	death = {
 		weapon = info.get("weapon", "Stake Gun" if info.get("stake", false) else ""),
-		zone = zone, blast = info.get("blast", false), stake = info.get("stake", false),
+		zone = zone, blast = info.get("blast", false), stake = info.get("stake", false) or not pins.is_empty() or info.get("pinned", false),
 		head_open = _head_open, limbs = limbs, broken_leg = broken_leg != "",
 		crawler = crawling or _halved, through = gore._tunnels.size() > 0,
 		friendly = info.get("friendly", false), curse = info.get("curse", false),
@@ -1306,6 +1314,309 @@ func bleed_out() -> void:
 	_die({direction = Vector3.DOWN, collider = ragdoll.bones.get(&"Chest")}, &"Spine")
 
 
+# --- crossbow bolts ---------------------------------------------------------------
+## A bolt that stays in rides on its bone (a BoneAttachment3D, so it follows
+## the posed body and, dead, the ragdoll). A bolt through the body into a wall
+## behind pins it there: a living clown stays where it stands, held at the pin
+## (it cannot walk or turn), and struggles: it thrashes, its free arm grabs at
+## the shaft, it can still swing or shoot at what is in front of it. Pinned
+## through a limb it tears itself free after a while (more damage, more blood,
+## the bolt stays in it); through the body it cannot, and bleeds. Dead, the
+## ragdoll hangs from the pin: a joint holds the pinned bone at the bolt (a
+## little swing allowed) and gravity does the rest. Nothing is moved to the wall.
+@export_group("Crossbow")
+## Living clowns can be pinned (subclasses with their own staged posing set false:
+## their bolts stay in the body instead).
+@export var can_be_pinned_alive := true
+@export var pin_free_after := Vector2(5.0, 9.0)     ## seconds before a limb pin tears free
+@export var pin_free_damage := 16.0
+@export var pin_bleed := 2.5                        ## health a second, pinned through the body
+@export var bolt_arm_impair := 2.5                  ## seconds a bolted arm cannot aim or swing
+@export var bolt_leg_slow := Vector2(0.45, 4.0)     ## speed scale and seconds after a bolt in the leg
+## Each pin: {bolt, bone, local (the pinned point in the bone's frame), wall, normal, joint}.
+var pins: Array = []
+var pinned := false
+var _pin_root := Vector3.ZERO
+var _pin_t := 0.0
+var _pin_free_at := INF
+var _pin_jerk_at := 0.0
+var _pin_grab := 0.0
+var _pin_grab_v := 0.0
+var _pin_grab_want := 0.0
+var _bolt_atts := {}
+
+
+func _bolt_attachment(b: StringName) -> BoneAttachment3D:
+	if _bolt_atts.has(b) and is_instance_valid(_bolt_atts[b]):
+		return _bolt_atts[b]
+	var att := BoneAttachment3D.new()
+	att.bone_name = b
+	skeleton.add_child(att)
+	_bolt_atts[b] = att
+	return att
+
+
+## A bolt that stays in this body: it goes where the bone goes.
+func bolt_embed(bolt: Node3D, pb: PhysicalBone3D) -> void:
+	var b := StringName(pb.bone_name)
+	if skeleton == null or skeleton.find_bone(b) < 0:
+		return
+	var att := _bolt_attachment(b)
+	var xf := bolt.global_transform
+	bolt.get_parent().remove_child(bolt)
+	att.add_child(bolt)
+	bolt.global_transform = xf
+
+
+## A bolt through this body into a wall. Returns false if it cannot pin it
+## (then the caller leaves the bolt in the body instead).
+func bolt_pin(bolt: Node3D, pb: PhysicalBone3D, at: Vector3, wall: Vector3, normal: Vector3) -> bool:
+	var b := StringName(pb.bone_name)
+	var bi := skeleton.find_bone(b) if skeleton else -1
+	if bi < 0:
+		return false
+	var living := not dead and not ragdoll.active
+	# the ones with their own staged posing (Rattlejack, Zornhauptmann, Klappersoldat)
+	# do not use the posing the living pin works through: the bolt stays in them
+	var staged := (self as Object) is Rattlejack or (self as Object) is Klappersoldat
+	if living and (not can_be_pinned_alive or staged or crawling or downed or last_stand or executing or bleeding_out):
+		return false
+	if dead and not ragdoll.active:
+		return false                      # a staged death still playing: no physics to hold
+	var bone_xf := skeleton.global_transform * skeleton.get_bone_global_pose(bi)
+	var pin := {bolt = bolt, bone = b, local = bone_xf.affine_inverse() * at, at = at, wall = wall, normal = normal, joint = RID(), anchor = null}
+	pins.append(pin)
+	bolt.tree_exiting.connect(_unpin_bolt.bind(bolt), CONNECT_ONE_SHOT)
+	if living:
+		_begin_living_pin(b)
+	else:
+		_pin_ragdoll(pin)
+	return true
+
+
+func _begin_living_pin(b: StringName) -> void:
+	var first := not pinned
+	pinned = true
+	_pin_root = global_position
+	velocity = Vector3.ZERO
+	walk_amount = 0.0
+	run_amount = 0.0
+	if first:
+		_pin_t = 0.0
+		_pin_jerk_at = randf_range(0.25, 0.5)
+	var zone := Clown._zone(b)
+	if zone in [&"UpperArm", &"LowerArm", &"Hand", &"UpperLeg", &"LowerLeg", &"Foot"]:
+		if _pin_free_at == INF:
+			_pin_free_at = _pin_t + randf_range(pin_free_after.x, pin_free_after.y)
+	else:
+		_pin_free_at = INF                # through the body: it is not getting off that
+	var br := get_node_or_null("Brain") as ClownBrain
+	if br:
+		br.pinned_now()
+	set_process(true)
+
+
+## Held at the pin: the body cannot go anywhere, and it fights it.
+func _pinned_pose(delta: float) -> void:
+	_pin_t += delta
+	# jerks: it throws itself against the pin, now this way, now that
+	if _pin_t >= _pin_jerk_at:
+		_pin_jerk_at = _pin_t + randf_range(0.45, 1.2)
+		var n: Vector3 = pins[0].normal if not pins.is_empty() else -global_basis.z
+		var inv := skeleton.global_transform.affine_inverse().basis
+		var pull := (inv * (n + Vector3(randf_range(-0.6, 0.6), randf_range(-0.2, 0.4), randf_range(-0.6, 0.6)))).normalized()
+		_flinch_vel += Vector3(pull.z, randf_range(-0.6, 0.6), -pull.x) * randf_range(2.5, 4.5)
+		# between jerks the free hand goes for the shaft and pulls at it, or lets go
+		_pin_grab_want = 1.0 if randf() < 0.65 else 0.0
+	# the hand gets there quickly and tugs (a little shake while it holds)
+	_pin_grab_v += ((_pin_grab_want - _pin_grab) * 40.0 - _pin_grab_v * 9.0) * delta
+	_pin_grab = clampf(_pin_grab + _pin_grab_v * delta, 0.0, 1.0)
+	if pins.is_empty():
+		return
+	var p: Dictionary = pins[0]
+	var side := "Left" if not String(p.bone).begins_with("Left") else "Right"
+	if arm_out(side) or (attack_amount > 0.05 and main_arm() == side) or (aim_amount > 0.05 and main_arm() == side):
+		return
+	var bolt: Node3D = p.bolt
+	if not is_instance_valid(bolt):
+		return
+	var grip := skeleton.global_transform.affine_inverse() * (p.at as Vector3)
+	var hb := skeleton.find_bone(side + "Hand")
+	var hand := skeleton.get_bone_global_pose(hb).origin
+	var g := smoothstep(0.15, 0.85, _pin_grab)
+	if g > 0.01:
+		var chest := skeleton.get_bone_global_pose(skeleton.find_bone("Chest")).origin
+		reach(side, hand.lerp(grip + (chest - grip).normalized() * 0.06, g), chest + Vector3(0.0, -0.3, 0.0) + (Vector3(0.4, 0, 0) if side == "Left" else Vector3(-0.4, 0, 0)))
+
+
+## After the pose: the pinned point stays on the bolt. The body is moved (a
+## little: the struggle only bends the chain) so the pinned point is where it
+## was pinned; a pin through the body bleeds it; a limb pin may tear free.
+func _pinned_hold(delta: float) -> void:
+	if dead:
+		return
+	var off := Vector3.ZERO
+	if not pins.is_empty():
+		var p: Dictionary = pins[0]
+		var bi := skeleton.find_bone(p.bone)
+		if bi >= 0:
+			# where the pinned point is with the body standing at its root
+			var now := skeleton.global_transform * skeleton.get_bone_global_pose(bi) * (p.local as Vector3) - (global_position - _pin_root)
+			off = (p.at as Vector3) - now
+			# mostly sideways: the feet stay on the floor (a body is not hoisted up the wall)
+			off = Vector3(off.x, clampf(off.y, -0.02, 0.02), off.z).limit_length(0.1)
+	global_position = _pin_root + off
+	velocity = Vector3.ZERO
+	if _pin_free_at == INF:
+		health -= pin_bleed * delta
+		if health <= 0.0:
+			_die({position = pins[0].at if not pins.is_empty() else global_position + Vector3.UP, direction = Vector3.DOWN,
+				collider = ragdoll.bones.get(pins[0].bone if not pins.is_empty() else &"Chest"), weapon = "Crossbow", crossbow = true}, Clown._zone(pins[0].bone if not pins.is_empty() else &"Chest"))
+	elif _pin_t >= _pin_free_at:
+		_tear_free()
+
+
+## A limb pin: it rips the limb off the bolt. The bolt stays in it.
+func _tear_free() -> void:
+	var dir := Vector3.ZERO
+	for p: Dictionary in pins.duplicate():
+		var bolt: Node3D = p.bolt
+		dir = -(p.normal as Vector3)
+		if is_instance_valid(bolt) and bolt is CrossbowBolt:
+			(bolt as CrossbowBolt).torn_free(self)
+		var pb: PhysicalBone3D = ragdoll.bones.get(p.bone)
+		Blood.spawn_hit(p.at, p.normal, 1.2, mechanical)
+		if pb:
+			gore.add_wound(p.bone, p.at, 40.0)
+	pins.clear()
+	_end_living_pin()
+	SfxSynth.play(self, "bolt_flesh", global_position + Vector3.UP * 1.2, 1.0, 0.8)
+	health -= pin_free_damage
+	if health <= 0.0:
+		_die({position = global_position + Vector3.UP * 1.2, direction = dir, collider = ragdoll.bones.get(&"Chest"), weapon = "Crossbow", crossbow = true}, &"Chest")
+		return
+	_flinch_from(global_position + Vector3.UP * 1.2, -dir, 80.0)
+
+
+func _end_living_pin() -> void:
+	if not pinned:
+		return
+	pinned = false
+	_pin_free_at = INF
+	_pin_grab = 0.0
+	var br := get_node_or_null("Brain") as ClownBrain
+	if br:
+		br.unpinned_now()
+
+
+## The bolt holding a pin has gone (tidied away, torn free): let go of that pin.
+func _unpin_bolt(bolt: Node3D) -> void:
+	for p: Dictionary in pins.duplicate():
+		if p.bolt == bolt:
+			for key: String in ["joint", "joint2"]:
+				if (p.get(key, RID()) as RID).is_valid():
+					PhysicsServer3D.free_rid(p[key])
+					p[key] = RID()
+			if is_instance_valid(p.anchor):
+				(p.anchor as Node).queue_free()
+			pins.erase(p)
+	if pins.is_empty():
+		_end_living_pin()
+
+
+## Dead (now, or long since): the ragdoll hangs from each pin.
+func _pin_corpse() -> void:
+	if not ragdoll.active:
+		return
+	for p: Dictionary in pins:
+		if not (p.joint as RID).is_valid():
+			_pin_ragdoll(p)
+
+
+## Hold one ragdoll bone at the bolt: an anchor at the pinned point (fixed in
+## the world, as the bolt is) and a 6DOF joint that keeps the point there and
+## lets the bone swing a little about it. The joint is made on the physics
+## server from the bodies' real transforms (a PhysicalBone3D's body is offset
+## from its node, and a Joint3D node would anchor the wrong point and hoist the
+## body): the point held is exactly where the bolt went in, so nothing jumps.
+func _pin_ragdoll(p: Dictionary) -> void:
+	var pb: PhysicalBone3D = ragdoll.bones.get(p.bone)
+	if pb == null or not is_instance_valid(pb) or p.get("pending", false):
+		return
+	# the pinned point, on the bone as it is now; the ragdoll may only just have
+	# started (the physics server still has the bodies where they were): wait
+	# for it to take over, then hold that point where it has got to
+	var on_bone := pb.global_transform.affine_inverse() * (p.at as Vector3)
+	p.pending = true
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	p.pending = false
+	if not is_instance_valid(pb) or not pb.is_inside_tree() or not pins.has(p) or not is_instance_valid(p.bolt):
+		return
+	var at: Vector3 = pb.global_transform * on_bone
+	# a static anchor, placed before it enters the tree (a kinematic one moved
+	# into place counts as moving fast, and drags the body with it)
+	var anchor := StaticBody3D.new()
+	anchor.collision_layer = 0
+	anchor.collision_mask = 0
+	var cs := CollisionShape3D.new()
+	var sp := SphereShape3D.new()
+	sp.radius = 0.01
+	cs.shape = sp
+	cs.disabled = true
+	anchor.add_child(cs)
+	var holder: Node3D = get_parent() as Node3D
+	anchor.transform = Transform3D(Basis(), holder.global_transform.affine_inverse() * at if holder else at)
+	if holder:
+		holder.add_child(anchor)
+	else:
+		get_parent().add_child(anchor)
+	var ps := PhysicsServer3D
+	var along := (p.wall as Vector3) - at
+	var fwd := along.normalized() if along.length() > 0.01 else Vector3.FORWARD
+	# the node's position reaches the physics server only on the next step: put
+	# the anchor there now, or the joints are built against the world origin
+	ps.body_set_state(anchor.get_rid(), ps.BODY_STATE_TRANSFORM, Transform3D(Basis(), at))
+	var xb: Transform3D = ps.body_get_state(pb.get_rid(), ps.BODY_STATE_TRANSFORM)
+	# two pins along the bolt's line, 6 cm apart: together an axle, as a shaft
+	# through the body is (it can turn about the bolt, not swing off it)
+	var joints: Array[RID] = []
+	for d: float in [0.0, 0.06]:
+		var q := at + fwd * d
+		var jr := ps.joint_create()
+		ps.joint_make_pin(jr, anchor.get_rid(), q - at, pb.get_rid(), xb.affine_inverse() * q)
+		joints.append(jr)
+	var j := joints[0]
+	p.joint2 = joints[1]
+	p.joint = j
+	p.anchor = anchor
+	var bolt: Node3D = p.bolt
+	var release := func() -> void:
+		for key: String in ["joint", "joint2"]:
+			if (p.get(key, RID()) as RID).is_valid():
+				ps.free_rid(p[key])
+				p[key] = RID()
+		if is_instance_valid(anchor):
+			anchor.queue_free()
+	pb.tree_exiting.connect(release, CONNECT_ONE_SHOT)
+	tree_exiting.connect(release, CONNECT_ONE_SHOT)
+	if is_instance_valid(bolt):
+		bolt.tree_exiting.connect(release, CONNECT_ONE_SHOT)
+
+
+## A bolt in an arm: it cannot aim or swing with it for a moment. In a leg:
+## it goes slower for a while.
+func _bolt_impair(zone: StringName, side: String) -> void:
+	var br := get_node_or_null("Brain") as ClownBrain
+	if br == null:
+		return
+	if zone in [&"UpperArm", &"LowerArm", &"Hand"]:
+		br.impair_arm(bolt_arm_impair)
+		_kick_arms(3.0)
+	elif zone in [&"UpperLeg", &"LowerLeg", &"Foot"]:
+		br.slow_for(bolt_leg_slow.x, bolt_leg_slow.y)
+
+
 # --- living pose ----------------------------------------------------------------
 # There are no animation clips yet. A living clown is posed in code every frame:
 # a walk cycle, an attack or aiming arm, and flinches from hits, layered on top
@@ -1480,6 +1791,11 @@ func _process(delta: float) -> void:
 		_turn("Chest", Vector3.RIGHT, deg_to_rad(12.0) * attack_amount)
 	elif aim_amount > 0.01 and not has_rifle and arm != "":
 		_turn(arm + "UpperArm", Vector3.RIGHT, deg_to_rad(-84.0) * aim_amount)
+	if pinned:
+		_pinned_pose(delta)
+		bob = 0.0
+		_stagger = Vector3.ZERO
+		_stagger_vel = Vector3.ZERO
 	if _flinch.length() > 0.0005:
 		for b: Array in FLINCH_BONES:
 			_turn(b[0], _flinch.normalized(), _flinch.length() * b[1])
@@ -1490,6 +1806,9 @@ func _process(delta: float) -> void:
 		_hold_rifle()
 	for side: String in broken_arms:
 		dangle_arm(side, gait)
+	if pinned:
+		_pinned_hold(delta)
+		return
 	if not always_pose and _flinch.length() < 0.002 and _flinch_vel.length() < 0.02 and _stagger.length() < 0.002 and _stagger_vel.length() < 0.02:
 		_flinch = Vector3.ZERO
 		_stagger = Vector3.ZERO

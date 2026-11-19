@@ -19,6 +19,12 @@ const LAYER_WORLD := 1
 @export var attack_recover := 0.95
 ## Multiplies every step the body takes (a clockwork gait surges and stops).
 var speed_scale := 1.0
+## A crossbow bolt: pinned to a wall (cannot move or turn), an arm put out of
+## use for a moment, a leg slowed for a while.
+var pinned := false
+var _arm_out_t := 0.0
+var _slow := 1.0
+var _slow_t := 0.0
 ## How fast it meant to move on its last step, before speed_scale (m/s).
 var intended_speed := 0.0
 ## Which way it meant to go on its last step (flat, unit; zero when not moving).
@@ -220,11 +226,99 @@ func _idle(delta: float) -> void:
 	clown.run_amount = move_toward(clown.run_amount, 0.0, delta * 3.0)
 
 
+func pinned_now() -> void:
+	pinned = true
+	_path.clear()
+	_attack_t = -1.0
+	_aim_t = -1.0
+	_strafe_vel = Vector3.ZERO
+	_cover_state = 0
+	hiding = false
+	clown.crouch_amount = 0.0
+	if player:
+		alert(player.global_position, false)
+
+
+func unpinned_now() -> void:
+	pinned = false
+
+
+func impair_arm(seconds: float) -> void:
+	_arm_out_t = maxf(_arm_out_t, seconds)
+	_aim_t = -1.0
+	_attack_t = -1.0
+	clown.aim_amount = 0.0
+	clown.attack_amount = 0.0
+
+
+func slow_for(scale: float, seconds: float) -> void:
+	_slow = minf(_slow if _slow_t > 0.0 else 1.0, scale)
+	_slow_t = maxf(_slow_t, seconds)
+
+
+## Pinned: it stays where it is (the clown holds it at the pin) and fights what
+## is in front of it: a swing at arm's length, a shot if it has a gun and the
+## player is not behind it.
+func _pinned(delta: float) -> void:
+	intended_speed = 0.0
+	intended_dir = Vector3.ZERO
+	clown.velocity = Vector3.ZERO
+	clown.walk_amount = move_toward(clown.walk_amount, 0.0, delta * 6.0)
+	clown.run_amount = 0.0
+	if player == null or player.dead:
+		clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 4.0)
+		return
+	var to_player := player.global_position - clown.global_position
+	var flat := Vector3(to_player.x, 0, to_player.z)
+	var dist := flat.length()
+	var facing := Vector3(clown.global_basis.z.x, 0, clown.global_basis.z.z).normalized()
+	var in_front := dist > 0.01 and facing.dot(flat / dist) > 0.35
+	if _arm_out_t > 0.0 or clown.main_arm() == "":
+		clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 4.0)
+		clown.attack_amount = 0.0
+		return
+	if _attack_t >= 0.0:
+		_attack_t += delta
+		clown.attack_amount = sin(clampf(_attack_t / attack_time, 0.0, 1.0) * PI)
+		if not _attack_hit and _attack_t > attack_hit_at:
+			_attack_hit = true
+			if dist < melee_range + 0.2 and absf(to_player.y) < 1.6 and in_front:
+				player.take_damage(melee_damage, flat.normalized())
+		if _attack_t > attack_time:
+			_attack_t = -1.0
+			_cooldown = attack_recover * 1.4
+			clown.attack_amount = 0.0
+		return
+	if in_front and dist < melee_range and _cooldown <= 0.0 and absf(to_player.y) < 1.4:
+		_attack_t = 0.0
+		_attack_hit = false
+		return
+	if clown.has_gun and in_front and dist < gun_range and _can_see_player():
+		clown.aim_point = player.global_position + Vector3.UP * 1.3
+		clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 3.0)
+		if _aim_t < 0.0 and _cooldown <= 0.0 and not clown.cycling():
+			_aim_t = 0.0
+		if _aim_t >= 0.0:
+			_aim_t += delta
+			if _aim_t > aim_time * 1.5 and clown.aim_amount > 0.9:
+				_fire(dist)
+				_aim_t = -1.0
+				_cooldown = randf_range(shot_gap.x, shot_gap.y) * 1.5
+	else:
+		_aim_t = -1.0
+		clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 3.0)
+
+
 func _physics_process(delta: float) -> void:
 	if clown.dead:
 		set_physics_process(false)
 		return
 	_cooldown -= delta
+	_arm_out_t = maxf(_arm_out_t - delta, 0.0)
+	_slow_t = maxf(_slow_t - delta, 0.0)
+	if pinned:
+		_pinned(delta)
+		return
 	_cover_cooldown -= delta
 	if not hiding:
 		clown.crouch_amount = move_toward(clown.crouch_amount, 1.0 if _cover_state == 2 else 0.0, delta * 3.5)
@@ -309,7 +403,7 @@ func _physics_process(delta: float) -> void:
 		_settle(delta, false)
 		return
 
-	if dist < melee_range and absf(to_player.y) < 1.4 and _cooldown <= 0.0 and not hunting_blind:
+	if dist < melee_range and absf(to_player.y) < 1.4 and _cooldown <= 0.0 and not hunting_blind and _arm_out_t <= 0.0:
 		_attack_t = 0.0
 		_attack_hit = false
 		_settle(delta, false)
@@ -320,7 +414,7 @@ func _physics_process(delta: float) -> void:
 			return
 	# Gunmen fight on the move: sidestep while lining up a shot, back off if the
 	# player closes in, push up if they are too far to hit much.
-	if clown.has_gun and dist < gun_range and dist > melee_range and seen:
+	if clown.has_gun and dist < gun_range and dist > melee_range and seen and _arm_out_t <= 0.0:
 		_face(flat, delta, 7.0)
 		clown.aim_point = player.global_position + Vector3.UP * 1.3
 		# Too close for a rifle. Get out: run for cover if there is some, or
@@ -665,7 +759,7 @@ func _step(vel: Vector3, delta: float) -> void:
 		intended_dir = Vector3(signf(along), 0, 0) if _axis_x else Vector3(0, 0, signf(along))
 	else:
 		intended_dir = Vector3(vel.x, 0, vel.z).normalized() if intended_speed > 0.01 else Vector3.ZERO
-	var want := Vector3(vel.x, 0.0, vel.z) * delta * speed_scale
+	var want := Vector3(vel.x, 0.0, vel.z) * delta * speed_scale * (_slow if _slow_t > 0.0 else 1.0)
 	want = _keep_apart(want, delta)
 	var move := _collide(clown.global_position, want)
 	if want.length() > 0.004:

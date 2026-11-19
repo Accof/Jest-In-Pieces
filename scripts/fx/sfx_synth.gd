@@ -134,6 +134,19 @@ static func _make(name: String) -> AudioStreamWAV:
 		# --- the SMLE (synthesized placeholders, not recordings)
 		"rifle_shot":
 			data = _mix(_gunshot(rng), _crack(0.06, rng, 1.0))
+		# the crossbow: the string's slap and twang, the prod's thump through the stock
+		"xbow_shot":
+			data = _mix(_mix(_twang(0.55, 92.0, rng), _thump(0.12, 160.0, 70.0, 0.03, 0.8, rng, 0.012, 0.9)), _crack(0.02, rng, 0.7))
+		"xbow_span":
+			data = _mix(_creak(0.6, rng), _ratchet(0.6, 14.0, rng))
+		"xbow_latch":
+			data = _mix(_crack(0.025, rng, 0.8), _thump(0.05, 900.0, 500.0, 0.006, 0.5, rng, 0.006, 0.6))
+		"bolt_seat":
+			data = _mix(_crack(0.02, rng, 0.4), _thump(0.04, 500.0, 300.0, 0.008, 0.35, rng, 0.01, 0.3))
+		"bolt_flesh":
+			data = _mix(_thump(0.1, 120.0, 60.0, 0.025, 0.9, rng, 0.03, 0.4), _squelch(0.16, rng))
+		"bolt_wall":
+			data = _mix(_thump(0.07, 420.0, 160.0, 0.012, 0.8, rng, 0.02, 0.8), _crack(0.03, rng, 0.6))
 		"bolt_up":
 			data = _mix(_crack(0.03, rng, 0.5), _thump(0.04, 600.0, 400.0, 0.005, 0.4, rng, 0.01, 0.5))
 		"bolt_back":
@@ -232,6 +245,21 @@ static func _thump(len: float, f0: float, f1: float, tau: float, amp: float, rng
 		if t < noise_len:
 			v += rng.randf_range(-1.0, 1.0) * noise_amp * (1.0 - t / noise_len)
 		out[i] = v
+	return out
+
+
+## A bowstring let go: a low note and its overtones, buzzing a little, dying away.
+static func _twang(len: float, f: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for i in n:
+		var t := float(i) / RATE
+		var env := exp(-t / 0.11) * minf(t / 0.001, 1.0)
+		var wob := 1.0 + 0.02 * exp(-t / 0.05)
+		var v := sin(TAU * f * wob * t) * 0.55 + sin(TAU * f * 2.01 * t) * 0.25 * exp(-t / 0.06) + sin(TAU * f * 3.03 * t) * 0.12 * exp(-t / 0.04)
+		v += rng.randf_range(-1.0, 1.0) * 0.15 * exp(-t / 0.02)
+		out[i] = clampf(v * 1.3, -1.0, 1.0) * env * 0.8
 	return out
 
 
