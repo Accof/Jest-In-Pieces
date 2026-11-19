@@ -239,6 +239,33 @@ func _run() -> void:
 	_check(cases_ok == 3, "three more shots, a case out each time (%d of 3)" % cases_ok)
 	_check(sounds_ok == 3, "three more shots, the bolt's four sounds each time (%d of 3)" % sounds_ok)
 
+	# --- the left hand stays put on the fore-end through idle, walking, aiming,
+	# firing and the bolt cycle (measured on the rifle, so sway and bob don't count)
+	p.aim_override = -1.0
+	await _wait(0.8)
+	var l_ref := _hand(l, v)
+	var l_worst := {}
+	for phase: String in ["idle", "walk", "aim", "fire+bolt"]:
+		var worst := 0.0
+		var worst_deg := 0.0
+		if phase == "aim":
+			p.aim_override = 1.0
+		if phase == "fire+bolt":
+			p.fire()
+		var tt := 0.0
+		while tt < 1.25:
+			if phase == "walk":
+				v._bob_amount = 1.2
+			await get_tree().process_frame
+			tt += get_process_delta_time()
+			var h := _hand(l, v)
+			worst = maxf(worst, h.origin.distance_to(l_ref.origin))
+			worst_deg = maxf(worst_deg, rad_to_deg(h.basis.get_rotation_quaternion().angle_to(l_ref.basis.get_rotation_quaternion())))
+		l_worst[phase] = "%.2f mm %.2f deg" % [worst * 1000.0 / ViewModel.SHRINK, worst_deg]
+		_check(worst * 1000.0 / ViewModel.SHRINK < 0.5 and worst_deg < 0.5, "left hand on the fore-end while %s (moved %s)" % [phase, l_worst[phase]])
+	p.aim_override = -1.0
+	await _wait(0.5)
+
 	# --- empty: dry, and the reload: two chargers, counted as they go in
 	cam.rotation.x = 0.0
 	p.ammo[FpsPlayer.RIFLE] = 1
@@ -391,7 +418,8 @@ func _run() -> void:
 		oc.projection = Camera3D.PROJECTION_ORTHOGONAL
 		var gx := v._le_model.global_transform
 		for k: Array in [["right", Vector3(0, 0, 1), Vector3(-0.1, 0.15, 0), 1.25], ["action", Vector3(0, 0.2, 1), Vector3(-0.25, 0.15, 0), 0.4],
-				["rhand_l", Vector3(0, 0.2, -1), Vector3(-0.30, 0.12, 0), 0.25], ["lhand", Vector3(0, -0.4, 1), Vector3(0.10, 0.17, 0), 0.3], ["lhand_l", Vector3(0, -0.3, -1), Vector3(0.10, 0.17, 0), 0.3]]:
+				["rhand_l", Vector3(0, 0.2, -1), Vector3(-0.30, 0.12, 0), 0.25], ["lhand", Vector3(0, -0.4, 1), Vector3(0.10, 0.17, 0), 0.3], ["lhand_l", Vector3(0, -0.3, -1), Vector3(0.10, 0.17, 0), 0.3],
+				["lhand_under", Vector3(0.1, -1, 0.15), Vector3(0.09, 0.15, 0), 0.25], ["lhand_end", Vector3(1, -0.15, 0.05), Vector3(0.09, 0.15, 0), 0.2]]:
 			var d_: Vector3 = (gx.basis * k[1]).normalized()
 			var centre: Vector3 = gx * k[2]
 			oc.size = float(k[3]) * ViewModel.SHRINK

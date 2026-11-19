@@ -1295,12 +1295,12 @@ const ARM_GRIPS := {
 			"little_01": Vector3(100, 0, 0), "little_02": Vector3(0, 0, 0), "little_03": Vector3(0, 0, 0),
 			"thumb_01": Vector3(-30, 0, -40), "thumb_02": Vector3(40, 0, 0), "thumb_03": Vector3(15, 0, 0)},
 			"pull": {"index_01": Vector3(6, 0, 0), "index_02": Vector3(14, 0, 0), "index_03": Vector3(10, 0, 0)}},
-		"L": {"index_k": Vector3(0.110, 0.147, 0.010), "little_k": Vector3(0.045, 0.144, 0.010), "palm": Vector3(0.0, 0.92, -0.38), "elbow": Vector3(-0.15, -0.10, -0.28),
-			"pose": {"index_01": Vector3(5, 0, 0), "index_02": Vector3(55, 0, 0), "index_03": Vector3(28, 0, 0),
-			"middle_01": Vector3(5, 0, 0), "middle_02": Vector3(55, 0, 0), "middle_03": Vector3(50, 0, 0),
-			"ring_01": Vector3(10, 0, 0), "ring_02": Vector3(45, 0, 0), "ring_03": Vector3(22, 0, 0),
-			"little_01": Vector3(0, 0, 0), "little_02": Vector3(110, 0, 0), "little_03": Vector3(55, 0, 0),
-			"thumb_01": Vector3(-30, 0, -16), "thumb_02": Vector3(-10, 0, 0), "thumb_03": Vector3(0, 0, 0)}}
+		"L": {"index_k": Vector3(0.110, 0.147, 0.008), "little_k": Vector3(0.045, 0.144, 0.008), "palm": Vector3(-0.003, 0.992, -0.077), "elbow": Vector3(-0.15, -0.10, -0.28),
+			"pose": {"index_01": Vector3(10, 0, 0), "index_02": Vector3(70, 0, 0), "index_03": Vector3(35, 0, 0),
+			"middle_01": Vector3(25, 0, 0), "middle_02": Vector3(50, 0, 0), "middle_03": Vector3(25, 0, 0),
+			"ring_01": Vector3(30, 0, 0), "ring_02": Vector3(35, 0, 0), "ring_03": Vector3(18, 0, 0),
+			"little_01": Vector3(15, 0, 0), "little_02": Vector3(105, 0, 0), "little_03": Vector3(52, 0, 0),
+			"thumb_01": Vector3(-30, 0, 0), "thumb_02": Vector3(-10, 0, 0), "thumb_03": Vector3(0, 0, 0)}}
 	},
 	MP18: {
 		"R": {"index_k": Vector3(-0.170, 0.092, 0.053), "little_k": Vector3(-0.215, 0.039, 0.055), "palm": Vector3(0.0, -0.2, -1.0), "elbow": Vector3(-0.45, -0.18, 0.34),
