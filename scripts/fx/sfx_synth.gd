@@ -26,14 +26,16 @@ static func stream(name: String) -> AudioStream:
 
 
 ## Play `name` once at `at` (world); the player frees itself.
-static func play(parent: Node, name: String, at: Vector3, db := 0.0, pitch := 1.0) -> void:
+## `unit` and `max_dist` set how it carries (the defaults suit gunfire and
+## handling; an explosion carries much further).
+static func play(parent: Node, name: String, at: Vector3, db := 0.0, pitch := 1.0, unit := 5.0, max_dist := 45.0) -> void:
 	var stream := SfxSynth.stream(name)
 	if stream == null or parent == null or not parent.is_inside_tree():
 		return
 	var p := AudioStreamPlayer3D.new()
 	p.stream = stream
-	p.unit_size = 5.0
-	p.max_distance = 45.0
+	p.unit_size = unit
+	p.max_distance = max_dist
 	p.volume_db = db
 	p.pitch_scale = pitch * randf_range(0.96, 1.04)
 	parent.add_child(p)
@@ -204,6 +206,18 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _splash(0.6, rng)
 		"carnival_tune":
 			data = _tune(rng)
+		# the stick grenade (placeholders: no recordings yet)
+		"grenade_cap":                            # the end cap unscrewed and the cord pulled: a scrape, a tug, the igniter's pop
+			data = _mix(_mix(_scrape(0.16, rng), _offset(_thump(0.05, 1400.0, 900.0, 0.006, 0.45, rng, 0.004, 0.5), 0.18)),
+				_offset(_fizz(0.5, rng), 0.21))
+		"grenade_throw":                          # the arm going through, the grenade spinning off
+			data = _whoosh(0.4, rng)
+		"grenade_bounce":                         # a can and a wooden handle hitting the ground
+			data = _mix(_thump(0.12, 380.0, 240.0, 0.018, 0.55, rng, 0.01, 0.5), _thump(0.09, 1600.0, 1300.0, 0.012, 0.18, rng, 0.004, 0.2))
+		"grenade_boom":                           # close: a sharp crack, a heavy thump, debris pattering down
+			data = _grenade_boom(rng, 0.0)
+		"grenade_boom_far":                       # a way off: the crack gone, a dull thud and a roll
+			data = _grenade_boom(rng, 1.0)
 		_:
 			return null
 	return _wav(data)
@@ -536,6 +550,83 @@ static func _rumble(len: float, rng: RandomNumberGenerator) -> PackedFloat32Arra
 		lp += (rng.randf_range(-1.0, 1.0) - lp) * 0.004
 		lp2 += (lp - lp2) * 0.02
 		out[i] = lp2 * 14.0 * (0.7 + 0.3 * sin(t * 0.9))
+	return out
+
+
+## A grenade going off: `far` 0 close (crack, thump, debris), 1 a long way off
+## (low and dull, a longer roll).
+static func _grenade_boom(rng: RandomNumberGenerator, far: float) -> PackedFloat32Array:
+	var len := lerpf(2.6, 3.4, far)
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var lp := 0.0
+	var lp2 := 0.0
+	var ph := 0.0
+	var cut := lerpf(0.2, 0.03, far)
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		lp += (x - lp) * cut
+		lp2 += (lp - lp2) * cut * 0.6
+		ph += TAU * lerpf(70.0, 34.0, minf(t * 4.0, 1.0)) / RATE
+		var crack := x * exp(-t * 90.0) * 1.4 * (1.0 - far)
+		var body := lp * exp(-t * 14.0) * 2.2 * (1.0 - 0.6 * far)
+		var thump := sin(ph) * exp(-t * lerpf(7.0, 3.5, far)) * 0.9
+		var roll := lp2 * 7.0 * minf(t / 0.05, 1.0) * exp(-t * lerpf(1.6, 1.0, far)) * lerpf(0.35, 0.6, far)
+		out[i] = clampf((crack + body + thump + roll) * minf(t / 0.0005, 1.0), -1.0, 1.0)
+	# debris and grit coming down, close only
+	if far < 0.5:
+		for k in 26:
+			var at := int(rng.randf_range(0.25, 1.6) * RATE)
+			var amp := rng.randf_range(0.05, 0.18)
+			var f := rng.randf_range(900.0, 3200.0)
+			for i in range(at, mini(at + int(0.03 * RATE), n)):
+				var t := float(i - at) / RATE
+				out[i] += (sin(TAU * f * t) * 0.5 + rng.randf_range(-0.5, 0.5)) * exp(-t * 160.0) * amp
+	return out
+
+
+## A dry scrape (a screw cap turning).
+static func _scrape(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var hp := 0.0
+	var prev := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		hp = 0.7 * (hp + x - prev)
+		prev = x
+		var grit := 0.5 + 0.5 * sin(TAU * 38.0 * t + sin(t * 70.0))
+		out[i] = hp * 0.22 * grit * sin(PI * t / len)
+	return out
+
+
+## The igniter's fizz in the handle, dying away.
+static func _fizz(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var hp := 0.0
+	var prev := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var x := rng.randf_range(-1.0, 1.0)
+		hp = 0.85 * (hp + x - prev)
+		prev = x
+		out[i] = hp * 0.12 * exp(-t * 5.0) * minf(t / 0.01, 1.0)
+	return out
+
+
+## `data` starting `seconds` later.
+static func _offset(data: PackedFloat32Array, seconds: float) -> PackedFloat32Array:
+	var pad := int(seconds * RATE)
+	var out := PackedFloat32Array()
+	out.resize(pad + data.size())
+	for i in data.size():
+		out[pad + i] = data[i]
 	return out
 
 

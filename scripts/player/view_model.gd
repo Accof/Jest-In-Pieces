@@ -252,6 +252,11 @@ func animate(delta: float, speed: float, look: Vector2) -> void:
 	var steady := 1.0 - 0.85 * (ads if weapon == RIFLE or weapon == STAKE else 0.0)          # aimed: the sway and bob mostly go
 	root.position = (bob + breathe + Vector3(_sway.x, _sway.y, 0)) * steady + Vector3(0, -drop * 0.35, 0)
 	root.rotation = Vector3(-drop * 0.9 + _sway.y * 1.2 * steady, _sway.x * 1.5 * steady, _sway.x * 0.8 * steady)
+	# a grenade in the right hand: the gun dips down and away to the left, still in the left hand
+	var gd := _grenade_dip(delta)
+	if gd > 0.0:
+		root.position += Vector3(-0.06, -0.24, 0.04) * gd
+		root.rotation += Vector3(-0.55, 0.25, 0.35) * gd
 
 	if weapon == PISTOL:
 		_animate_pistol()
@@ -2930,3 +2935,174 @@ func _add(parent: Node3D, mesh: Mesh, pos: Vector3, rot_deg: Vector3, mat: Mater
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(mi)
 	return mi
+
+
+# --- the grenade (held in the right hand and thrown; the gun stays selected) -------
+## Pressing the grenade key brings one up in the right hand while the gun dips
+## out of the way (the left hand keeps it); letting go throws it: overhand
+## (held), or a short underhand toss (tapped). The player is told the moment it
+## leaves the hand (grenade_released), and the gun comes back up.
+## Keys are in this node's space (the camera at the origin, -Z ahead), at real size.
+signal grenade_released(underhand: bool)
+const G_DRAW := 0.32                 ## s to bring it up
+const G_OVER := {"wind": Vector2(0.0, 0.2), "forward": Vector2(0.2, 0.33), "release": 0.31, "follow": Vector2(0.33, 0.5), "away": Vector2(0.5, 0.68)}
+const G_UNDER := {"wind": Vector2(0.0, 0.18), "forward": Vector2(0.18, 0.3), "release": 0.28, "follow": Vector2(0.3, 0.46), "away": Vector2(0.46, 0.62)}
+const G_RECOVER := 0.32              ## s for the gun to come back up after the hand has gone
+## The fist round the handle (a 2.6 cm stick).
+const G_FIST := {"index_01": Vector3(62, 0, 0), "index_02": Vector3(78, 0, 0), "index_03": Vector3(45, 0, 0),
+	"middle_01": Vector3(66, 0, 0), "middle_02": Vector3(80, 0, 0), "middle_03": Vector3(48, 0, 0),
+	"ring_01": Vector3(68, 0, 0), "ring_02": Vector3(80, 0, 0), "ring_03": Vector3(48, 0, 0),
+	"little_01": Vector3(70, 0, 0), "little_02": Vector3(82, 0, 0), "little_03": Vector3(50, 0, 0),
+	"thumb_01": Vector3(25, 0, -10), "thumb_02": Vector3(30, 0, 0), "thumb_03": Vector3(30, 0, 0)}
+## The fingers opening as it goes.
+const G_OPEN := {"index_01": Vector3(10, 0, 0), "index_02": Vector3(10, 0, 0), "middle_01": Vector3(12, 0, 0), "middle_02": Vector3(10, 0, 0),
+	"ring_01": Vector3(14, 0, 0), "ring_02": Vector3(12, 0, 0), "little_01": Vector3(16, 0, 0), "little_02": Vector3(14, 0, 0),
+	"thumb_01": Vector3(0, 0, -15)}
+## Hand keys: [wrist, which way the fingers point, which way the palm faces, elbow].
+const G_KEYS := {
+	"below": [Vector3(0.24, -0.62, -0.26), Vector3(-0.1, 0.9, -0.4), Vector3(-1.0, 0.0, -0.2), Vector3(0.36, -0.95, 0.05)],
+	"ready": [Vector3(0.19, -0.2, -0.4), Vector3(-0.25, 0.35, -0.9), Vector3(-0.9, -0.3, 0.1), Vector3(0.33, -0.5, -0.12)],
+	"wind": [Vector3(0.29, 0.04, -0.38), Vector3(0.25, 0.75, 0.6), Vector3(-0.7, 0.4, -0.6), Vector3(0.46, -0.25, -0.05)],
+	"release": [Vector3(0.13, 0.04, -0.56), Vector3(-0.08, 0.45, -0.9), Vector3(-0.7, -0.5, -0.2), Vector3(0.3, -0.25, -0.2)],
+	"follow": [Vector3(-0.02, -0.3, -0.5), Vector3(-0.35, -0.45, -0.82), Vector3(-0.6, 0.4, 0.4), Vector3(0.22, -0.55, -0.15)],
+	"under_back": [Vector3(0.26, -0.55, -0.18), Vector3(0.05, -0.75, 0.6), Vector3(-0.8, 0.0, -0.5), Vector3(0.34, -0.7, 0.15)],
+	"under_release": [Vector3(0.13, -0.3, -0.56), Vector3(-0.05, 0.25, -0.97), Vector3(-0.4, 0.85, 0.2), Vector3(0.3, -0.75, -0.2)],
+	"under_follow": [Vector3(0.09, -0.12, -0.6), Vector3(-0.05, 0.62, -0.78), Vector3(-0.3, 0.75, 0.55), Vector3(0.3, -0.6, -0.3)],
+}
+## Where the grenade sits in the fist, in the hand bone's frame (scaled to this node's
+## units): along the hand's X (through the fist), the head out past the thumb.
+var g_hold := Transform3D(Basis(Vector3(0, 0, 1), -PI * 0.5), Vector3(0.0, 0.085, 0.035) + Vector3(1, 0, 0) * G_GRIP_UP)
+const G_GRIP_UP := 0.17               ## the grenade's balance point above the fist: held near the handle's end
+var _g_state := ""                   ## "", "draw", "held", "throw", "recover"
+var _g_t := 0.0
+var _g_under := false
+var _g_queued := false               ## let go while still bringing it up: throw as soon as it is up
+var _g_released := false
+var _g_dip := 0.0
+var _g_arm: FPArm
+var _g_model: Node3D
+
+
+## Start bringing a grenade up. False if one is already in hand or being thrown.
+func grenade_draw() -> bool:
+	if _g_state != "":
+		return false
+	_g_build()
+	_g_state = "draw"
+	_g_t = 0.0
+	_g_queued = false
+	_g_released = false
+	_g_arm.visible = true
+	_g_model.visible = true
+	return true
+
+
+## Let go of the key: throw it (overhand, or underhand if `under`).
+func grenade_throw(under: bool) -> void:
+	_g_under = under
+	if _g_state == "draw":
+		_g_queued = true
+	elif _g_state == "held":
+		_g_state = "throw"
+		_g_t = 0.0
+
+
+## Put it away without throwing (the player died, or was taken over).
+func grenade_cancel() -> void:
+	if _g_state in ["draw", "held"]:
+		_g_state = "recover"
+		_g_t = 0.0
+		if _g_model:
+			_g_model.visible = false
+
+
+func grenade_busy() -> bool:
+	return _g_state != ""
+
+
+func grenade_state() -> String:
+	return _g_state
+
+
+func _g_build() -> void:
+	if _g_arm != null:
+		return
+	_g_arm = FPArm.new("R", 0.8)
+	_g_arm.name = "GrenadeArm"
+	add_child(_g_arm)
+	_g_arm.visible = false
+	var path: String = Grenade.TYPES.frag.model
+	_g_model = (load(path) as PackedScene).instantiate() as Node3D if ResourceLoader.exists(path) else Node3D.new()
+	_g_model.name = "GrenadeInHand"
+	add_child(_g_model)
+	for mi: MeshInstance3D in _g_model.find_children("*", "MeshInstance3D", true, false):
+		mi.layers = 2
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_g_model.visible = false
+
+
+## How far down the gun is (0 up .. 1 dipped), and the grenade hand's whole sequence.
+func _grenade_dip(delta: float) -> float:
+	if _g_state == "":
+		return 0.0
+	_g_t += delta
+	var want := 1.0
+	var key: Array = []
+	var pose: Dictionary = G_FIST
+	var k := func(n: String) -> Array:
+		var d: Array = G_KEYS[n]
+		return [FPArm.frame(d[0], d[1], d[2]), d[3], G_FIST]
+	match _g_state:
+		"draw":
+			var u := smoothstep(0.0, 1.0, _g_t / G_DRAW)
+			key = _rl_blend(k.call("below"), k.call("ready"), u)
+			if _g_t >= G_DRAW:
+				_g_state = "held"
+				_g_t = 0.0
+				if _g_queued:
+					_g_state = "throw"
+		"held":
+			var breathe := Vector3(0, sin(_time * 1.7) * 0.004, 0)
+			key = k.call("ready")
+			key[0] = Transform3D((key[0] as Transform3D).basis, (key[0] as Transform3D).origin + breathe)
+		"throw":
+			var tl: Dictionary = G_UNDER if _g_under else G_OVER
+			var wind := "under_back" if _g_under else "wind"
+			var rel := "under_release" if _g_under else "release"
+			var fol := "under_follow" if _g_under else "follow"
+			var t := _g_t
+			var st := func(name: String) -> float:
+				var r: Vector2 = tl[name]
+				return clampf((t - r.x) / (r.y - r.x), 0.0, 1.0)
+			if t < (tl.wind as Vector2).y:
+				key = _rl_blend(k.call("ready"), k.call(wind), smoothstep(0.0, 1.0, st.call("wind")))
+			elif t < (tl.forward as Vector2).y:
+				var f: float = st.call("forward")
+				key = _rl_blend(k.call(wind), k.call(rel), f * f * (3.0 - 2.0 * f) * 0.6 + f * 0.4)   # fast through the release
+			elif t < (tl.follow as Vector2).y:
+				key = _rl_blend(k.call(rel), k.call(fol), smoothstep(0.0, 1.0, st.call("follow")))
+			else:
+				key = _rl_blend(k.call(fol), k.call("below"), smoothstep(0.0, 1.0, st.call("away")))
+			if t >= float(tl.release) and not _g_released:
+				_g_released = true
+				_g_model.visible = false
+				grenade_released.emit(_g_under)
+			if t >= float(tl.release):
+				pose = G_OPEN
+			if t >= (tl.away as Vector2).y:
+				_g_state = "recover"
+				_g_t = 0.0
+		"recover":
+			want = 1.0 - smoothstep(0.0, 1.0, _g_t / G_RECOVER)
+			_g_arm.visible = false
+			if _g_t >= G_RECOVER:
+				_g_state = ""
+				want = 0.0
+	if _g_arm and _g_arm.visible and not key.is_empty():
+		_rl_apply(_g_arm, [key[0], key[1], pose])
+		if _g_model.visible:
+			var h := _g_arm.transform * _g_arm.hand_local()        # the hand bone, in this node's space
+			h.basis = h.basis.orthonormalized()                      # (the hand is scaled down: the grenade is not)
+			_g_model.transform = h * g_hold
+	_g_dip = want if _g_state != "draw" else maxf(_g_dip, smoothstep(0.0, 1.0, _g_t / G_DRAW))
+	return _g_dip

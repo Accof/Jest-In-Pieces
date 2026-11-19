@@ -149,6 +149,21 @@ var _cross: Control
 ## The super kill, charged by kills.
 var curse: CarnivalCurse
 
+## Grenades: their own key and their own count, apart from the guns (the gun in
+## hand stays selected). Hold the key to bring one up, let go to throw it
+## overhand; a quick tap is a short underhand toss.
+@export var grenade_key := KEY_T                    ## (G, the usual key, is the god-mode toggle here)
+const GRENADE_TAP := 0.2                            ## s: let go sooner than this and it is tossed underhand
+var grenade_kind := "frag"
+var grenades := {}                                  ## kind -> how many carried
+var grenades_thrown: Array[Grenade] = []            ## (for the tests)
+var _g_key_down := false
+var _g_hold := 0.0
+var _g_wanted := false                              ## pressed, not brought up yet (a reload or swap finishing first)
+var _g_let_go := false                              ## and already let go: throw it as soon as it is up
+var _g_under := false
+var _g_hud: Control
+
 
 func _ready() -> void:
 	add_to_group(&"player")
@@ -197,6 +212,14 @@ func _ready() -> void:
 	_label.position = Vector2(16, 12)
 	_label.visible = show_help
 	hud.add_child(_label)
+	for k: String in Grenade.TYPES:
+		grenades[k] = int(Grenade.TYPES[k].start)
+	view.grenade_released.connect(_on_grenade_released)
+	_g_hud = Control.new()
+	_g_hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_g_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_g_hud.draw.connect(_draw_grenades.bind(_g_hud))
+	hud.add_child(_g_hud)
 	_update_label()
 	health = stats.max_health
 	curse = CarnivalCurse.new()
@@ -249,7 +272,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		elif event.button_index == MOUSE_BUTTON_LEFT:
 			fire()
+	elif event is InputEventKey and not event.pressed and event.keycode == grenade_key:
+		_grenade_up()
 	elif event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == grenade_key:
+			_grenade_down()
 		match event.keycode:
 			KEY_1: select_weapon(0)
 			KEY_2: select_weapon(1)
@@ -313,6 +340,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_tick_reload(delta)
 	_tick_ads(delta)
+	_tick_grenade(delta)
 	# Holding the button keeps firing (not a semi-automatic: one shot a pull).
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
 			and not WEAPONS[weapon].get("semi", false):
@@ -344,7 +372,7 @@ func _physics_process(delta: float) -> void:
 
 
 func select_weapon(w: int) -> void:
-	if w == weapon or dead or mount:
+	if w == weapon or dead or mount or view.grenade_busy():
 		return
 	_reload_left = -1.0
 	_shell_left = -1.0
@@ -435,7 +463,7 @@ func _tick_rifle(delta: float) -> void:
 func reload() -> void:
 	if WEAPONS[weapon].get("belt", false):
 		return                                   # a belt: what you have is what you get
-	if dead or view.swapping() or view.reloading() or ammo[weapon] >= mag_of(weapon):
+	if dead or view.swapping() or view.reloading() or view.grenade_busy() or ammo[weapon] >= mag_of(weapon):
 		return
 	if WEAPONS[weapon].get("pump", false) and _cooldown > 0.0:
 		return                                   # still working the pump
@@ -481,7 +509,7 @@ func _tick_ads(delta: float) -> void:
 	var want := can_aim and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 	if aim_override >= 0.0:
 		want = aim_override > 0.5 and can_aim
-	if view.reloading() or view.swapping() or not can_aim:
+	if view.reloading() or view.swapping() or view.grenade_busy() or not can_aim:
 		want = false
 	ads = move_toward(ads, 1.0 if want else 0.0, delta * 5.0)
 	view.ads = ads
@@ -537,7 +565,7 @@ func fire() -> void:
 		return                                   # already pulling: the shot is on its way
 	if _cooldown > 0.0 and WEAPONS[weapon].get("semi", false) and not dead:
 		_queued = 0.15                           # pulled a moment early: fire when it can
-	if _cooldown > 0.0 or dead or view.swapping():
+	if _cooldown > 0.0 or dead or view.swapping() or view.grenade_busy():
 		return
 	if WEAPONS[weapon].get("belt", false) and ammo[weapon] <= 0:
 		select_weapon(PISTOL)                    # belt empty: the gun is thrown away
@@ -805,6 +833,9 @@ func take_damage(amount: float, from_dir: Vector3 = Vector3.ZERO) -> void:
 	health_changed.emit(health, stats.max_health)
 	if health <= 0.0:
 		dead = true
+		view.grenade_cancel()
+		_g_wanted = false
+		_g_key_down = false
 		camera.position.y = 0.45        # dropped to the floor
 		camera.rotation.z = 0.5
 		died.emit()
@@ -818,4 +849,131 @@ func heal(amount: float) -> void:
 
 
 func _update_label() -> void:
-	_label.text = "%s %d/%d   [R] reload  [1] pistol  [2] shotgun  [3] SMG  [4] crossbow  [6] rifle  [7] revolver  [8] trench gun  [9] MP 18  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].get("label", WEAPONS[weapon].name), ammo[weapon], mag_of(weapon), " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]
+	if _g_hud:
+		_g_hud.queue_redraw()
+	_label.text = "%s %d/%d   [R] reload  [T] grenade (tap: toss)  [1] pistol  [2] shotgun  [3] SMG  [4] crossbow  [6] rifle  [7] revolver  [8] trench gun  [9] MP 18  [F] light  [G] god mode%s  [L] Last Defiance always%s  [Q] Carnival Curse  [Backspace] reset  [Esc] mouse" % [WEAPONS[weapon].get("label", WEAPONS[weapon].name), ammo[weapon], mag_of(weapon), " ON" if god_mode else "", " ON" if Zornhauptmann.always_defiance else ""]
+
+
+# --- grenades -------------------------------------------------------------------
+## Add `n` grenades of `kind` (up to what can be carried). Returns how many were taken.
+func give_grenades(n: int, kind: String = "frag") -> int:
+	var cap := int(Grenade.TYPES[kind].max_carry)
+	var before := int(grenades.get(kind, 0))
+	grenades[kind] = mini(before + n, cap)
+	ammo_changed.emit()
+	_update_label()
+	return int(grenades[kind]) - before
+
+
+func grenade_count(kind: String = "") -> int:
+	return int(grenades.get(kind if kind != "" else grenade_kind, 0))
+
+
+## The key goes down: bring one up (as soon as the hands are free).
+func _grenade_down() -> void:
+	if dead or mount or cinematic:
+		return
+	if grenade_count() <= 0:
+		if Time.get_ticks_msec() - _dry_at > 400:
+			_dry_at = Time.get_ticks_msec()
+			SfxSynth.play(self, "dry_click", camera.global_position + camera.global_basis * Vector3(0.2, -0.3, -0.3), -16.0, 0.7)   # a hand at an empty pouch
+		return
+	_g_key_down = true
+	_g_hold = 0.0
+	_g_wanted = true
+	_g_let_go = false
+	_try_grenade()
+
+
+## The key comes up: throw it (a quick tap: an underhand toss).
+func _grenade_up() -> void:
+	if not _g_key_down:
+		return
+	_g_key_down = false
+	_g_under = _g_hold < GRENADE_TAP
+	var st := view.grenade_state()
+	if st == "draw" or st == "held":
+		view.grenade_throw(_g_under)
+	elif _g_wanted:
+		_g_let_go = true
+
+
+func _tick_grenade(delta: float) -> void:
+	if _g_key_down:
+		_g_hold += delta
+	_try_grenade()
+
+
+func _try_grenade() -> void:
+	if not _g_wanted or dead or mount:
+		return
+	if view.reloading() or view.swapping() or view.grenade_busy() or _pull_left >= 0.0:
+		return                                  # the hands are busy: as soon as they are free
+	if grenade_count() <= 0:
+		_g_wanted = false
+		return
+	if view.grenade_draw():
+		_g_wanted = false
+		SfxSynth.play(self, "grenade_cap", camera.global_position + camera.global_basis * Vector3(0.15, -0.2, -0.35), -6.0)
+		if _g_let_go:
+			_g_let_go = false
+			view.grenade_throw(_g_under)
+
+
+## The moment it leaves the hand: one fewer, and off it goes.
+func _on_grenade_released(underhand: bool) -> void:
+	var kind := grenade_kind
+	if grenade_count(kind) <= 0 or dead:
+		return
+	grenades[kind] = grenade_count(kind) - 1
+	var spec: Dictionary = Grenade.TYPES[kind]
+	var b := camera.global_basis
+	var eye := camera.global_position
+	# from the hand's place, out in front of the body (clear of its capsule)...
+	var from := eye + b * (Vector3(0.14, -0.36, -0.42) if underhand else Vector3(0.16, -0.08, -0.45))
+	# ...but never through a wall pressed up against: then from just short of it
+	var space := get_world_3d().direct_space_state
+	var to_hand := from - eye
+	var q := PhysicsRayQueryParameters3D.create(eye, from + to_hand.normalized() * 0.07, LAYER_WORLD)
+	var hit := space.intersect_ray(q)
+	if not hit.is_empty():
+		from = (hit.position as Vector3) - to_hand.normalized() * 0.08
+	var lift := float(spec.toss_lift if underhand else spec.throw_lift)
+	var aim := (-b.z).rotated(b.x.normalized(), lift).normalized()
+	var speed := float(spec.toss_speed if underhand else spec.throw_speed)
+	var v := aim * speed + Vector3(velocity.x, 0.0, velocity.z) * 0.6     # some of the run carries into it
+	# end over end, a little off the line
+	var spin := b.x.normalized() * (-14.0 if not underhand else -6.0) + Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1)) * 2.0
+	var world := get_tree().get_first_node_in_group(&"world_root")
+	var g := Grenade.throw(world if world else get_parent(), kind, from, v, spin, [self])
+	grenades_thrown.append(g)
+	ammo_changed.emit()
+	_update_label()
+
+
+## The grenades carried, bottom right: a small stick grenade and the count.
+func _draw_grenades(c: Control) -> void:
+	var n := grenade_count()
+	var u := maxf(1.0, c.size.y / 540.0)
+	var at := Vector2(c.size.x - 92.0 * u, c.size.y - 40.0 * u)
+	var col := Color(0.86, 0.82, 0.74, 0.85) if n > 0 else Color(0.6, 0.45, 0.42, 0.6)
+	var dark := Color(0, 0, 0, 0.7)
+	# the grenade, lying at an angle: a wooden handle and a steel can
+	var axis := Vector2(1, -0.55).normalized()
+	var side := Vector2(-axis.y, axis.x)
+	var tail := at + Vector2(0, 8) * u
+	var neck := tail + axis * 22.0 * u
+	var head := neck + axis * 9.0 * u
+	for o: float in [1.5, 0.0]:
+		var w := (3.0 + o) * u
+		var pc := dark if o > 0.0 else col.darkened(0.25)
+		c.draw_line(tail, neck, pc, w)
+		var hw := (6.0 + o) * u
+		var hcol := dark if o > 0.0 else col
+		c.draw_colored_polygon(PackedVector2Array([neck + side * hw, neck - side * hw, head - side * hw, head + side * hw]), hcol)
+	var font := ThemeDB.fallback_font
+	var fs := int(16 * u)
+	var text := "x%d" % n
+	var tp := at + Vector2(38.0 * u, 2.0 * u)
+	c.draw_string_outline(font, tp, text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, int(3 * u), dark)
+	c.draw_string(font, tp, text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)

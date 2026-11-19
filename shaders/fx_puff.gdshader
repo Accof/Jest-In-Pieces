@@ -5,6 +5,7 @@ render_mode blend_mix, depth_draw_never, cull_disabled, unshaded, shadows_disabl
 
 uniform sampler2D tex : source_color, filter_linear_mipmap;
 uniform float emissive = 0.0;
+uniform vec3 tint = vec3(1.0);          // dust and smoke colours (1: the texture as it is)
 uniform sampler2D depth_tex : hint_depth_texture;
 instance uniform float fade = 1.0;
 
@@ -24,6 +25,6 @@ void fragment() {
 	vec4 world = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, scene, 1.0);
 	float scene_z = -world.z / world.w;
 	float soft = clamp((scene_z - (-VERTEX.z)) / 0.6, 0.0, 1.0);
-	ALBEDO = c.rgb * (1.0 + emissive * fade);
+	ALBEDO = c.rgb * tint * (1.0 + emissive * fade);
 	ALPHA = c.a * fade * soft;
 }

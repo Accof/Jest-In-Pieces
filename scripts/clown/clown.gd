@@ -1133,7 +1133,10 @@ func _bone_world(bone: StringName) -> Vector3:
 
 ## An explosion went off at `center`. How badly this clown comes apart depends
 ## on how close it was and whether anything stood in the way.
-func caught_in_blast(center: Vector3, radius: float) -> void:
+## Caught by a blast at `center` reaching `radius`. `power` scales the damage
+## and how badly bones break (1: a fuel drum), `fling` how hard bodies are
+## thrown and how often a body is torn in half; `weapon` names it for the records.
+func caught_in_blast(center: Vector3, radius: float, power: float = 1.0, fling_k: float = 1.0, weapon: String = "") -> void:
 	if executing and _bone_world(&"Chest").distance_to(center) < radius:
 		var m := get_node_or_null("Marionette") as Marionette
 		if m:
@@ -1155,7 +1158,7 @@ func caught_in_blast(center: Vector3, radius: float) -> void:
 	var dir := (Vector3(away.x, 0, away.z).normalized() + Vector3.UP * lerpf(0.25, 0.6, s)).normalized()
 	# Close, but not right on top of it: sometimes torn in half; some of
 	# those are still alive.
-	if not dead and not crawling and s > 0.5 and s < 0.86 and cover.is_empty() and randf() < halve_chance:
+	if not dead and not crawling and s > 0.5 and s < 0.86 and cover.is_empty() and randf() < halve_chance * fling_k:
 		if randf() < crawl_share:
 			_tear_in_half(center, dir, s)
 		else:
@@ -1164,14 +1167,17 @@ func caught_in_blast(center: Vector3, radius: float) -> void:
 	var was_dead := dead
 	var limbs := _blast_gore(center, dir, s)
 	if not dead:
-		health -= 320.0 * pow(s, 1.3)
+		health -= 320.0 * power * pow(s, 1.3)
 		var tears := limbs.filter(func(l: StringName) -> bool: return not String(l).ends_with("Leg"))
 		if health <= 0.0 or tears.size() > 0:
 			last_hit_zone = &"Chest"
-			var fling := dir * lerpf(2.0, 15.0, s * s) * randf_range(0.85, 1.1)
+			var fling := dir * lerpf(2.0, 15.0, s * s) * randf_range(0.85, 1.1) * fling_k
 			ragdoll.max_bone_speed = 26.0
-			_die({direction = dir, heavy = true, blast = true, collider = ragdoll.bones[&"Chest"], fling = fling}, &"Chest")
-			_throw_bones(dir, s)
+			var info := {direction = dir, heavy = true, blast = true, collider = ragdoll.bones[&"Chest"], fling = fling}
+			if weapon != "":
+				info["weapon"] = weapon
+			_die(info, &"Chest")
+			_throw_bones(dir, s * fling_k)
 		else:
 			# Survived: knocked about, half deaf, and now it knows.
 			_flinch_from(chest - dir * 0.2, dir, 90.0 * s)
@@ -1182,8 +1188,8 @@ func caught_in_blast(center: Vector3, radius: float) -> void:
 		ragdoll.wake()
 		ragdoll.max_bone_speed = 26.0
 		for pb: PhysicalBone3D in ragdoll.bones.values():
-			PhysicsServer3D.body_set_state(pb.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY, dir * lerpf(1.5, 11.0, s * s))
-		_throw_bones(dir, s)
+			PhysicsServer3D.body_set_state(pb.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY, dir * lerpf(1.5, 11.0, s * s) * fling_k)
+		_throw_bones(dir, s * fling_k)
 	for limb: StringName in limbs:
 		var ls := String(limb)
 		if (ls.ends_with("UpperLeg") or ls.ends_with("LowerLeg")) and randf() < 0.7:
@@ -1195,9 +1201,9 @@ func caught_in_blast(center: Vector3, radius: float) -> void:
 	# and it breaks bones: often several at once, more the closer it was
 	if s > 0.2:
 		for side: String in ["Left", "Right"]:
-			if randf() < s * 0.9:
+			if randf() < s * 0.9 * power:
 				_break_leg(side, _bone_world(StringName(side + "LowerLeg")), dir)
-			if randf() < s * 0.8:
+			if randf() < s * 0.8 * power:
 				_break_arm(side, _bone_world(StringName(side + "LowerArm")), dir)
 	gore.watch_impacts(2.2)
 	gore.start_bleeding()
