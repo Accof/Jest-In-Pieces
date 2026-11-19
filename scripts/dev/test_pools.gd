@@ -154,6 +154,15 @@ func _contact(p: BloodPool) -> Array:
 
 
 func _run() -> void:
+	# --- size: game pools are scaled down by pool_size (and capped); the
+	# behaviour checks below run at full size, the sizes they were set up for
+	var game_size := Blood.pool_size
+	var p_small := _spawn(4.0, -3.0, 0.5)
+	_check(absf(float(p_small.sources[0].r) - minf(0.5 * game_size, Blood.maximum_pool_radius)) < 0.001 and game_size < 1.0,
+		"game pools are smaller: a 0.5 m pool comes out %.2f m (pool_size %.2f, at most %.2f m)" % [float(p_small.sources[0].r), game_size, Blood.maximum_pool_radius])
+	Blood.clear()
+	Blood.pool_size = 1.0
+	Blood.maximum_pool_radius = 0.95
 	# --- shape: two pools on open floor, the same size
 	var p1 := _spawn(-1.0, 1.4, 0.5)
 	var p2 := _spawn(-3.0, -0.8, 0.5)

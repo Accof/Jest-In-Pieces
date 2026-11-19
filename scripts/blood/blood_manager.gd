@@ -45,7 +45,8 @@ var _decal_oil := PackedByteArray()
 @export var pool_settling_duration := Vector2(1.0, 3.0)
 @export var shape_variation := 1.0                            ## 0: round pools
 @export var edge_irregularity := 1.0
-@export var maximum_pool_radius := 0.95                       ## metres
+@export var maximum_pool_radius := 0.6                        ## metres
+@export var pool_size := 0.7                                  ## every blood pool's radius is scaled by this (oil is not)
 @export var maximum_active_spreading_pools := 8               ## beyond this the oldest spreading one settles at once
 @export var surface_sampling_quality := 1                     ## 0 low, 1 medium, 2 high (grid spacing 0.12 / 0.085 / 0.065 m)
 @export var maximum_stair_flow_steps := 3                     ## how many step edges blood will run down
@@ -216,7 +217,7 @@ func spawn_pool(pos: Vector3, normal: Vector3, radius: float, oil := false) -> v
 	if oil:
 		spawn_oil_puddle(pos, normal, radius)
 		return
-	radius = minf(radius, maximum_pool_radius)
+	radius = minf(radius * pool_size, maximum_pool_radius)
 	if enable_pool_merging:
 		for p in _pools:
 			if is_instance_valid(p) and p.covers(pos):
@@ -240,7 +241,7 @@ func spawn_pool(pos: Vector3, normal: Vector3, radius: float, oil := false) -> v
 ## cap and never faded; only clear() (the floor being torn down) removes
 ## them. One landing on an existing puddle feeds that one.
 func spawn_oil_puddle(pos: Vector3, normal: Vector3, radius: float) -> void:
-	radius = minf(radius, maximum_pool_radius)
+	radius = minf(radius, 0.95)                 # oil puddles keep their old size
 	for p in _oil_pools:
 		if is_instance_valid(p) and p.covers(pos):
 			p.feed(pos, radius, _space())

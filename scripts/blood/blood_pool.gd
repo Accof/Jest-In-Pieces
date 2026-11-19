@@ -72,6 +72,12 @@ var _risers := 0
 var sources: Array = []               # {pos, r, shift, shape}
 var _v := PackedFloat32Array()        # when the blood gets to each sample (progress units)
 var _pot := PackedFloat32Array()      # how thick it can get there 0..1
+## Per source: how far out each sample is, as a fraction of that source's own
+## outline (1 = on its edge). Each vertex carries the four (CUSTOM0), and the
+## shader draws every source's front only up to its own outline, so the edge is
+## worked out per pixel from a smooth field: no stair-steps along the grid.
+var _rel: Array = []
+const FAR := 9.0                      ## "not reached" in a vertex's per-source fraction
 var _cross := {}                      # edge key -> crossing result (rays cached)
 
 var progress := 0.0
@@ -92,7 +98,7 @@ func setup(pos: Vector3, radius: float, is_oil: bool, settings: Dictionary, samp
 	oil = is_oil
 	cfg = settings
 	spacing = sample_spacing
-	half = clampf(radius * 1.6 + 0.2, 0.35, float(cfg.max_pool_radius) * 1.5)
+	half = clampf(radius * 1.6 + 0.2, 0.35, maxf(float(cfg.max_pool_radius), radius) * 1.5)
 	n = int(ceil(half * 2.0 / spacing)) + 1
 	half = (n - 1) * spacing * 0.5
 	centre = pos
@@ -192,7 +198,7 @@ func _add_source(pos: Vector3, radius: float, shift: float) -> void:
 	rng.randomize()
 	var var_: float = cfg.shape_variation
 	var shape := {
-		aspect = 1.0 + var_ * rng.randf_range(0.0, 0.55),
+		aspect = 1.0 + var_ * rng.randf_range(0.1, 0.7),
 		turn = rng.randf() * TAU,
 		lobes = [],
 		tongues = [],
@@ -235,6 +241,12 @@ func _begin_solve() -> void:
 	_v.fill(NEVER)
 	_pot.resize(count)
 	_pot.fill(0.0)
+	_rel = []
+	for i in 4:
+		var r := PackedFloat32Array()
+		r.resize(count)
+		r.fill(FAR)
+		_rel.append(r)
 	wet_cells = 0
 	_src_i = 0
 	_src_start = -1
@@ -362,10 +374,22 @@ func _finish_source(s: Dictionary) -> void:
 			if _dist[k] < reach[k]:
 				area += spacing * spacing
 	var scale := clampf(sqrt(wanted / maxf(area, spacing * spacing)), 1.0, 2.0) if cfg.geometry else 1.0
+	# the flood steps in 8 directions, so on open floor its distance is the
+	# "octile" one and a round pool comes out an octagon (the square pools).
+	# Scale each sample's distance by straight-line / octile from the source:
+	# exact on open floor, and still longer round walls and down steps.
+	var si := _src_start % n
+	var sj := _src_start / n
+	var rel_s: PackedFloat32Array = _rel[_src_i]
 	for k in count:
 		if _dist[k] >= INF:
 			continue
-		var rel := _dist[k] / (reach[k] * scale)
+		var di := absf(float(k % n - si))
+		var dj := absf(float(k / n - sj))
+		var octile := maxf(di, dj) + 0.41421 * minf(di, dj)
+		var straight := sqrt(di * di + dj * dj) / octile if octile > 0.0 else 1.0
+		var rel := _dist[k] * straight / (reach[k] * scale)
+		rel_s[k] = minf(rel, FAR)
 		# past its own outline the arrival keeps rising (steeply), so the edge
 		# is a smooth line between samples, not the grid's steps, and a later
 		# source pushing progress on hardly moves this one's edge
@@ -389,6 +413,11 @@ func _end_solve() -> void:
 	p_end = new_end
 	_st = SurfaceTool.new()
 	_st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_st.set_custom_format(0, SurfaceTool.CUSTOM_RGBA_FLOAT)
+	var sh := [NEVER, NEVER, NEVER, NEVER]
+	for i in sources.size():
+		sh[i] = float(sources[i].shift)
+	set_instance_shader_parameter("shifts", Vector4(sh[0], sh[1], sh[2], sh[3]))
 	_row = 0
 	_tris = 0
 	_risers = 0
@@ -459,19 +488,19 @@ func _cell(st: SurfaceTool, space: PhysicsDirectSpaceState3D, i: int, j: int, cs
 		var a := cs[k]
 		var b := cs[(k + 1) % 4]
 		if grp[k] >= 0:
-			ring.append([_pos(a), grp[k], _v[a], _pot[a], _nrm[a]])
+			ring.append([_pos(a), grp[k], _v[a], _pot[a], _nrm[a], a])
 		if grp[k] == grp[(k + 1) % 4]:
 			continue
 		var x := _crossing(space, a, b)
 		if x.is_empty():
 			continue
 		if grp[k] >= 0:
-			ring.append([x.pa, grp[k], _v[a], _pot[a], _nrm[a]])
+			ring.append([x.pa, grp[k], _v[a], _pot[a], _nrm[a], a])
 		if grp[(k + 1) % 4] >= 0:
-			ring.append([x.pb, grp[(k + 1) % 4], _v[b], _pot[b], _nrm[b]])
+			ring.append([x.pb, grp[(k + 1) % 4], _v[b], _pot[b], _nrm[b], b])
 		if grp[k] >= 0 and grp[(k + 1) % 4] >= 0:
 			var a_up := _h[a] > _h[b]
-			crossings.append([x.pa if a_up else x.pb, x.pb if a_up else x.pa, _v[a] if a_up else _v[b], _v[b] if a_up else _v[a], _pot[a] if a_up else _pot[b]])
+			crossings.append([x.pa if a_up else x.pb, x.pb if a_up else x.pa, _v[a] if a_up else _v[b], _v[b] if a_up else _v[a], _pot[a] if a_up else _pot[b], a if a_up else b, b if a_up else a])
 	var count := 0
 	for g in levels.size():
 		var poly: Array = []
@@ -509,7 +538,8 @@ func _cell(st: SurfaceTool, space: PhysicsDirectSpaceState3D, i: int, j: int, cs
 			var lo0 := Vector3(up0.x, (c0[1] as Vector3).y, up0.z)
 			var lo1 := Vector3(up1.x, (c1[1] as Vector3).y, up1.z)
 			var pot: float = minf(float(c0[4]), float(c1[4])) * 0.6
-			var quad := [[up0, -1, top0, pot, nrm], [up1, -1, top1, pot, nrm], [lo1, -1, bot1, pot, nrm], [lo0, -1, bot0, pot, nrm]]
+			var quad := [[up0, -1, top0, pot, nrm, c0[5]], [up1, -1, top1, pot, nrm, c1[5]],
+				[lo1, -1, bot1, pot, nrm, c1[6] if bot1 < NEVER else -1], [lo0, -1, bot0, pot, nrm, c0[6] if bot0 < NEVER else -1]]
 			for t: Array in [[0, 1, 2], [0, 2, 3]]:
 				for q: int in t:
 					_vtx(st, quad[q], true)
@@ -582,7 +612,7 @@ func _pos(k: int) -> Vector3:
 
 
 func _vert(st: SurfaceTool, k: int, _off: Vector3, _riser: bool) -> void:
-	_vtx(st, [_pos(k), 0, _v[k], _pot[k], _nrm[k]])
+	_vtx(st, [_pos(k), 0, _v[k], _pot[k], _nrm[k], k])
 
 
 func _vtx(st: SurfaceTool, p: Array, riser := false) -> void:
@@ -594,6 +624,11 @@ func _vtx(st: SurfaceTool, p: Array, riser := false) -> void:
 	st.set_uv(Vector2(wp.x, wp.z))
 	st.set_uv2(Vector2(minf(float(p[2]), NEVER), float(p[3])))
 	st.set_color(Color(1, 1, 1, 1.0 if riser else 0.0))
+	var k: int = p[5] if p.size() > 5 else -1
+	if k >= 0 and _rel.size() == 4:
+		st.set_custom(0, Color(_rel[0][k], _rel[1][k], _rel[2][k], _rel[3][k]))
+	else:
+		st.set_custom(0, Color(FAR, FAR, FAR, FAR))
 	st.add_vertex(to_local(wp + nrm * LIFT))
 
 
