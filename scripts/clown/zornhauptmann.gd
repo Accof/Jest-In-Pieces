@@ -943,6 +943,13 @@ func _defiance_arm(rise: float, after: float, trem: float) -> void:
 		sk.set_bone_pose_rotation(bi, (from[bi] as Quaternion).slerp(sk.get_bone_pose_rotation(bi), bw))
 
 
+## The sabre's hand closes round its hilt.
+func _grip_for(side: String) -> Vector3:
+	if not pinned and not arm_out(side) and has_sabre() and side == _sabre_side:
+		return Vector3(0.9, 0.85, -1.0)
+	return super._grip_for(side)
+
+
 func _drop_weapons() -> void:
 	super._drop_weapons()
 	_drop_sabre()

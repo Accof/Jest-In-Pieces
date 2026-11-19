@@ -85,6 +85,10 @@ func _max_speed(c: Clown) -> float:
 
 
 func _run() -> void:
+	if "--gripview" in OS.get_cmdline_user_args():
+		await _grip_view()
+		get_tree().quit()
+		return
 	if "--grabview" in OS.get_cmdline_user_args():
 		await _grab_view()
 		get_tree().quit()
@@ -622,3 +626,59 @@ func _grab_view() -> void:
 			if n == 1:
 				await _shot("grab_%s_front" % kinds[i], c, c + Vector3(0.0, 0.05, 1.4))
 				await _shot("grab_%s_side" % kinds[i], c, c + Vector3(1.1, 0.1, 0.9))
+
+
+## --gripview: hands up close (/tmp/xbow_grip_<who>_<side>.png): weapons held
+## (aimed), and the bolt held by the pinned.
+func _grip_view() -> void:
+	room = load("res://scenes/gore_sandbox.tscn").instantiate()
+	add_child(room)
+	await get_tree().physics_frame
+	for c in room.clowns:
+		c.queue_free()
+	room.clowns.clear()
+	for b in get_tree().get_nodes_in_group(&"barrels"):
+		b.queue_free()
+	(room.player as FpsPlayer).god_mode = true
+	render = true
+	var who := ["rifleman", "gunman", "clubman", "zornhauptmann", "rattlejack", "pinned", "pinned_klapper"]
+	var es: Array[Clown] = []
+	for i in who.size():
+		var e: Clown
+		match who[i]:
+			"rattlejack": e = Rattlejack.new()
+			"zornhauptmann": e = Zornhauptmann.new()
+			"pinned_klapper": e = Klappersoldat.new()
+			_: e = Clown.new()
+		room.add_child(e)
+		match who[i]:
+			"rifleman", "rattlejack", "pinned": e.give_rifle()
+			"gunman": e.give_gun()
+			"clubman": e.give_club()
+			"zornhauptmann": (e as Zornhauptmann).give_officer_kit()
+		var pinned_one: bool = who[i].begins_with("pinned")
+		e.global_position = Vector3(-6.0 + i * 2.0, 0, -9.25 + 0.8 if pinned_one else -4.0)
+		room.clowns.append(e)
+		es.append(e)
+	await _frames(15)
+	for i in es.size():
+		var e := es[i]
+		e.max_health = 2000.0
+		e.health = 2000.0
+		if who[i].begins_with("pinned"):
+			_fire_at(e, &"Chest", Vector3(0.03, -0.05, 0))
+		elif who[i] != "clubman":
+			e.aim_point = e.global_position + Vector3(0, 1.4, 6.0)
+	for t in 60:
+		for i in es.size():
+			if not who[i].begins_with("pinned") and who[i] != "clubman":
+				es[i].aim_amount = 1.0
+				es[i].set_process(true)
+		await get_tree().process_frame
+	for i in es.size():
+		var e := es[i]
+		for side in ["Left", "Right"]:
+			var hx: Transform3D = e.skeleton.global_transform * e.skeleton.get_bone_global_pose(e.skeleton.find_bone(side + "Hand"))
+			var c := hx * Vector3(0, 0.07, 0)
+			print("%s %s: fingers %s" % [who[i], side, e._finger_cur.get(side, Vector3.ZERO)])
+			await _shot("grip_%s_%s" % [who[i], side], c, c + Vector3(0.0, 0.07, 0.3) + (Vector3(0.14, 0, 0) if side == "Left" else Vector3(-0.14, 0, 0)))

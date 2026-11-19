@@ -763,6 +763,13 @@ func _spin(d: float) -> void:
 		(sp[0] as Node3D).rotate_object_local(Vector3.BACK, float(sp[2]) * rate * d)
 
 
+## Its blow is struck with a clenched fist.
+func _grip_for(side: String) -> Vector3:
+	if not pinned and not arm_out(side) and brain != null and brain._attack_t >= 0.0:
+		return Vector3(0.95, 0.9, -1.0)
+	return super._grip_for(side)
+
+
 func _chest_pos() -> Vector3:
 	var pb: PhysicalBone3D = ragdoll.bones.get(&"Chest") if ragdoll else null
 	if dead and pb:

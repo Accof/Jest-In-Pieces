@@ -177,6 +177,7 @@ func _ready() -> void:
 	add_child(gore)
 	gore.setup(self)
 	ragdoll.settled.connect(_on_settled)
+	_snap_fingers.call_deferred()
 	gore.part_severed.connect(func(seg: StringName, _gib: Node3D) -> void:
 		var sn := String(seg)
 		if sn.contains("Arm") or sn.ends_with("Hand"):
@@ -690,6 +691,11 @@ func _end_throat() -> void:
 ## to the ragdoll. A subclass can call this some time after the death itself
 ## (the Klappersoldat stands, kneels or seizes up first).
 func _start_ragdoll(info: Dictionary, zone: StringName) -> void:
+	# the hands lose their grip as it goes (a hand on a bolt keeps a little of it)
+	if ClownHands.has_fingers(skeleton):
+		for side: String in ["Left", "Right"]:
+			var keep := 0.62 if _pin_hand_grip.has(side) else 0.45
+			ClownHands.pose(skeleton, side, keep, keep * 0.8)
 	var profile: Dictionary
 	var wall_gap := -1.0 if crawling or info.get("blast", false) or info.get("stake", false) else _wall_behind(info.direction)
 	if force_variant == "wall_slide" and wall_gap < 0.0:
@@ -1350,6 +1356,7 @@ var _pin_bleed_rate := 0.0            ## health a second while pinned alive
 var _pin_tug := 0.0                   ## 1 at a heave on the bolt, dying away
 var _pin_slip := {}                   ## side -> seconds until that hand slips and grabs again
 var _pin_off := {}                    ## side -> seconds that hand is off the shaft
+var _pin_hand_grip := {}              ## side -> how firmly that hand is on the bolt (only the grabbing ones)
 var _pin_drive_dir := Vector3.ZERO
 var _pin_root := Vector3.ZERO
 var _pin_t := 0.0
@@ -1536,6 +1543,7 @@ func _pinned_arms(delta: float) -> void:
 			pinned_arm = pinned_arm or String(q.bone).begins_with(side)
 		if not arm_out(side) and not pinned_arm:
 			free.append(side)
+	_pin_hand_grip.clear()
 	if free.is_empty():
 		return
 	var to_skel := skeleton.global_transform.affine_inverse()
@@ -1571,6 +1579,62 @@ func _pinned_arms(delta: float) -> void:
 			wrist += out_sk * 0.06 + outward * 0.06 + Vector3(0, -0.05, 0)   # torn off it, coming back
 		var pole := shoulder + outward * 0.55 + Vector3(0, -0.3, 0) - out_sk * 0.15     # elbows out: forearms come in level
 		reach(side, hand.lerp(wrist, maxf(w, g * 0.6)), pole)
+		_pin_hand_grip[side] = w
+
+## The fingers (bodies built with them: see ClownHands): each hand eases to
+## the grip of what it is doing, every frame.
+var _finger_cur := {}                 ## side -> Vector3(curl, thumb, index)
+
+## Straight to the grip it should have (on spawning, on being given a weapon):
+## a clown standing idle does not pose itself every frame.
+func _snap_fingers() -> void:
+	if skeleton == null or not ClownHands.has_fingers(skeleton):
+		return
+	for side: String in ["Left", "Right"]:
+		var want := _grip_for(side)
+		if want.z < 0.0:
+			want.z = want.x
+		_finger_cur[side] = want
+		ClownHands.pose(skeleton, side, want.x, want.y, want.z, maxf(0.0, 0.3 - want.x))
+
+
+func _pose_fingers(delta: float) -> void:
+	if not ClownHands.has_fingers(skeleton):
+		return
+	for side: String in ["Left", "Right"]:
+		var want := _grip_for(side)
+		var cur: Vector3 = _finger_cur.get(side, Vector3(0.28, 0.2, 0.28))
+		if want.z < 0.0:
+			want.z = want.x                      # the index follows the rest
+		# closing is quick (a grab), opening slower
+		var rate := Vector3(1, 1, 1) * delta * 7.0
+		for i in 3:
+			cur[i] = move_toward(cur[i], want[i], rate[i] * (1.6 if want[i] > cur[i] else 1.0))
+		_finger_cur[side] = cur
+		ClownHands.pose(skeleton, side, cur.x, cur.y, cur.z, maxf(0.0, 0.3 - cur.x))
+
+
+## What one hand's fingers should be doing: Vector3(curl, thumb, index), the
+## index -1 to go with the rest. Subclasses add what only they carry.
+func _grip_for(side: String) -> Vector3:
+	if arm_out(side):
+		return Vector3(0.4, 0.3, -1.0)                # limp
+	if pinned:
+		if _pin_hand_grip.has(side):
+			var g: float = _pin_hand_grip[side]
+			# clamped on the shaft; harder on a heave; open as it slips off
+			return Vector3(lerpf(0.15, 0.86 + 0.08 * _pin_tug, g), lerpf(0.1, 0.8 + 0.1 * _pin_tug, g), -1.0)
+		return Vector3(0.5, 0.35, -1.0)              # a pinned arm: half-clenched
+	if attack_amount > 0.05 and side == main_arm() and not has_club and not has_rifle:
+		return Vector3(0.95, 0.9, -1.0)              # a fist to swing
+	if has_rifle and _rifle != null and is_instance_valid(_rifle):
+		return Vector3(0.7, 0.6, 0.42 if side == "Right" else -1.0)   # round the wrist and the fore-end; the trigger finger in
+	if has_gun and gun_side == side:
+		return Vector3(0.78, 0.65, 0.35)             # round the pistol's grip, the index on the trigger
+	if has_club and side == "Right":
+		return Vector3(0.9, 0.85, -1.0)
+	return Vector3(0.28, 0.2, -1.0)                  # at rest: a little curled, as hands hang
+
 
 ## After the pose: the pinned point stays on the bolt. The body is moved (a
 ## little: the struggle only bends the chain) so the pinned point is where it
@@ -1946,8 +2010,10 @@ func _process(delta: float) -> void:
 		dangle_arm(side, gait)
 	if pinned:
 		_pinned_arms(delta)
+		_pose_fingers(delta)
 		_pinned_hold(delta)
 		return
+	_pose_fingers(delta)
 	if not always_pose and _flinch.length() < 0.002 and _flinch_vel.length() < 0.02 and _stagger.length() < 0.002 and _stagger_vel.length() < 0.02:
 		_flinch = Vector3.ZERO
 		_stagger = Vector3.ZERO
@@ -2221,6 +2287,7 @@ func give_club() -> void:
 	var grip := hx.origin + along * 0.07
 	var held := Transform3D(_basis_along(Vector3(0, -0.3, 1).normalized()), grip)
 	_club.transform = hx.affine_inverse() * held
+	_snap_fingers.call_deferred()
 
 
 ## Drop the club where it is (on death).
@@ -2696,6 +2763,7 @@ func give_rifle() -> void:
 	_rifle.transform = _rifle_carried
 	always_pose = true                  # the hands stay on the rifle every frame
 	set_process(true)
+	_snap_fingers.call_deferred()
 
 
 ## Drop the rifle where it is (on death).
@@ -2758,6 +2826,7 @@ func give_gun(side: String = "Right") -> void:
 	# Sit it in the palm, barrel along the fingers, whatever the bone's own axes are.
 	var hand := skeleton.get_bone_global_rest(skeleton.find_bone(side + "Hand"))
 	gun.transform = hand.affine_inverse() * Transform3D(Basis.IDENTITY, hand.origin + Vector3(-0.1 if side == "Right" else 0.1, -0.02, 0.0))
+	_snap_fingers.call_deferred()
 
 
 ## World position of the gun's muzzle (roughly the right hand).
