@@ -47,6 +47,8 @@ func build(m: TrenchMaze) -> void:
 	_duckboards()
 	_water()
 	_landmarks()
+	_bridges()
+	_ramps()
 	_far()
 	_wire()
 	_no_mans_land()
@@ -463,7 +465,7 @@ func _revetments() -> void:
 	for c: Vector2i in maze.open_cells:
 		for dir in Maze.DIRS:
 			var t := maze.wall(c, dir)
-			if t == "" or t == "earth":
+			if t == "" or t == "earth" or t == "ramp":
 				continue
 			var e := _edge(c, dir)
 			var inward: Vector2 = e.inward
@@ -633,7 +635,7 @@ func _parapets() -> void:
 	for c: Vector2i in maze.open_cells:
 		var k: String = maze.kind[c]
 		var front := k in ["fire", "op", "sap"] and not maze.open_cells.has(c + Vector2i(0, -1))
-		var back := k in ["fire", "traverse", "support"] and not maze.open_cells.has(c + Vector2i(0, 1)) and rng.randf() < 0.6
+		var back := k in ["fire", "traverse", "support"] and not maze.open_cells.has(c + Vector2i(0, 1)) and rng.randf() < 0.6 and maze.wall(c, Vector2i(0, 1)) != "ramp"
 		for pass_ in 2:
 			if (pass_ == 0 and not front) or (pass_ == 1 and not back):
 				continue
@@ -794,7 +796,16 @@ func _dugout(l: Dictionary) -> void:
 		hi = hi.max((Vector2(c) + Vector2.ONE) * maze.cell)
 	var mid := (lo + hi) * 0.5
 	var floor_y := maze.floor_height(Vector3(mid.x, 0, mid.y))
-	var roof_y := floor_y + 2.05
+	# the roof clears a man everywhere under it: 2.3 m over the highest of
+	# its floor (the floor rises toward the door, where the entrance trench is shallower)
+	var top_floor := floor_y
+	var under: Array[Vector2i] = cells.duplicate()
+	under.append(l.entrance)
+	for c in under:
+		for u in [0.15, 0.5, 0.85]:
+			for v in [0.15, 0.5, 0.85]:
+				top_floor = maxf(top_floor, maze.floor_height(Vector3((c.x + u) * maze.cell, 0, (c.y + v) * maze.cell)))
+	var roof_y := top_floor + 2.3
 	var size := hi - lo + Vector2(0.4, 0.4)
 	# beams across, iron over them, bags on top
 	var n := int(size.x / 0.45)
@@ -819,16 +830,23 @@ func _dugout(l: Dictionary) -> void:
 	var fm: Vector2 = (e.a + e.b) * 0.5 + Vector2(dir) * 0.05
 	var fy := maze.floor_height(Vector3(fm.x, 0, fm.y))
 	var across := Vector3(dir.y, 0, dir.x)
-	for s in [-0.55, 0.55]:
-		_box("dug_beams", timber, Vector3(fm.x, fy + 1.0, fm.y) + across * s, Basis(), Vector3(0.14, 2.1, 0.14))
-	_box("dug_beams", timber, Vector3(fm.x, fy + 2.0, fm.y), Basis(Vector3.UP, PI * 0.5 if dir.y == 0 else 0.0), Vector3(1.35, 0.16, 0.16))
-	# a lantern burning inside: warm light in the cold day
+	# heavy door frame: 1.25 m between the posts, the lintel 2.25 m up (the
+	# player is 0.6 m across and 1.8 m tall; a soldier the same)
+	for s in [-0.72, 0.72]:
+		_box("dug_beams", timber, Vector3(fm.x, fy + 1.1, fm.y) + across * s, Basis(), Vector3(0.18, 2.4, 0.18))
+	_box("dug_beams", timber, Vector3(fm.x, fy + 2.33, fm.y), Basis(Vector3.UP, PI * 0.5 if dir.y == 0 else 0.0), Vector3(1.75, 0.2, 0.2))
+	# props under the roof: posts holding it up at the back corners
+	for cc: Vector2 in [Vector2(lo.x + 0.12, lo.y + 0.12), Vector2(hi.x - 0.12, lo.y + 0.12), Vector2(lo.x + 0.12, hi.y - 0.12), Vector2(hi.x - 0.12, hi.y - 0.12)]:
+		var py := maze.floor_height(Vector3(cc.x, 0, cc.y))
+		_box("dug_beams", timber, Vector3(cc.x, (py + roof_y) * 0.5, cc.y), Basis(), Vector3(0.16, roof_y - py, 0.16))
+	# a lantern burning inside: warm light, kept low so the corners stay dark
 	var lamp := OmniLight3D.new()
-	lamp.light_color = Color(1.0, 0.68, 0.38)
-	lamp.light_energy = 2.2
-	lamp.omni_range = 5.0
-	lamp.shadow_enabled = false
-	lamp.position = Vector3(mid.x, floor_y + 1.6, mid.y)
+	lamp.light_color = Color(1.0, 0.66, 0.36)
+	lamp.light_energy = 1.5
+	lamp.omni_range = 4.6
+	lamp.omni_attenuation = 1.4
+	lamp.shadow_enabled = true
+	lamp.position = Vector3(mid.x, roof_y - 0.45, mid.y)
 	add_child(lamp)
 	var glass := StandardMaterial3D.new()
 	glass.albedo_color = Color(1.0, 0.8, 0.5)
@@ -836,6 +854,85 @@ func _dugout(l: Dictionary) -> void:
 	glass.emission = Color(1.0, 0.65, 0.3)
 	glass.emission_energy_multiplier = 3.0
 	_box("lantern", glass, lamp.position + Vector3.DOWN * 0.05, Basis(), Vector3(0.1, 0.16, 0.1))
+
+
+## Footbridges over the main trenches: rough planks across two stringers, a
+## sill on the ground at each end, a handrail on one side only (the other
+## open, nothing to stop a body going over). The deck, stringers and rail
+## have collision; soldiers walk the deck (TrenchMaze.bridge_at).
+func _bridges() -> void:
+	var planks := _mat("planks_wet", 1.4)
+	var timber := _mat("timber", 0.8)
+	for b: Dictionary in maze.bridges:
+		var a: Vector3 = b.a
+		var e: Vector3 = b.b
+		var wdt: float = b.width
+		var along := (e - a).normalized()
+		var flat := Vector3(along.x, 0, along.z).normalized()
+		var side := flat.cross(Vector3.UP).normalized()
+		var up := along.cross(side).normalized() * -1.0
+		if up.y < 0.0:
+			up = -up
+		var length := a.distance_to(e)
+		var basis := Basis(side, up, -along).orthonormalized()
+		var mid := (a + e) * 0.5
+		# stringers along the deck's edges (not under it: headroom for a man
+		# walking the trench below), running out onto the ground
+		for s: float in [-1.0, 1.0]:
+			var p: Vector3 = mid + side * s * (wdt * 0.5 + 0.06) + up * 0.0
+			_box("br_beams", timber, p, basis, Vector3(0.12, 0.14, length + 0.6))
+			_collide(p, basis, Vector3(0.12, 0.14, length + 0.6))
+		# planks across, uneven: gaps, a few short or split, some sagging
+		var n := int(length / 0.21)
+		for i in n:
+			var t := (i + 0.5) / n
+			if rng.randf() < 0.05 and i > 1 and i < n - 2:
+				continue                                  # one missing
+			var lw := wdt * (rng.randf_range(0.62, 0.85) if rng.randf() < 0.12 else rng.randf_range(0.95, 1.05))
+			var shift := (wdt - lw) * 0.5 * (1.0 if rng.randf() < 0.5 else -1.0)
+			var bb := basis.rotated(along, rng.randf_range(-0.03, 0.03)).rotated(up, rng.randf_range(-0.04, 0.04))
+			var p := a.lerp(e, t) + side * shift - up * (0.03 + rng.randf_range(0.0, 0.012))
+			_box("br_planks", planks, p, bb, Vector3(lw, 0.05, 0.19))
+		# the walking surface: one smooth box for collision under the planks
+		_collide(mid - up * 0.035, basis, Vector3(wdt, 0.06, length))
+		# a sill across each end, bedded in the ground
+		for end: Vector3 in [a, e]:
+			_box("br_beams", timber, end - up * 0.12, basis, Vector3(wdt + 0.3, 0.16, 0.2))
+		# a handrail on one side: posts and a rail
+		var rs := 1.0 if rng.randf() < 0.5 else -1.0
+		var posts := maxi(2, int(length / 1.3) + 1)
+		for i in posts:
+			var t := float(i) / (posts - 1)
+			var p := a.lerp(e, t) + side * rs * (wdt * 0.5 - 0.04) + Vector3.UP * 0.45
+			var lean := Basis(flat, rng.randf_range(-0.05, 0.05))
+			_box("br_beams", timber, p, lean, Vector3(0.08, 0.95, 0.08))
+			_collide(p, lean, Vector3(0.08, 0.95, 0.08))
+		var rail := mid + side * rs * (wdt * 0.5 - 0.04) + Vector3.UP * 0.9
+		_box("br_beams", timber, rail, basis, Vector3(0.07, 0.07, length))
+		_collide(rail, basis, Vector3(0.07, 0.07, length))
+
+
+## The ramps up out of the trench: boards laid up them as rough steps, a
+## post either side of the mouth.
+func _ramps() -> void:
+	var planks := _mat("planks_wet", 1.4)
+	var timber := _mat("timber", 0.8)
+	for r: Dictionary in maze.ramps:
+		var foot: Vector2 = r.foot
+		var head: Vector2 = r.head
+		var u := (head - foot).normalized()
+		var side := Vector3(-u.y, 0, u.x)
+		var n := int(TrenchMaze.RAMP_LEN / 0.42)
+		for i in n:
+			var t := (i + 0.5) / n
+			var p2 := foot.lerp(head, t)
+			var y := maze.ground_height(p2.x, p2.y)
+			var bb := Basis(Vector3.UP, atan2(u.x, u.y)).rotated(side, rng.randf_range(-0.05, 0.05))
+			_box("step_planks", planks, Vector3(p2.x, y + 0.01, p2.y), bb, Vector3(r.width * 0.8, 0.04, 0.16))
+		for s: float in [-1.0, 1.0]:
+			var p2: Vector2 = foot + Vector2(side.x, side.z) * s * (float(r.width) * 0.5 + 0.12)
+			var y := maze.ground_height(p2.x, p2.y)
+			_box("rev_posts", timber, Vector3(p2.x, y + 0.9, p2.y), Basis(), Vector3(0.12, 1.9, 0.12))
 
 
 ## The shattered tree: a stripped trunk snapped off, splintered at the top.
@@ -1503,7 +1600,7 @@ func _props() -> void:
 			continue
 		var walls: Array[Vector2i] = []
 		for dir in Maze.DIRS:
-			if not m.open_cells.has(c + dir):
+			if not m.open_cells.has(c + dir) and m.wall(c, dir) != "ramp":
 				walls.append(dir)
 		if walls.is_empty():
 			continue
@@ -1533,6 +1630,10 @@ func _props() -> void:
 					elif placed == 1:
 						_thing("crates", _spot(c, back, 0.5, 0.02))
 						_thing("telephone", Transform3D(_spot(c, back, 0.5, 0.02).basis, _spot(c, back, 0.5, 0.02).origin + Vector3.UP * 0.72))
+					elif placed == 2:
+						# the bigger dugout's third bay: a second bunk, ammunition beside it
+						_thing("bunk", _spot(c, back, 0.45, 0.02))
+						_thing("shell_box", _spot(c, back, 0.92, 0.02))
 					placed += 1
 				for c in room:
 					for dir in Maze.DIRS:

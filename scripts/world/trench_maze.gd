@@ -26,8 +26,9 @@ const SUPPORT_ROW := 14
 const RESERVE_ROW := 21
 const RES := 0.2                 ## heightfield sample spacing (m)
 const MARGIN := 12.0             ## carved-terrain border round the grid (m)
-const FIRE_STEP_H := 0.6         ## fire step above the bay floor
+const FIRE_STEP_H := 0.85        ## fire step above the bay floor (eye on it at the parapet top)
 const FIRE_STEP_D := 0.6         ## and how deep it is (into the front wall)
+const STEP_RAMP := 1.05          ## the walked surface eases up onto the step over this far
 
 ## What each open cell is: "fire", "traverse", "support", "reserve", "comm",
 ## "sap", "op", "stub", "dugout", "gunpit", "flood", "junction".
@@ -89,10 +90,15 @@ func _reset() -> void:
 	route.clear()
 	side_cells.clear()
 	trench_cells.clear()
+	top_cells.clear()
+	ramps.clear()
+	bridges.clear()
+	passing.clear()
+	bridge_sites.clear()
 
 
 func is_open(c: Vector2i) -> bool:
-	return open_cells.has(c)
+	return open_cells.has(c) or top_cells.has(c)
 
 
 func is_trench(c: Vector2i) -> bool:
@@ -466,7 +472,7 @@ func _stubs() -> void:
 				n += 1
 		if n >= 3 and kind[c] in ["support", "reserve", "junction"]:
 			junctions.append(c)
-	junctions.shuffle()
+	_shuffle(junctions)
 	if junctions.size() >= 1:
 		var j: Vector2i = junctions[0]
 		landmarks.append({kind = "tree", cell = j})
@@ -506,14 +512,15 @@ func _stub(from: Vector2i, dir: Vector2i, k: String) -> bool:
 		path.append(n)
 		allowed[n] = true
 		c = n
-	# the room at the end: a dugout 2x2, a gun pit 3x3
+	# the room at the end: a dugout 3 across and 2 deep (4.5 x 3 m), a gun pit 3x3
 	var room: Array[Vector2i] = []
 	if k == "dugout" or k == "gunpit":
 		var size := 2 if k == "dugout" else 3
+		var size_w := 3
 		var side := Vector2i(dir.y, dir.x)
-		var off := -(size / 2)
+		var off := -(size_w / 2)
 		for a in size:
-			for b in size:
+			for b in size_w:
 				var r := c + dir * (a + 1) + side * (b + off)
 				if not _free(r, allowed):
 					return false
@@ -553,6 +560,16 @@ func _widen(c: Vector2i) -> void:
 			return
 
 
+## Shuffle with the floor's own generator (Array.shuffle() draws on the global
+## one, so the same seed gave a different floor from run to run).
+func _shuffle(a: Array) -> void:
+	for i in range(a.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var t = a[i]
+		a[i] = a[j]
+		a[j] = t
+
+
 func _connected() -> bool:
 	if open_cells.is_empty():
 		return false
@@ -582,21 +599,58 @@ func _finish_trench() -> void:
 	route.clear()
 	for id in ids:
 		route.append(Vector2i(id % w, id / w))
+	_passing_places()
+	_pick_ramps()
+	_pick_bridges()
 	_depths()
 	_carve()
+	_top_layer()
 	_build_trench_world()
+
+
+## A passing place every 4-6 cells along each communication trench: on a
+## straight stretch, the floor widened on one side for a cell, so two men can
+## get by each other.
+func _passing_places() -> void:
+	passing.clear()
+	for name_: String in trenches:
+		if not (name_.begins_with("comm") or name_.begins_with("rear")):
+			continue
+		var cells: Array = trenches[name_]
+		var next := rng.randi_range(2, 4)
+		for i in range(1, cells.size() - 1):
+			next -= 1
+			if next > 0:
+				continue
+			var c: Vector2i = cells[i]
+			var run: Vector2i = cells[i + 1] - cells[i - 1]
+			if run.length_squared() != 4:
+				continue                    # a corner: no room
+			var side := Vector2i(run.y / 2, run.x / 2) * (1 if rng.randf() < 0.5 else -1)
+			if open_cells.has(c + side) or open_cells.has(c - side):
+				continue
+			passing[c] = side
+			next = rng.randi_range(4, 6)
 
 
 ## Base floor depth per cell, by what it is, drifting gently along each trench.
 func _depths() -> void:
-	var base := {"fire": -1.65, "traverse": -1.8, "support": -2.1, "reserve": -2.0, "comm": -2.15,
-		"sap": -1.75, "op": -1.6, "stub": -2.05, "dugout": -2.55, "gunpit": -1.15, "flood": -2.3, "junction": -2.1}
+	# Below the ground round them (see _carve, which adds the local ground):
+	# deep enough that a man standing on the duckboards is hidden (his eye is
+	# 1.65 m up; the parapet and parados add to the front and back), but for
+	# the observation posts, the gun pit, and the fire steps you climb to look out.
+	var base := {"fire": -2.0, "traverse": -2.2, "support": -2.35, "reserve": -2.3, "comm": -2.3,
+		"sap": -2.15, "op": -1.75, "stub": -2.25, "dugout": -2.85, "gunpit": -1.15, "flood": -2.45, "junction": -2.35}
 	for c: Vector2i in open_cells:
 		var k: String = kind[c]
 		var v: float = base.get(k, -2.0)
 		v += sin(c.x * 0.37 + c.y * 0.21 + rng.randf() * 0.0) * 0.08 + sin(c.x * 0.13 - c.y * 0.29) * 0.06
 		if flooded.has(c) and k != "flood":
 			v -= 0.18
+		if bridge_sites.has(c):
+			v -= 0.55                    # dug out under a footbridge: headroom (2.1 m and more)
+		elif bridge_sites.has(c + Vector2i(1, 0)) or bridge_sites.has(c - Vector2i(1, 0)):
+			v -= 0.45
 		depth[c] = v
 
 
@@ -641,6 +695,9 @@ func _walls() -> void:
 				if t != "earth" and rng.randf() < 0.12:
 					t = "broken"
 				walls[_wkey(c, dir)] = t
+	# a ramp's mouth: no lining across it
+	for r: Dictionary in ramps:
+		walls[_wkey(r.cell, r.dir)] = "ramp"
 
 
 func _revet_for(k: String) -> String:
@@ -703,6 +760,10 @@ func _carve() -> void:
 	var slump := FastNoiseLite.new()
 	slump.seed = rng.randi()
 	slump.frequency = 0.5
+	# each cell's depth is below the ground round it (the ground rolls by
+	# +-0.35 m: in a dip a trench of fixed depth was shallow enough to see out of)
+	for c: Vector2i in open_cells:
+		depth[c] += ground.get_noise_2d((c.x + 0.5) * cell, (c.y + 0.5) * cell) * 0.35
 	for iz in hz:
 		for ix in hx:
 			var x := origin.x + ix * RES
@@ -727,7 +788,7 @@ func _carve() -> void:
 				var k: String = kind[c]
 				var front := z < (c.y) * cell + 0.2
 				if sd > 0.0 and k in ["fire", "traverse", "sap", "op"] and front:
-					g += 0.32 * _mound(sd, 0.1, 1.9)
+					g += 0.22 * _mound(sd, 0.1, 1.9)        # the parapet: a man on the fire step looks over it
 				elif sd > 0.0 and k in ["fire", "traverse", "support", "junction"] and not front:
 					g += 0.28 * _mound(sd, 0.1, 1.4)
 				if sd <= 0.0:
@@ -744,6 +805,7 @@ func _carve() -> void:
 			vis_h[i] = h
 			sdf[i] = sd
 			wet[i] = clampf(wetness, 0.0, 1.0)
+	_cut_ramps()
 	col_h = vis_h.duplicate()
 	_bake_sky()
 	_ease_fire_steps()
@@ -825,11 +887,11 @@ func sky_texture() -> ImageTexture:
 
 
 ## The player has no step-up: in front of each fire step the walked surface
-## rises over 0.7 m (a slope he can climb) instead of the riser.
+## rises over STEP_RAMP (a slope he can climb, about 39 degrees) instead of the riser.
 func _ease_fire_steps() -> void:
 	for c: Vector2i in bays:
 		var ze := c.y * cell + EDGE
-		for iz in range(int((ze - origin.y) / RES) - 1, int((ze + 0.75 - origin.y) / RES) + 2):
+		for iz in range(int((ze - origin.y) / RES) - 1, int((ze + STEP_RAMP + 0.05 - origin.y) / RES) + 2):
 			for ix in range(int((c.x * cell - origin.x) / RES), int(((c.x + 1) * cell - origin.x) / RES) + 1):
 				if ix < 0 or iz < 0 or ix >= hx or iz >= hz:
 					continue
@@ -837,9 +899,19 @@ func _ease_fire_steps() -> void:
 				if sdf[i] > -0.05:
 					continue
 				var z := origin.y + iz * RES
-				var top := _sample(vis_h, origin.x + ix * RES, ze - 0.3)
-				var t := clampf((z - ze) / 0.7, 0.0, 1.0)
-				col_h[i] = maxf(col_h[i], top - t * FIRE_STEP_H - 0.02)
+				var x := origin.x + ix * RES
+				var top := _sample(vis_h, x, ze - 0.3)
+				var t := clampf((z - ze) / STEP_RAMP, 0.0, 1.0)
+				# where the next cell along has no fire step (a bridge over it, a sap
+				# leaving, the end of the bay), the ramp eases down sideways too: no
+				# ledge across the floor to walk into
+				var f := 1.0
+				if not bays.has(c + Vector2i(-1, 0)):
+					f = minf(f, clampf((x - c.x * cell) / 0.75, 0.0, 1.0))
+				if not bays.has(c + Vector2i(1, 0)):
+					f = minf(f, clampf(((c.x + 1) * cell - x) / 0.75, 0.0, 1.0))
+				var want := top - t * FIRE_STEP_H - 0.02
+				col_h[i] = maxf(col_h[i], lerpf(col_h[i], want, f))
 
 
 func _mound(sd: float, a: float, b: float) -> float:
@@ -941,24 +1013,70 @@ func _nearest(x: float, z: float) -> Dictionary:
 
 const EDGE := 0.06
 
+## The main lines are wider than the grid's one-cell trench: the floor runs
+## on past the cell into the earth beside it (m, per side with earth there).
+## Fire bays widen to the rear (the fire step is in front), the support line
+## both ways, so two soldiers stand abreast (each 0.3 m in radius) with room
+## to pass; the reserve a little; junctions open out. Communication trenches
+## stay one cell, with a passing place every few cells (PASSING).
+const WIDEN := {"fire": 0.9, "support": 0.65, "reserve": 0.3, "junction": 0.35}
+const PASSING := 0.6
+## Earth always left between two trenches' floors where one has been widened
+## toward the other (with the walls' lean, about a metre of ground up top).
+const MIN_EARTH := 1.0
+## Comm cells with a passing place, and to which side: cell -> dir.
+var passing := {}
+
+
+## How far past its cell the floor of `c` reaches on side `dir` (0 if that
+## side is open, or a narrow trench). Limited where another trench's floor is
+## only a cell of earth away.
+func widen_of(c: Vector2i, dir: Vector2i) -> float:
+	var want := _widen_want(c, dir)
+	if want <= 0.0:
+		return 0.0
+	var perp := Vector2i(dir.y, dir.x)
+	var n2 := c + dir * 2
+	for m in [n2, n2 + perp, n2 - perp]:
+		if open_cells.has(m):
+			want = minf(want, maxf(cell - 2.0 * EDGE - MIN_EARTH - _widen_want(m, -dir), 0.0))
+	return want
+
+
+func _widen_want(c: Vector2i, dir: Vector2i) -> float:
+	if not open_cells.has(c) or open_cells.has(c + dir):
+		return 0.0
+	var k: String = kind.get(c, "")
+	match k:
+		"fire":
+			return WIDEN.fire if dir == Vector2i(0, 1) else 0.0
+		"support", "reserve":
+			return WIDEN[k] if dir.y != 0 else 0.0
+		"junction":
+			return WIDEN.junction
+		"comm":
+			return PASSING if passing.get(c, Vector2i.ZERO) == dir else 0.0
+	return 0.0
+
 
 ## The floor of an open cell: the cell, less a little at each wall, out to
-## its open neighbours, and (fire bays) out over the fire step.
+## its open neighbours, and (fire bays) out over the fire step; wider for the
+## main lines (widen_of).
 func _rect(c: Vector2i) -> Rect2:
 	var x0 := c.x * cell
 	var z0 := c.y * cell
 	var x1 := x0 + cell
 	var z1 := z0 + cell
 	if not open_cells.has(c + Vector2i(-1, 0)):
-		x0 += EDGE
+		x0 += EDGE - widen_of(c, Vector2i(-1, 0))
 	if not open_cells.has(c + Vector2i(1, 0)):
-		x1 -= EDGE
+		x1 -= EDGE - widen_of(c, Vector2i(1, 0))
 	if not open_cells.has(c + Vector2i(0, -1)):
-		z0 += EDGE
+		z0 += EDGE - widen_of(c, Vector2i(0, -1))
 		if bays.has(c):
 			z0 -= FIRE_STEP_D
 	if not open_cells.has(c + Vector2i(0, 1)):
-		z1 -= EDGE
+		z1 -= EDGE - widen_of(c, Vector2i(0, 1))
 	return Rect2(x0, z0, x1 - x0, z1 - z0)
 
 
@@ -1114,6 +1232,319 @@ func _lay_water() -> void:
 	# (added by the art from the crater list is not kept; a few here instead)
 
 
+# --- up top: the ground over the trenches, ramps out, footbridges across ---------------
+## Soldiers move over the open ground as well as along the trenches: up a ramp
+## cut in a trench's back wall, along the top, over a footbridge laid across a
+## main trench. The top is part of the same pathfinding: an earth cell whose
+## middle is well clear of every trench is a top cell (top_cells), linked to
+## its top neighbours; a ramp links a trench cell to the top cell at its head;
+## a bridge links the top cells either side of the trench it spans. Trench
+## cells and top cells never overlap (one is open, the other earth), so the
+## Maze API (cell_of, cell_center, path, path_cells, linked) serves both.
+var top_cells := {}
+## {cell: the trench cell at its foot, dir: out of the trench, top: the top
+##  cell at its head, foot: Vector2, head: Vector2 (x/z), width}
+var ramps: Array = []
+## {cell: the trench cell spanned, dir: along the bridge, ends: [top cell, top
+##  cell], a: Vector3, b: Vector3 (deck ends, on the ground), width}
+var bridges: Array = []
+const RAMP_LEN := 3.7            ## rise about 2.3 m: 32 degrees, a man walks it
+const RAMP_W := 1.3
+const BRIDGE_W := 1.15
+## How close to a trench's floor edge a soldier up top will go (m).
+const TOP_CLEAR := 0.65
+
+
+## Ramps out of the trench: one up into each stretch of open ground the
+## trenches cut the top into (the strip between the fire and support lines,
+## the ground behind the reserve, and so on: each walled off from the rest by
+## trenches), so every bit of the top a soldier might walk, or a footbridge
+## might land on, can be got to. The foot is in a plain straight bit of
+## trench, the ground clear ahead for four cells. Picked before the carve
+## (which cuts them).
+func _pick_ramps() -> void:
+	ramps.clear()
+	# the stretches of ground: earth cells joined across their sides
+	var region := {}
+	var sizes: Array[int] = []
+	for z in d:
+		for x in w:
+			var c0 := Vector2i(x, z)
+			if open_cells.has(c0) or region.has(c0):
+				continue
+			var id := sizes.size()
+			var q: Array[Vector2i] = [c0]
+			region[c0] = id
+			var n := 0
+			while not q.is_empty():
+				var c: Vector2i = q.pop_back()
+				n += 1
+				for dir in DIRS:
+					var m := c + dir
+					if in_bounds(m) and not open_cells.has(m) and not region.has(m):
+						region[m] = id
+						q.append(m)
+			sizes.append(n)
+	var pref := {"support": 0, "reserve": 0, "comm": 1, "junction": 1, "fire": 2, "traverse": 3}
+	var cands := {}                  # region -> [[c, dir, rank]]
+	for c: Vector2i in open_cells:
+		var k: String = kind[c]
+		if not pref.has(k) or c == start_cell or c == exit_cell or passing.has(c):
+			continue
+		for dir: Vector2i in [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]:
+			if open_cells.has(c + dir):
+				continue
+			if k == "fire" and dir == Vector2i(0, -1):
+				continue                     # not over the parapet into No Man's Land
+			var perp := Vector2i(dir.y, dir.x)
+			if not (open_cells.has(c + perp) and open_cells.has(c - perp)):
+				continue                     # a straight stretch at the foot
+			var ok := true
+			var rid: int = region.get(c + dir, -1)
+			for i in range(1, 5):
+				for j: int in [-1, 0, 1]:
+					var m: Vector2i = c + dir * i + perp * j
+					if open_cells.has(m) or not in_bounds(m) or region.get(m, -2) != rid:
+						ok = false
+			if ok:
+				if not cands.has(rid):
+					cands[rid] = []
+				cands[rid].append([c, dir, pref[k]])
+	var rids := cands.keys()
+	rids.sort()
+	for rid: int in rids:
+		if sizes[rid] < 12:
+			continue
+		var opts: Array = cands[rid]
+		_shuffle(opts)
+		opts.sort_custom(func(p: Array, q: Array) -> bool: return p[2] < q[2])
+		for o: Array in opts:
+			var c: Vector2i = o[0]
+			if ramps.any(func(r: Dictionary) -> bool: return Vector2(r.cell).distance_to(Vector2(c)) < 6.0):
+				continue
+			ramps.append({cell = c, dir = o[1], width = RAMP_W})
+			break
+
+
+## Cut the ramps into the carved ground: a slope from the trench floor at the
+## wall's foot up to the ground RAMP_LEN beyond, with steep cut sides; counted
+## as trench floor (sdf) so a soldier on it is still in the trench until he
+## reaches the top.
+func _cut_ramps() -> void:
+	for r: Dictionary in ramps:
+		var c: Vector2i = r.cell
+		var dir: Vector2i = r.dir
+		var rc := _rect(c)
+		var mid := rc.get_center()
+		var foot := mid + Vector2(dir) * (absf(dir.x) * rc.size.x + absf(dir.y) * rc.size.y) * 0.5
+		var head := foot + Vector2(dir) * RAMP_LEN
+		r.foot = foot
+		r.head = head
+		var tp := head + Vector2(dir) * 0.9
+		r.top = Vector2i(int(floor(tp.x / cell)), int(floor(tp.y / cell)))
+		var fl := _sample(vis_h, mid.x, mid.y)
+		var top := _sample(vis_h, head.x + dir.x * 0.6, head.y + dir.y * 0.6)
+		var u := Vector2(dir)
+		var side := Vector2(-u.y, u.x)
+		var lo := foot.min(head) - Vector2.ONE * 1.6
+		var hi := foot.max(head) + Vector2.ONE * 1.6
+		for iz in range(int((lo.y - origin.y) / RES), int((hi.y - origin.y) / RES) + 1):
+			for ix in range(int((lo.x - origin.x) / RES), int((hi.x - origin.x) / RES) + 1):
+				if ix < 0 or iz < 0 or ix >= hx or iz >= hz:
+					continue
+				var p := Vector2(origin.x + ix * RES, origin.y + iz * RES) - foot
+				var along := p.dot(u)
+				var across := absf(p.dot(side))
+				if along < -0.2 or along > RAMP_LEN + 0.3:
+					continue
+				var in_strip := along < RAMP_LEN - 0.4
+				var t := clampf(along / RAMP_LEN, 0.0, 1.0)
+				var ramp_h := lerpf(fl, top, t * t * (3.0 - 2.0 * t) * 0.35 + t * 0.65)
+				var half: float = r.width * 0.5
+				var i := ix + iz * hx
+				if across <= half:
+					vis_h[i] = minf(vis_h[i], ramp_h)
+					if along > 0.0:
+						vis_h[i] = ramp_h
+					if in_strip:
+						sdf[i] = minf(sdf[i], -0.4)     # still trench floor till near the top
+					wet[i] = maxf(wet[i], 0.7)
+				elif across <= half + 0.45:
+					# the cut sides: steep, falling to the ramp
+					var k: float = (across - half) / 0.45
+					vis_h[i] = minf(vis_h[i], lerpf(ramp_h, vis_h[i], k * k))
+
+
+## The top layer: top cells, ramps' heads, footbridges, the links, and the
+## pathfinding points for them.
+func _top_layer() -> void:
+	top_cells.clear()
+	bridges.clear()
+	# a dugout's roof stands up out of the ground (beams, iron, sandbags): the
+	# ground round it is not walked over
+	var roofed := {}
+	for c: Vector2i in open_cells:
+		if kind[c] == "dugout":
+			for n in _ring(c):
+				roofed[n] = true
+	for z in d:
+		for x in w:
+			var c := Vector2i(x, z)
+			if open_cells.has(c) or roofed.has(c):
+				continue
+			var ctr := Vector2((x + 0.5) * cell, (z + 0.5) * cell)
+			if _sample(sdf, ctr.x, ctr.y) < 0.8:
+				continue
+			var clear := true
+			for dv: Vector2 in [Vector2(0.5, 0), Vector2(-0.5, 0), Vector2(0, 0.5), Vector2(0, -0.5)]:
+				if _sample(sdf, ctr.x + dv.x * cell, ctr.y + dv.y * cell) < 0.3:
+					clear = false
+			if clear:
+				top_cells[c] = true
+	for r: Dictionary in ramps:
+		if not top_cells.has(r.top):
+			top_cells[r.top] = true
+	# footbridges at the sites picked before the carve, where there is top
+	# ground at both ends
+	for c: Vector2i in bridge_sites:
+		var ends := []
+		for sgn in [-1, 1]:
+			var found := Vector2i(-1, -1)
+			for i in range(1, 5):
+				var n := c + Vector2i(0, sgn * i)
+				if open_cells.has(n):
+					break
+				if top_cells.has(n):
+					found = n
+					break
+			ends.append(found)
+		if ends[0] == Vector2i(-1, -1) or ends[1] == Vector2i(-1, -1):
+			continue
+		var x := (c.x + 0.5) * cell
+		# the deck's ends: on the ground a little past each lip, flush with it
+		# (the player has no step-up)
+		var za := _lip(x, (c.y + 0.5) * cell, -1) - 0.55
+		var zb := _lip(x, (c.y + 0.5) * cell, 1) + 0.55
+		var a := Vector3(x, _sample(vis_h, x, za) + 0.02, za)
+		var b := Vector3(x, _sample(vis_h, x, zb) + 0.02, zb)
+		bridges.append({cell = c, dir = Vector2i(0, 1), ends = ends, a = a, b = b, width = BRIDGE_W})
+	# links and pathfinding points
+	for c: Vector2i in top_cells:
+		_astar.add_point(idx(c), Vector2(c.x, c.y))
+	for c: Vector2i in top_cells:
+		for dir in [Vector2i(1, 0), Vector2i(0, 1)]:
+			var n: Vector2i = c + dir
+			if not top_cells.has(n):
+				continue
+			var m := Vector2((c.x + 0.5 + dir.x * 0.5) * cell, (c.y + 0.5 + dir.y * 0.5) * cell)
+			if _sample(sdf, m.x, m.y) < 0.55:
+				continue
+			links[_key(c, n)] = true
+			_astar.connect_points(idx(c), idx(n))
+	for r: Dictionary in ramps:
+		_astar.connect_points(idx(r.cell), idx(r.top))
+	for b: Dictionary in bridges:
+		_astar.connect_points(idx(b.ends[0]), idx(b.ends[1]))
+
+
+## Cells of the main lines a footbridge will cross (two over the fire
+## trench, two over the support line), on straight stretches with earth for
+## three cells either side; picked before the carve, because a fire bay
+## under a bridge loses its fire step (whose ramp would bring a man's head up
+## into the stringers).
+var bridge_sites: Array[Vector2i] = []
+
+
+func _pick_bridges() -> void:
+	bridge_sites.clear()
+	var want := {"fire": 2, "support": 2, "reserve": 1}
+	var cands: Array[Vector2i] = []
+	for c: Vector2i in open_cells:
+		var k: String = kind[c]
+		if not want.has(k):
+			continue
+		if not (open_cells.has(c + Vector2i(1, 0)) and open_cells.has(c + Vector2i(-1, 0))):
+			continue
+		var ok := true
+		for sgn in [-1, 1]:
+			for i in range(1, 3):
+				for j in [0]:
+					if open_cells.has(c + Vector2i(j, sgn * i)) or not in_bounds(c + Vector2i(j, sgn * i)):
+						ok = false
+		if ok and not ramps.any(func(r: Dictionary) -> bool: return Vector2(r.cell).distance_to(Vector2(c)) < 3.0):
+			cands.append(c)
+	_shuffle(cands)
+	var made := {}
+	for c in cands:
+		var k: String = kind[c]
+		if made.get(k, 0) >= want[k]:
+			continue
+		if bridge_sites.any(func(b: Vector2i) -> bool: return absi(b.x - c.x) < 5 and absi(b.y - c.y) < 6):
+			continue
+		bridge_sites.append(c)
+		# no fire steps in the stretch under it either (their ramps would bring a
+		# man's head up into the stringers)
+		bays.erase(c)
+		bays.erase(c + Vector2i(1, 0))
+		bays.erase(c + Vector2i(-1, 0))
+		made[k] = made.get(k, 0) + 1
+
+
+## Where the trench edge is up the z line through (x, z), going `sgn` (the
+## ground level reached: sdf past the wall's top).
+func _lip(x: float, z: float, sgn: int) -> float:
+	var t := 0.0
+	while t < 4.0 and _sample(sdf, x, z + sgn * t) < 0.55:
+		t += 0.05
+	return z + sgn * t
+
+
+## The footbridge under a point, if any (on it or just above), else {}.
+## `reach` > 0 also counts the ground that far past each end, in line with it.
+func bridge_at(pos: Vector3, reach := 0.0) -> Dictionary:
+	for b: Dictionary in bridges:
+		var a: Vector3 = b.a
+		var e: Vector3 = b.b
+		var ab := Vector2(e.x - a.x, e.z - a.z)
+		var l := ab.length()
+		var u := ab / l
+		var q := Vector2(pos.x - a.x, pos.z - a.z)
+		var along := q.dot(u)
+		if along < -0.1 - reach or along > l + 0.1 + reach:
+			continue
+		if absf(q.dot(Vector2(-u.y, u.x))) > b.width * 0.5 + 0.05 + reach * 0.15:
+			continue
+		var deck := lerpf(a.y, e.y, clampf(along / l, 0.0, 1.0))
+		if pos.y > deck - 1.0:
+			return {bridge = b, deck = deck, along = along, length = l, across = q.dot(Vector2(-u.y, u.x))}
+	return {}
+
+
+## The ramp a point is on, if any: {ramp, along (m up it from the foot), across}.
+func ramp_at(pos: Vector3) -> Dictionary:
+	for r: Dictionary in ramps:
+		if not r.has("foot"):
+			continue
+		var foot: Vector2 = r.foot
+		var u := Vector2(r.dir)
+		var q := Vector2(pos.x, pos.z) - foot
+		var along := q.dot(u)
+		if along < 0.0 or along > RAMP_LEN + 0.6:
+			continue
+		var across := q.dot(Vector2(-u.y, u.x))
+		if absf(across) > float(r.width) * 0.5 + 0.1:
+			continue
+		return {ramp = r, along = along, across = across}
+	return {}
+
+
+## Whether a point is up on the ground (or a bridge) rather than down in a trench.
+func on_top(pos: Vector3) -> bool:
+	if not bridge_at(pos).is_empty():
+		return true
+	return _sample(sdf, pos.x, pos.z) > 0.15
+
+
 # --- the world: collision and the look ---------------------------------------------
 func _build_trench_world() -> void:
 	for c in get_children():
@@ -1133,6 +1564,18 @@ func _build_trench_world() -> void:
 	cs.position = Vector3(origin.x + (hx - 1) * RES * 0.5, 0.0, origin.y + (hz - 1) * RES * 0.5)
 	cs.scale = Vector3(RES, 1.0, RES)
 	body.add_child(cs)
+	# the edge of the world: the carved ground ends MARGIN past the grid (the far
+	# scenery beyond has no collision); a wall there keeps the player in
+	var lo := Vector3(origin.x, 0, origin.y)
+	var hi := Vector3(origin.x + (hx - 1) * RES, 0, origin.y + (hz - 1) * RES)
+	for side: Array in [[Vector3(lo.x, 0, (lo.z + hi.z) * 0.5), Vector3(0.4, 12, hi.z - lo.z)], [Vector3(hi.x, 0, (lo.z + hi.z) * 0.5), Vector3(0.4, 12, hi.z - lo.z)],
+			[Vector3((lo.x + hi.x) * 0.5, 0, lo.z), Vector3(hi.x - lo.x, 12, 0.4)], [Vector3((lo.x + hi.x) * 0.5, 0, hi.z), Vector3(hi.x - lo.x, 12, 0.4)]]:
+		var wall_cs := CollisionShape3D.new()
+		var bx := BoxShape3D.new()
+		bx.size = side[1]
+		wall_cs.shape = bx
+		wall_cs.position = side[0]
+		body.add_child(wall_cs)
 	var art := TrenchArt.new()
 	art.name = "Art"
 	add_child(art)
@@ -1146,8 +1589,13 @@ func cell_center(c: Vector2i) -> Vector3:
 	return p
 
 
-## The walked surface under a point: the carved ground, duckboard tops and all.
+## The walked surface under a point: the carved ground, duckboard tops and
+## all; a footbridge's deck for a point on it (or a little above or below).
 func floor_height(pos: Vector3) -> float:
+	if not bridges.is_empty():
+		var br := bridge_at(pos)
+		if not br.is_empty():
+			return br.deck
 	return _sample(col_h, pos.x, pos.z)
 
 
@@ -1159,6 +1607,31 @@ func ground_height(x: float, z: float) -> float:
 ## the ground or in a wall) the nearest open one.
 func cell_of(pos: Vector3) -> Vector2i:
 	var c := super.cell_of(pos)
+	if not ramps.is_empty():
+		var ra := ramp_at(pos)
+		if not ra.is_empty():
+			var r: Dictionary = ra.ramp
+			return r.cell if ra.along < RAMP_LEN * 0.6 else r.top
+	if not top_cells.is_empty() and on_top(pos):
+		var br := bridge_at(pos, 1.6)
+		if not br.is_empty():
+			# on a bridge or coming up to it in line: the nearer end
+			var b: Dictionary = br.bridge
+			return b.ends[0] if br.along < br.length * 0.5 else b.ends[1]
+		if top_cells.has(c):
+			return c
+		var tb := c
+		var tbd := 1e9
+		for dz in range(-2, 3):
+			for dx in range(-2, 3):
+				var n := c + Vector2i(dx, dz)
+				if top_cells.has(n):
+					var dd := Vector2((n.x + 0.5) * cell - pos.x, (n.y + 0.5) * cell - pos.z).length_squared()
+					if dd < tbd:
+						tbd = dd
+						tb = n
+		if tbd < 1e9:
+			return tb
 	if open_cells.has(c):
 		return c
 	var best := c
@@ -1187,8 +1660,67 @@ func path(from: Vector3, to: Vector3) -> Array[Vector3]:
 	if not _astar.has_point(a) or not _astar.has_point(b):
 		return out
 	var ids := _astar.get_id_path(a, b)
+	var crossing: Array[bool] = []
 	for i in range(1, ids.size()):
-		out.append(cell_center(Vector2i(ids[i] % w, ids[i] / w)))
+		var prev := Vector2i(ids[i - 1] % w, ids[i - 1] / w)
+		var c := Vector2i(ids[i] % w, ids[i] / w)
+		# a ramp or a bridge between two path cells: go by its ends, in line with it
+		for p in _crossing(prev, c):
+			out.append(p)
+			crossing.append(true)
+		out.append(cell_center(c))
+		crossing.append(false)
+	# a ramp's or bridge's end already reached, or already passed (on the ramp,
+	# on the deck): on to the next
+	while out.size() > 1 and crossing[0]:
+		var p0 := Vector2(out[0].x, out[0].z)
+		var p1 := Vector2(out[1].x, out[1].z)
+		var me := Vector2(from.x, from.z)
+		if me.distance_to(p0) < 0.45 or (me.distance_to(p0) < 3.0 and (p1 - p0).dot(me - p0) > 0.0 and me.distance_to(p1) < p0.distance_to(p1)):
+			out.pop_front()
+			crossing.pop_front()
+		else:
+			break
+	return out
+
+
+## The points to go by between path cells `a` and `b` when they are joined by a
+## ramp (its foot and head) or a footbridge (its deck ends); none otherwise.
+func _crossing(a: Vector2i, b: Vector2i) -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	if (a - b).length_squared() <= 1:
+		return out
+	for r: Dictionary in ramps:
+		if not r.has("foot"):
+			continue
+		var foot: Vector2 = r.foot
+		var head: Vector2 = r.head
+		var fp := Vector3(foot.x, 0, foot.y) - Vector3(Vector2(r.dir).x, 0, Vector2(r.dir).y) * 0.3
+		var hp := Vector3(head.x, 0, head.y) + Vector3(Vector2(r.dir).x, 0, Vector2(r.dir).y) * 0.3
+		fp.y = floor_height(fp)
+		hp.y = floor_height(hp)
+		if r.cell == a and r.top == b:
+			out.append(fp)
+			out.append(hp)
+			return out
+		if r.top == a and r.cell == b:
+			out.append(hp)
+			out.append(fp)
+			return out
+	for br: Dictionary in bridges:
+		var e0: Vector2i = br.ends[0]
+		var e1: Vector2i = br.ends[1]
+		var pa: Vector3 = br.a
+		var pb: Vector3 = br.b
+		var u := (pb - pa).normalized()
+		if e0 == a and e1 == b:
+			out.append(pa - u * 0.3)
+			out.append(pb + u * 0.3)
+			return out
+		if e1 == a and e0 == b:
+			out.append(pb + u * 0.3)
+			out.append(pa - u * 0.3)
+			return out
 	return out
 
 
@@ -1237,7 +1769,49 @@ func exit_transform() -> Transform3D:
 	return Transform3D(Basis.looking_at(-inward, Vector3.UP), p)
 
 
+## Where a soldier may stand: up top, not over the edge (TOP_CLEAR back from
+## it); on a footbridge, on its deck; on a ramp, within its cut. Down in a
+## trench the walls stop its capsule (ClownBrain._collide).
 func keep_walkable(pos: Vector3) -> Vector3:
+	if sdf.is_empty():
+		return pos
+	var br := bridge_at(pos)
+	if not br.is_empty():
+		var b: Dictionary = br.bridge
+		var a: Vector3 = b.a
+		var e: Vector3 = b.b
+		var u := Vector2(e.x - a.x, e.z - a.z).normalized()
+		var side := Vector2(-u.y, u.x)
+		var limit: float = b.width * 0.5 - 0.3
+		var off: float = br.across
+		if absf(off) > limit:
+			var fix := side * (off - signf(off) * limit)
+			pos.x -= fix.x
+			pos.z -= fix.y
+		return pos
+	var ra := ramp_at(pos)
+	if not ra.is_empty():
+		# on a ramp: keep within its cut
+		var r: Dictionary = ra.ramp
+		var u := Vector2(r.dir)
+		var side := Vector2(-u.y, u.x)
+		var limit: float = float(r.width) * 0.5 - 0.3
+		var off: float = ra.across
+		if absf(off) > limit:
+			var fix := side * (off - signf(off) * limit)
+			pos.x -= fix.x
+			pos.z -= fix.y
+		return pos
+	var s := _sample(sdf, pos.x, pos.z)
+	var g := Vector2(_sample(sdf, pos.x + 0.1, pos.z) - _sample(sdf, pos.x - 0.1, pos.z), _sample(sdf, pos.x, pos.z + 0.1) - _sample(sdf, pos.x, pos.z - 0.1))
+	if g.length_squared() < 1e-6:
+		return pos
+	g = g.normalized()
+	# (down in the trench the walls are solid to its capsule already: the floor
+	# edge's distance field has too much noise in it to steer by)
+	if s > 0.15 and s < TOP_CLEAR:
+		pos.x += g.x * (TOP_CLEAR - s)
+		pos.z += g.y * (TOP_CLEAR - s)
 	return pos
 
 
