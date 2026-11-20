@@ -70,6 +70,14 @@ func setup(c: Clown) -> void:
 			if src.albedo_texture:
 				sm.set_shader_parameter("albedo_tex", src.albedo_texture)
 				sm.set_shader_parameter("use_tex", true)
+			# a body with full PBR maps keeps them (spec.pbr: the dark WitzSoldat)
+			if clown.spec.get("pbr", false):
+				if src.roughness_texture:
+					sm.set_shader_parameter("mr_tex", src.roughness_texture)
+					sm.set_shader_parameter("use_mr", true)
+				if src.normal_enabled and src.normal_texture:
+					sm.set_shader_parameter("normal_tex", src.normal_texture)
+					sm.set_shader_parameter("use_normal", true)
 		sm.set_shader_parameter("rest_min", clown.spec.rest_min)
 		sm.set_shader_parameter("rest_size", clown.spec.rest_size)
 		if clown.mechanical:
@@ -268,10 +276,10 @@ func _show_innards(region: StringName) -> void:
 	if clown.mechanical:
 		_show_machinery(region)
 		return
-	if not procedural_innards and ClownAnatomy.has_fit(clown.body):
+	if not procedural_innards and ClownAnatomy.has_fit(clown.look):
 		var holders: Array = []
 		for part: String in ClownAnatomy.SHOWS[region]:
-			var made := ClownAnatomy.build(clown.skeleton, clown.body, part)
+			var made := ClownAnatomy.build(clown.skeleton, clown.look, part)
 			holders.append(made[0])
 			for m: ShaderMaterial in made[1]:
 				_anat_mats.append(m)
@@ -527,6 +535,21 @@ func _physics_process(delta: float) -> void:
 		set_physics_process(false)
 
 
+## The body's gib meshes, ready to spawn. A look whose gibs come without images
+## (spec.share_material: the dark WitzSoldat, whose 4K maps are stored once, in
+## the body) gets the body's own textured material on them.
+func _gib_scene() -> Node:
+	var scene := (load(clown.spec.gibs) as PackedScene).instantiate()
+	if clown.spec.get("share_material", false):
+		var body_mat := clown.body_material()
+		for mi: MeshInstance3D in scene.find_children("Gib_*", "MeshInstance3D", false, false):
+			for i in mi.mesh.get_surface_count():
+				var m := mi.mesh.surface_get_material(i)
+				if m and m != body_mat and m.resource_name == "Material":
+					mi.mesh.surface_set_material(i, body_mat)
+	return scene
+
+
 ## A point and a direction on `bone`, now, into the body's rest space.
 func _rest_of(bone: StringName, world_pos: Vector3, dir: Vector3) -> Array:
 	var skel := clown.skeleton
@@ -623,7 +646,7 @@ func _impacts(delta: float) -> void:
 func cut_waist(impulse: Vector3) -> void:
 	var parts: Array[StringName] = [&"Pelvis", &"LeftUpperLeg", &"LeftLowerLeg", &"LeftFoot", &"RightUpperLeg", &"RightLowerLeg", &"RightFoot"]
 	var skel := clown.skeleton
-	var gib_scene := (load(clown.spec.gibs) as PackedScene).instantiate()
+	var gib_scene := _gib_scene()
 	var xfs := {}
 	var away := impulse.normalized() if impulse.length() > 0.01 else Vector3.UP
 	var speed := impulse.length()
@@ -802,7 +825,7 @@ func sever(bone: StringName, impulse: Vector3) -> void:
 		for p: String in CHAIN[seg.trim_prefix(side)]:
 			parts.append(StringName(side + p))
 	var skel := clown.skeleton
-	var gib_scene := (load(clown.spec.gibs) as PackedScene).instantiate()
+	var gib_scene := _gib_scene()
 	var removed: Array = []
 	var spawned: Array = []
 	var stump_pos := Vector3.ZERO
@@ -868,7 +891,7 @@ func _no_self_collide(gibs: Array) -> void:
 ## the bone above poking out of the stump, the top of the bone below out of the
 ## severed limb. Not on clockwork bodies or with the old procedural innards.
 func _anatomy_bones() -> bool:
-	return not clown.mechanical and not procedural_innards and ClownAnatomy.has_fit(clown.body)
+	return not clown.mechanical and not procedural_innards and ClownAnatomy.has_fit(clown.look)
 
 
 func _bone_length(side: String, piece: String) -> float:
@@ -946,13 +969,13 @@ func _gib_bone(gib: Gib, seg: StringName, src: MeshInstance3D) -> void:
 ## The head off: the neck's vertebrae standing out of the top of the trunk.
 func _neck_stump() -> void:
 	var skel := clown.skeleton
-	var built: Array = ClownAnatomy.build(skel, clown.body, "neck")
+	var built: Array = ClownAnatomy.build(skel, clown.look, "neck")
 	if built.is_empty():
 		return
 	# the neck bone went with the head: the trunk carries it
 	var holder: Node3D = built[0]
 	(holder.get_parent() as BoneAttachment3D).bone_name = &"Chest"
-	holder.transform = skel.get_bone_global_rest(skel.find_bone(&"Chest")).affine_inverse() * ClownAnatomy.fit(clown.body, "neck")
+	holder.transform = skel.get_bone_global_rest(skel.find_bone(&"Chest")).affine_inverse() * ClownAnatomy.fit(clown.look, "neck")
 	for m: ShaderMaterial in built[1]:
 		m.set_shader_parameter("show_all", true)
 		m.set_shader_parameter("breaks", false)

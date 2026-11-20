@@ -32,6 +32,11 @@ func _run() -> void:
 	var a: Vector3 = m.cell_center(m.route[2])
 	soldier = Clown.new()
 	soldier.body = "witzsoldat"
+	var tag := ""
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--look="):                 # one look of the WitzSoldat (else a random one)
+			soldier.look = arg.substr(7)
+			tag = soldier.look + "_"
 	game._world.add_child(soldier)
 	soldier.give_rifle()
 	soldier.always_pose = true
@@ -75,7 +80,7 @@ func _run() -> void:
 			var w0 := sk.get_bone_global_pose(sk.find_bone(arm + "Hand")).origin
 			stretch.append("%.2f" % (s0.distance_to(w0) / (s0.distance_to(e0) + e0.distance_to(w0))))
 		print("%s: hips %.2f  model y %.2f  arm stretch R/L %s  crouch %.2f" % [s[0], hips.y, soldier._model.position.y, stretch, soldier.crouch_amount])
-		get_viewport().get_texture().get_image().save_png("/tmp/pose_%s.png" % s[0])
+		get_viewport().get_texture().get_image().save_png("/tmp/pose_%s%s.png" % [tag, s[0]])
 	get_tree().quit()
 
 

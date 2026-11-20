@@ -11,6 +11,13 @@ uniform float roughness : hint_range(0.0, 1.0) = 0.8;
 // How much plain highlight the dry surface takes (0.5 is Godot's default; cloth wants less).
 uniform float specular_amount : hint_range(0.0, 1.0) = 0.5;
 uniform float metallic : hint_range(0.0, 1.0) = 0.0;
+// A model with full PBR maps (the dark WitzSoldat): its glTF metal/roughness map
+// (G roughness, B metallic) and normal map, used as they are. Off for every
+// other body, which keeps the flat values above.
+uniform bool use_mr = false;
+uniform sampler2D mr_tex : hint_default_white, filter_linear_mipmap, repeat_enable;
+uniform bool use_normal = false;
+uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap, repeat_enable;
 
 // Rest-pose position of each vertex is baked into vertex colour.
 uniform vec3 rest_min = vec3(-0.953, -0.005, -0.155);
@@ -212,8 +219,22 @@ void fragment() {
 		col = inside_color * (0.6 + 0.8 * noise3(rest_pos * 60.0));
 		wet = 1.0;
 	}
+	float dry_rough = roughness;
+	float metal = metallic;
+	if (use_mr) {
+		vec3 mr = texture(mr_tex, UV).rgb;
+		dry_rough = mr.g;
+		metal = mr.b;
+	}
+	// blood and meat over a metal part are not metal
+	metal *= 1.0 - clamp(max(max(blood, max(spat, drip)), max(wet, hole)), 0.0, 1.0);
+	if (use_normal && FRONT_FACING) {
+		NORMAL_MAP = texture(normal_tex, UV).rgb;
+		// the weave's relief fades under thick blood, and is gone in a hole
+		NORMAL_MAP_DEPTH = 1.0 - clamp(max(wet, blood * 0.6), 0.0, 1.0);
+	}
 	ALBEDO = col;
-	ROUGHNESS = mix(mix(roughness, 0.6, damp), 0.3, wet);
-	METALLIC = metallic;
+	ROUGHNESS = mix(mix(dry_rough, 0.6, damp), 0.3, wet);
+	METALLIC = metal;
 	SPECULAR = mix(mix(specular_amount, 0.38, damp), 0.6, wet);
 }

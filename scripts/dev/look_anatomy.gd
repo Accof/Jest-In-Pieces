@@ -117,6 +117,9 @@ func _run() -> void:
 	ClownGore.procedural_innards = "--old" in OS.get_cmdline_user_args()
 	c = Clown.new()
 	c.body = body
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--look="):
+			c.look = arg.substr(7)
 	add_child(c)
 	c.global_position = Vector3(0, 0, 0)
 	for i in 10:

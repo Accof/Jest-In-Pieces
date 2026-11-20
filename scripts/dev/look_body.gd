@@ -1,6 +1,6 @@
 extends Node3D
 ## Dev: film one enemy body in good light from a few angles.
-## godot res://scenes/look_body.tscn -- <body> <out-prefix> [walk]
+## godot res://scenes/look_body.tscn -- <body>[:<look>] <out-prefix> [walk]
 func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	var body: String = args[0] if args.size() > 0 else "witzsoldat"
@@ -14,9 +14,21 @@ func _ready() -> void:
 	var floor_ := MeshInstance3D.new(); var pm := PlaneMesh.new(); pm.size = Vector2(8, 8); floor_.mesh = pm; add_child(floor_)
 	var c: Clown = (load("res://scripts/clown/klappersoldat.gd").new() if body == "klappersoldat" else Clown.new())
 	if body != "klappersoldat":
-		c.body = body
+		c.body = body.get_slice(":", 0)
+		if body.contains(":"):
+			c.look = body.get_slice(":", 1)
 	add_child(c)
 	await get_tree().process_frame
+	if "--nonormal" in OS.get_cmdline_user_args():
+		for i in c.mesh.get_surface_override_material_count():
+			var sm := c.mesh.get_surface_override_material(i) as ShaderMaterial
+			if sm:
+				sm.set_shader_parameter("use_normal", false)
+	if "--nomr" in OS.get_cmdline_user_args():
+		for i in c.mesh.get_surface_override_material_count():
+			var sm2 := c.mesh.get_surface_override_material(i) as ShaderMaterial
+			if sm2:
+				sm2.set_shader_parameter("use_mr", false)
 	var cam := Camera3D.new(); add_child(cam); cam.fov = 40
 	var shots := [[Vector3(0, 1.72, 0.6), Vector3(0, 1.7, 0)], [Vector3(0.9, 1.75, 0.15), Vector3(0, 1.72, 0)], [Vector3(0, 1.1, 3.6), Vector3(0, 0.95, 0)], [Vector3(2.6, 1.1, -2.2), Vector3(0, 0.95, 0)], [Vector3(-0.5, 1.8, -0.9), Vector3(0, 1.5, 0)]]
 	for i in shots.size():

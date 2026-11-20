@@ -22,6 +22,23 @@ const BODIES := {
 		shapes = {&"UpperLeg": 1.3, &"LowerLeg": 1.12, &"UpperArm": 1.25, &"LowerArm": 1.05,
 			&"Hips": 1.2, &"Spine": 1.2, &"Chest": 1.2, &"Neck": 1.12, &"Foot": 1.15},
 		soldier = true,
+		# two looks, one soldier: each WitzSoldat wears one of these, chosen at
+		# random when it is made (see `look`); everything it does is the same
+		looks = ["witzsoldat", "witzsoldat_dark"],
+	},
+	# The dark WitzSoldat: a second look for the WitzSoldat, not an enemy of its own
+	# (only model, gibs, helmet and their fit; the rest is the WitzSoldat's).
+	# Rigged and segmented from the Tripo model by tools/build_witzsoldat_dark.py
+	# on the WitzSoldat's own skeleton, at his height. It keeps the model's PBR
+	# maps (pbr); its gibs and helmet carry no images and take the body's
+	# material (share_material). Its Stahlhelm is steel: no roughness override.
+	"witzsoldat_dark": {
+		model = "res://art/witzsoldat_dark/witzsoldat_dark.glb", gibs = "res://art/witzsoldat_dark/witzsoldat_dark_gibs.glb",
+		rest_min = Vector3(-0.96070, -0.00508, -0.20810), rest_size = Vector3(1.92620, 1.89495, 0.42203),
+		helmet = "res://art/witzsoldat_dark/witzsoldat_dark_helmet.glb",
+		helmet_center = Vector3(-0.00017, 1.80238, 0.01264), helmet_size = Vector3(0.31034, 0.25523, 0.34894),
+		pbr = true,
+		share_material = true,
 	},
 	# Der Klappersoldat: rigged and segmented from the Tripo model by
 	# tools/build_klappersoldat.py (klappersoldat.json). No separate helmet.
@@ -64,6 +81,12 @@ const BODIES := {
 
 ## Which body this enemy wears (a key of BODIES). Set before adding to the tree.
 @export var body := "clown"
+## Which look it wears, for a body that has more than one (BODIES[body].looks):
+## left empty, it is picked at random when the enemy is made, each look as
+## likely, each enemy on its own roll; then it stays for the enemy's life,
+## corpse and gibs included. A look changes only the model, gibs and helmet
+## (their keys in its BODIES entry): `body` still decides everything it does.
+@export var look := ""
 ## Chance a headshot knocks the helmet off (bodies with a helmet only).
 @export var helmet_pop_chance := 0.5
 
@@ -154,6 +177,10 @@ func _ready() -> void:
 	add_to_group(&"clowns")
 	health = max_health
 	spec = BODIES[body]
+	if look == "":
+		look = pick_look(body)
+	if look != body:
+		spec = spec.merged(BODIES[look], true)
 	var model := (load(spec.model) as PackedScene).instantiate()
 	add_child(model)
 	skeleton = model.find_children("*", "Skeleton3D", true, false)[0]
@@ -182,6 +209,24 @@ func _ready() -> void:
 		var sn := String(seg)
 		if sn.contains("Arm") or sn.ends_with("Hand"):
 			_arm_lost("Left" if sn.begins_with("Left") else "Right"))
+
+
+## A look for a new enemy of `body`: one of its looks, each as likely (the
+## body itself if it has only the one). Its own roll every time.
+static func pick_look(of_body: String) -> String:
+	var looks: Array = BODIES[of_body].get("looks", [of_body])
+	return looks[randi() % looks.size()]
+
+
+## The body model's own (imported) material: its textures, for the gibs and
+## helmet of a look that shares them.
+func body_material() -> Material:
+	var m := mesh.mesh
+	for i in m.get_surface_count():
+		var mat := m.surface_get_material(i)
+		if mat and mat.resource_name == "Material":
+			return mat
+	return m.surface_get_material(0)
 
 
 ## Whether a leg is broken (or gone).
@@ -2519,6 +2564,12 @@ func _put_on_helmet() -> void:
 	_helmet = MeshInstance3D.new()
 	_helmet.mesh = (found[0] as MeshInstance3D).mesh
 	_helmet.layers = 2
+	if spec.get("share_material", false):
+		# the helmet's shell is mapped onto the body's own textures
+		for i in _helmet.mesh.get_surface_count():
+			var m := _helmet.mesh.surface_get_material(i)
+			if m and m.resource_name == "Material":
+				_helmet.set_surface_override_material(i, body_material())
 	if spec.has("helmet_roughness"):
 		# painted steel, not polished: a matte copy of its material
 		var hm := _helmet.mesh.surface_get_material(0) as BaseMaterial3D

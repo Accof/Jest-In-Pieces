@@ -1,0 +1,40 @@
+{
+ "segments": [
+  "Pelvis",
+  "Torso",
+  "Head",
+  "LeftUpperArm",
+  "LeftLowerArm",
+  "LeftHand",
+  "LeftUpperLeg",
+  "LeftLowerLeg",
+  "LeftFoot",
+  "RightUpperArm",
+  "RightLowerArm",
+  "RightHand",
+  "RightUpperLeg",
+  "RightLowerLeg",
+  "RightFoot"
+ ],
+ "rest_bbox_min": [
+  -0.9607030153274536,
+  -0.005084113217890263,
+  -0.20810271799564362
+ ],
+ "rest_bbox_size": [
+  1.9261999130249023,
+  1.8949534893035889,
+  0.422029972076416
+ ],
+ "helmet_center": [
+  -0.00017299503087997437,
+  1.8023834228515625,
+  0.012642443180084229
+ ],
+ "helmet_size": [
+  0.3103356957435608,
+  0.25523316860198975,
+  0.3489437699317932
+ ],
+ "note": "Godot axes. Same skeleton names and segment ids as the clown. Built by tools/build_witzsoldat_dark.py."
+}

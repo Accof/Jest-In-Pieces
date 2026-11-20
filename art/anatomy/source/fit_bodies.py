@@ -33,6 +33,7 @@ BODIES = {
     "witzsoldat": "art/witzsoldat/witzsoldat.glb",
     "rattlejack": "art/rattlejack/rattlejack.glb",
     "zornhauptmann": "art/zornhauptmann/zornhauptmann.glb",
+    "witzsoldat_dark": "art/witzsoldat_dark/witzsoldat_dark.glb",
 }
 # segment ids (clown_segments.json): 0 Pelvis, 1 Torso, 2 Head; 3.. the limbs
 TRUNK = {0, 1, 2}
@@ -263,9 +264,15 @@ def fit(A, skin, anchor_ref, anchor_body, clear, need, search=0.03, core_y=None)
 
 def main():
     out_dir = sys.argv[1]
+    # --only a,b: fit just these, keeping the others' fits as they are in fits.json
+    only = sys.argv[sys.argv.index("--only") + 1].split(",") if "--only" in sys.argv else None
     clown_pts, clown_seg, clown_bones = body(os.path.join(ROOT, BODIES["clown"]))
     fits = {}
+    if only:
+        fits = json.load(open(os.path.join(out_dir, "fits.json")))
     for name, path in BODIES.items():
+        if only and name not in only:
+            continue
         P, seg, bones = body(os.path.join(ROOT, path))
         fits[name] = {}
         for region, (fname, bone, clear, need, segs, axis_segs) in REGIONS.items():
