@@ -52,6 +52,15 @@ uniform vec3 inside_color : source_color = vec3(0.16, 0.008, 0.012);
 // 0..1: long dead and left to rot somewhere damp (the locker joker): the
 // colours sour to a grey-green pallor with black mould blooming through.
 uniform float decay = 0.0;
+// Trench mud on the uniform (WitzSoldats in the trenches): 0 none .. 1 caked.
+// Thickest on the boots, up the trousers to the knees, the knees themselves,
+// the coat's hem, the elbows, the gloves and the belt kit; wet and dark low
+// down, drying paler and matte higher up. mud_seed varies the patches per man.
+uniform float mud_amount = 0.0;
+uniform float mud_seed = 0.0;
+uniform float mud_hem = 0.66;            // rest-pose height of the coat's hem
+uniform vec3 mud_wet : source_color = vec3(0.085, 0.062, 0.04);
+uniform vec3 mud_dry : source_color = vec3(0.3, 0.255, 0.19);
 uniform vec3 cut_min = vec3(1.0);
 uniform vec3 cut_max = vec3(0.0);
 
@@ -114,6 +123,41 @@ void fragment() {
 		// damp tide-mark up the legs from standing in its own seepage
 		float tide = (1.0 - smoothstep(0.35, 0.6, rest_pos.y + (noise3(rest_pos * 12.0) - 0.5) * 0.12)) * decay;
 		col = mix(col, vec3(0.16, 0.08, 0.04), tide * 0.6);
+	}
+	float mud = 0.0;
+	float mud_drying = 0.0;
+	if (mud_amount > 0.0) {
+		vec3 q = rest_pos + vec3(mud_seed * 3.17, mud_seed * 1.31, mud_seed * 2.03);
+		float big = noise3(q * 7.0);
+		float mid = noise3(q * 23.0);
+		float fine = noise3(q * 90.0);
+		float patch = big * 0.6 + mid * 0.4;
+		float y = rest_pos.y;
+		float ax = abs(rest_pos.x);
+		float legs = 1.0 - smoothstep(0.38, 0.46, ax);
+		// boots and the bottom of the trousers: caked, a ragged line above
+		float boots = 1.0 - smoothstep(0.2, 0.36, y + (patch - 0.5) * 0.16);
+		// up the trousers to the knee: patchier, with splashes
+		float trousers = (1.0 - smoothstep(0.3, 0.66, y + (patch - 0.5) * 0.25)) * smoothstep(0.32, 0.52, patch + mid * 0.2) * 0.9;
+		float flecks = (1.0 - smoothstep(0.25, 0.95, y)) * smoothstep(0.62, 0.74, fine) * 0.85;
+		// knelt in it: the front of each knee
+		float kd = length(vec2(abs(rest_pos.x) - 0.16, y - 0.5));
+		float knees = (1.0 - smoothstep(0.06, 0.15, kd + (mid - 0.5) * 0.06)) * smoothstep(-0.08, 0.0, rest_pos.z);
+		// the coat's hem dragged through it
+		float hem = (1.0 - smoothstep(0.015, 0.07, abs(y - mud_hem) + (patch - 0.5) * 0.06)) * smoothstep(0.35, 0.55, patch) * 0.8;
+		float on_legs = max(max(boots, trousers), max(max(flecks, knees), hem)) * legs;
+		// elbows (leant on the parapet) and the gloves
+		float ed = length(vec2(ax - 0.5, y - 1.45));
+		float elbows = (1.0 - smoothstep(0.035, 0.1, ed + (mid - 0.5) * 0.05)) * smoothstep(0.35, 0.5, patch) * 0.85;
+		float gloves = smoothstep(0.71, 0.77, ax) * smoothstep(0.35, 0.6, patch + fine * 0.2) * 0.75;
+		// belt, pouches and the entrenching tool
+		float belt = (smoothstep(0.9, 0.96, y) - smoothstep(1.09, 1.15, y)) * (1.0 - smoothstep(0.26, 0.32, ax)) * smoothstep(0.5, 0.7, patch) * 0.6;
+		mud = clamp(max(on_legs, max(max(elbows, gloves), belt)) * (0.5 + 0.7 * mud_amount), 0.0, 1.0);
+		mud *= smoothstep(0.05, 0.3, mud + fine * 0.15);
+		// higher up and at a patch's thin edge it has dried paler
+		mud_drying = clamp(smoothstep(0.25, 1.0, y) * 0.55 + (1.0 - mud) * 0.35 + (big - 0.5) * 0.5, 0.0, 1.0);
+		vec3 mc = mix(mud_wet, mud_dry, mud_drying) * (0.82 + 0.36 * mid);
+		col = mix(col, mc, mud * 0.95);
 	}
 	float blood = 0.0;      // soaked into the cloth
 	float tide = 0.0;       // the darker rim of a soak
@@ -228,10 +272,13 @@ void fragment() {
 	}
 	// blood and meat over a metal part are not metal
 	metal *= 1.0 - clamp(max(max(blood, max(spat, drip)), max(wet, hole)), 0.0, 1.0);
+	// mud is not metal, and wet mud has a dull sheen where dried mud is chalky
+	metal *= 1.0 - mud;
+	dry_rough = mix(dry_rough, mix(0.55, 0.95, mud_drying), mud);
 	if (use_normal && FRONT_FACING) {
 		NORMAL_MAP = texture(normal_tex, UV).rgb;
 		// the weave's relief fades under thick blood, and is gone in a hole
-		NORMAL_MAP_DEPTH = 1.0 - clamp(max(wet, blood * 0.6), 0.0, 1.0);
+		NORMAL_MAP_DEPTH = 1.0 - clamp(max(max(wet, blood * 0.6), mud * 0.7), 0.0, 1.0);
 	}
 	ALBEDO = col;
 	ROUGHNESS = mix(mix(dry_rough, 0.6, damp), 0.3, wet);

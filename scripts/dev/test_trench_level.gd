@@ -57,7 +57,7 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var secs := ["layouts", "ground", "geo", "nav", "overhaul", "game", "bodies", "ambience", "views", "floor", "normals", "relief", "walls", "parallax", "section", "cine"]
+	var secs := ["layouts", "ground", "geo", "nav", "overhaul", "battle", "falls", "perf", "game", "bodies", "ambience", "views", "floor", "normals", "relief", "walls", "parallax", "section", "cine"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -529,6 +529,273 @@ func _new_game(floor_: int) -> void:
 	await _frames(3)
 
 
+## The battle round the player (TrenchBattle, BattleDuty): the soldiers at
+## their jobs while nobody knows the player is there, the frontline taken from
+## behind, a local alarm, going back to their posts, and the far side's fire.
+func _battle() -> void:
+	print("-- battle")
+	var tot := {frontline = 0, guard = 0, runner = 0, patrol = 0, bridge_runs = 0}
+	var shots := 0
+	var legs := {runner = 0, patrol = 0}
+	var hunting := 0
+	var on_top := 0
+	var crossed := 0
+	var fx := [0, 0, 0]
+	var ambushed := [0, 0]
+	var alarm := {near = 0, near_told = 0, far = 0, far_told = 0}
+	var back := [0, 0]
+	for sd in [4242, 1001, 777]:
+		trench_seed = sd
+		await _new_game(3)
+		trench_seed = 0
+		var m: TrenchMaze = game.maze
+		var bt: TrenchBattle = game.battle
+		for k: String in bt.counts:
+			tot[k] += bt.counts[k]
+		var pl: FpsPlayer = game.player
+		var home := pl.global_position
+		# out of the way: nobody can see or hear the player
+		pl.set_physics_process(false)
+		pl.global_position = Vector3(-400, 0, -400)
+		var runners: Array[BattleDuty] = []
+		for d: BattleDuty in bt.duties:
+			if d.kind == BattleDuty.Kind.RUNNER and bt.counts.bridge_runs > 0:
+				runners.append(d)
+		var was_on_bridge := {}
+		for i in 60 * 40:
+			await get_tree().physics_frame
+			if i % 10 == 0:
+				for d: BattleDuty in bt.duties:
+					if is_instance_valid(d.clown) and not m.bridge_at(d.clown.global_position + Vector3.UP * 0.2).is_empty():
+						was_on_bridge[d] = true
+		crossed += was_on_bridge.size()
+		for d: BattleDuty in bt.duties:
+			shots += d.shots
+			if d.kind == BattleDuty.Kind.RUNNER:
+				legs.runner += d.legs
+			if d.kind == BattleDuty.Kind.PATROL:
+				legs.patrol += d.legs
+				if m.on_top(d.clown.global_position):
+					on_top += 1
+			var b := d.brain
+			if b.mind != ClownBrain.Mind.IDLE:
+				hunting += 1
+		fx[0] += bt.far_flashes
+		fx[1] += bt.flares
+		fx[2] += bt.tracer_bursts
+		# from behind: the player close behind a rifleman at the step, for 3 s
+		for d: BattleDuty in bt.duties:
+			if d.kind != BattleDuty.Kind.FRONTLINE or d.brain.mind != ClownBrain.Mind.IDLE:
+				continue
+			var behind := d.post + Vector3(0, 0, 2.2)
+			if not m.is_open(m.cell_of(behind)):
+				continue
+			behind.y = m.floor_height(behind)
+			pl.global_position = behind
+			var noticed := false
+			for i in 180:
+				await get_tree().physics_frame
+				noticed = noticed or d.brain.mind == ClownBrain.Mind.HUNT
+			ambushed[0] += 1
+			if not noticed:
+				ambushed[1] += 1
+			pl.global_position = Vector3(-400, 0, -400)
+			break
+		# one man sees the player: those near him are told, the far ones are not
+		var first: BattleDuty = null
+		for d: BattleDuty in bt.duties:
+			if d.brain.mind == ClownBrain.Mind.IDLE:
+				first = d
+				break
+		if first:
+			var where := first.clown.global_position
+			var told_any := {}
+			first.brain.alert(home, true, true)
+			for i in 70:
+				await get_tree().physics_frame
+				for o: Clown in game.clowns:
+					var ob := o.get_node_or_null("Brain") as ClownBrain
+					if ob and ob.mind == ClownBrain.Mind.HUNT:
+						told_any[o] = true
+			print("      %s called out %d time(s)" % [first.name_of(), first.shouted])
+			for o: Clown in game.clowns:
+				if o == first.clown or o.dead:
+					continue
+				var b := o.get_node_or_null("Brain") as ClownBrain
+				if b == null:
+					continue
+				var dist := o.global_position.distance_to(where)
+				var told := told_any.has(o)
+				if dist <= 7.0:
+					print("        near %s %.1f m: %s" % [o.body, dist, "told" if told else "not told"])
+				if dist <= 7.0:
+					alarm.near += 1
+					alarm.near_told += 1 if told else 0
+				elif dist > 30.0:
+					alarm.far += 1
+					alarm.far_told += 1 if told else 0
+			# nobody finds anyone: they give up, search, and go back to their posts
+			for i in 60 * 40:
+				await get_tree().physics_frame
+			for d: BattleDuty in bt.duties:
+				if d.returned > 0:
+					back[0] += 1
+					var at_post := d.kind in [BattleDuty.Kind.RUNNER, BattleDuty.Kind.PATROL] or Vector3(d.post.x - d.clown.global_position.x, 0, d.post.z - d.clown.global_position.z).length() < 0.8
+					if at_post and d.brain.mind == ClownBrain.Mind.IDLE:
+						back[1] += 1
+		pl.set_physics_process(true)
+	print("      duties %s; frontline shots %d; legs %s; patrols up top %d; men seen on a bridge %d; still unaware %d" % [tot, shots, legs, on_top, crossed, hunting])
+	print("      far side: %d flashes, %d flares, %d tracer bursts" % fx)
+	print("      from behind: %d of %d riflemen at the step did not notice" % [ambushed[1], ambushed[0]])
+	print("      alarm: %d of %d within 7 m told; %d of %d beyond 30 m told" % [alarm.near_told, alarm.near, alarm.far_told, alarm.far])
+	print("      back to duty: %d of %d alerted men back at it" % [back[1], back[0]])
+	_check(tot.frontline > 0 and tot.guard + tot.runner + tot.patrol > 0, "the soldiers have jobs: frontline riflemen and guards, runners or patrols")
+	_check(shots > 0, "the frontline fires over the parapet now and then")
+	_check(legs.runner > 0, "runners run their messages")
+	_check(tot.patrol == 0 or legs.patrol > 0, "patrols walk their beat up top")
+	_check(tot.bridge_runs == 0 or crossed > 0, "men cross the footbridges")
+	_check(hunting == 0, "nobody hunts a player nobody has seen or heard")
+	_check(fx[0] > 0 and fx[1] > 0 and fx[2] > 0, "the far side fires: flashes, flares, tracer")
+	_check(ambushed[0] == 0 or ambushed[1] == ambushed[0], "a rifleman at the step can be come at from behind")
+	_check(alarm.near == 0 or alarm.near_told * 2 >= alarm.near, "the alarm reaches the men near him")
+	_check(alarm.far_told == 0, "and not the men far off")
+	_check(back[0] > 0 and back[1] * 4 >= back[0] * 3, "they go back to their duties")
+
+
+func _ground_below(from: Vector3) -> float:
+	var q := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 6.0, 1)
+	var r := get_viewport().world_3d.direct_space_state.intersect_ray(q)
+	return (r.position as Vector3).y if not r.is_empty() else from.y - 6.0
+
+
+## Vertical deaths: a soldier shot on a footbridge, and one shot at the edge of
+## a trench up top, fall into the trench as ragdolls and come to rest on its floor.
+func _falls() -> void:
+	print("-- falls")
+	var res := []
+	for sd in [4242, 1001, 777]:
+		trench_seed = sd
+		await _new_game(3)
+		trench_seed = 0
+		var m: TrenchMaze = game.maze
+		for c: Clown in game.clowns:
+			c.queue_free()
+		game.clowns.clear()
+		await _frames(2)
+		game.player.global_position = m.cell_center(m.start_cell) + Vector3.UP * 0.2
+		var cases := []
+		if not m.bridges.is_empty():
+			var br: Dictionary = m.bridges[0]
+			var mid: Vector3 = ((br.a as Vector3) + (br.b as Vector3)) * 0.5
+			var along: Vector3 = ((br.b as Vector3) - (br.a as Vector3)) * Vector3(1, 0, 1)
+			# off the side without the handrail
+			var side: Vector3 = -(br.get("rail_side", along.normalized().cross(Vector3.UP)) as Vector3).normalized()
+			mid.y = m.floor_height(mid + Vector3.UP * 0.3)
+			cases.append(["bridge", mid, side, _ground_below(mid + Vector3.DOWN * 0.3)])
+			var edge := mid + side * 0.3
+			edge.y = m.floor_height(edge + Vector3.UP * 0.3)
+			cases.append(["bridge edge", edge, side, _ground_below(mid + Vector3.DOWN * 0.3)])
+		# up top at the lip of a support or reserve trench, shot toward it
+		var hit := false
+		for t: Vector2i in m.open_cells:
+			if hit:
+				break
+			if m.bays.has(t) or not (m.kind.get(t, "") in ["support", "reserve"]):
+				continue
+			for dir in Maze.DIRS:
+				if m.open_cells.has(t + dir):
+					continue
+				var dv := Vector3(dir.x, 0, dir.y)
+				var r := m._rect(t)
+				var at := m.cell_center(t)
+				var half := (r.size.x if dir.x != 0 else r.size.y) * 0.5
+				var ctr := r.get_center()
+				at = Vector3(ctr.x, 0, ctr.y) + dv * (half + 0.45)
+				at.y = m.floor_height(at)
+				var fl := m.floor_height(m.cell_center(t))
+				if at.y > fl + 1.5 and m.bridge_at(at, 1.0).is_empty():
+					cases.append(["parapet", at, -dv, fl])
+					hit = true
+					break
+		var men := []
+		for cs: Array in cases:
+			var c: Clown = game._spawn_clown(true, false)
+			c.global_position = cs[1]
+			c.rotation.y = atan2(-cs[2].x, -cs[2].z)
+			var b := c.get_node_or_null("Brain")
+			if b:
+				b.set_process(false)
+				b.set_physics_process(false)
+			men.append(c)
+		await _frames(20)
+		for i in men.size():
+			var c: Clown = men[i]
+			var chest: PhysicalBone3D = c.ragdoll.bones[&"Chest"]
+			var dir: Vector3 = (cases[i][2] as Vector3).normalized()
+			# a round through the middle of the chest (not the throat: that one
+			# drops him on the spot to bleed out, wherever he stands)
+			c.enable_throat_death = false
+			c.hit({collider = chest, position = chest.global_position - dir * 0.1 - Vector3.UP * 0.05, direction = dir, damage = 500.0, impulse = 22.0, shot_id = randi()})
+		await _frames(60 * 7)
+		for i in men.size():
+			var c: Clown = men[i]
+			var hips: PhysicalBone3D = c.ragdoll.bones[&"Hips"]
+			var floor_y: float = cases[i][3]
+			var start_y: float = (cases[i][1] as Vector3).y
+			var lv := hips.linear_velocity.length()
+			print("      %s (seed %d): from %.2f m to hips %.2f m (trench floor %.2f), moving %.2f m/s" % [cases[i][0], sd, start_y, hips.global_position.y, floor_y, lv])
+			if hips.global_position.y > floor_y + 0.9 and OS.get_cmdline_user_args().has("why"):
+				var q := PhysicsRayQueryParameters3D.create(hips.global_position, hips.global_position + Vector3.DOWN * 3.0, 1)
+				var r := get_viewport().world_3d.direct_space_state.intersect_ray(q)
+				var off := hips.global_position - (cases[i][1] as Vector3)
+				print("        lying on %s at %s; hips moved %s from where he stood; pushed %s" % [r.get("collider"), r.get("position"), off, cases[i][2]])
+			var hy := hips.global_position.y
+			var on_floor := hy < start_y - 0.8 and hy < floor_y + 0.9 and hy > floor_y - 0.3
+			var on_deck := hy > start_y - 0.15 and hy < start_y + 0.9
+			res.append([cases[i][0], on_floor, lv < 0.3, on_floor or on_deck])
+	var deck := res.filter(func(r: Array) -> bool: return r[0].begins_with("bridge"))
+	var over := deck.filter(func(r: Array) -> bool: return r[1]).size()
+	print("      shot on a footbridge: %d of %d went over the side into the trench (the rest crumpled where they stood, on the deck)" % [over, deck.size()])
+	_check(deck.size() > 0 and over * 2 >= deck.size(), "men shot on a footbridge fall from it into the trench (at least half)")
+	_check(deck.all(func(r: Array) -> bool: return r[3] and r[2]), "and every one comes to rest on the deck or the trench floor, not in the air")
+	for kind_: String in ["parapet"]:
+		var all := res.filter(func(r: Array) -> bool: return r[0] == kind_)
+		_check(not all.is_empty() and all.all(func(r: Array) -> bool: return r[1]), "shot at the lip of a trench, he falls in and lands on its floor (%d cases)" % all.size())
+		_check(all.all(func(r: Array) -> bool: return r[2]), "and comes to rest there")
+
+
+## CPU cost of the battle (the soldiers' duties and the far side's effects):
+## the physics and process step on a trench floor with it, and with it taken
+## away. Headless, so the GPU (and the mist) are not in it.
+func _perf() -> void:
+	print("-- perf")
+	var res := {}
+	for with_battle in [true, false, true, false]:
+		trench_seed = 4242
+		await _new_game(3)
+		trench_seed = 0
+		var bt: TrenchBattle = game.battle
+		if not with_battle:
+			for d: BattleDuty in bt.duties:
+				d.brain.duty = null
+				d.brain.perceive_every = 0.0
+				d.queue_free()
+			bt.duties.clear()
+			bt.set_process(false)
+		await _frames(120)
+		var n := 900
+		var t0 := Time.get_ticks_usec()
+		for i in n:
+			await get_tree().physics_frame
+		var ms := (Time.get_ticks_usec() - t0) / 1000.0 / n
+		res[with_battle] = res.get(with_battle, []) + [ms]
+		print("      %s: %.2f ms a frame (wall clock, headless: physics, AI, scripts), %d enemies" % ["with the battle" if with_battle else "without it", ms, game.clowns.size()])
+	var a: float = (res[true][0] + res[true][1]) * 0.5
+	var b: float = (res[false][0] + res[false][1]) * 0.5
+	print("      the battle adds %.2f ms a frame on the CPU (%.2f against %.2f)" % [a - b, a, b])
+	_check(a - b < 2.0, "the battle costs under 2 ms a frame on the CPU")
+
+
 func _game() -> void:
 	print("-- game")
 	var kinds := []
@@ -554,6 +821,31 @@ func _game() -> void:
 	_check(kinds == ["1:bunker", "2:bunker", "3:trench", "4:bunker", "6:trench"], "every third floor is the trenches")
 
 
+## Where a man walks through cell `c`: the middle of the floor, but behind
+## the fire step in a bay (the step is for standing on to look out, at the
+## front), and to one side of anything standing in the middle (a shattered tree).
+func _walk_point(m: TrenchMaze, c: Vector2i) -> Vector3:
+	var p := m.cell_center(c)
+	if m.bays.has(c):
+		var r := m._rect(c)
+		p.z = r.end.y - 0.55
+	var space := get_viewport().world_3d.direct_space_state
+	var q := PhysicsShapeQueryParameters3D.new()
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.32
+	cap.height = 1.0
+	q.shape = cap
+	q.collision_mask = 1
+	for off: Vector3 in [Vector3.ZERO, Vector3(0.6, 0, 0), Vector3(-0.6, 0, 0), Vector3(0, 0, 0.6), Vector3(0, 0, -0.6)]:
+		var at := p + off
+		at.y = m.floor_height(at)
+		q.transform = Transform3D(Basis(), at + Vector3.UP * 0.9)
+		var hits := space.intersect_shape(q, 4).filter(func(h: Dictionary) -> bool: return h.collider.name != "Ground")
+		if hits.is_empty() and m.is_open(m.cell_of(at)):
+			return at
+	return p
+
+
 ## Walk the player along the whole route by input-free velocity: he should
 ## follow the floor (duckboards, slopes) and never fall through or stick.
 func _walk(m: TrenchMaze) -> void:
@@ -568,7 +860,7 @@ func _walk(m: TrenchMaze) -> void:
 	var reached := 0
 	_key(KEY_W, true)
 	for i in range(1, m.route.size()):
-		var target := m.cell_center(m.route[i])
+		var target := _walk_point(m, m.route[i])
 		var t := 0.0
 		while t < 2.5:
 			var to := target - p.global_position
@@ -581,6 +873,10 @@ func _walk(m: TrenchMaze) -> void:
 			worst_off = maxf(worst_off, absf(p.global_position.y - m.floor_height(p.global_position)))
 		if t >= 2.5:
 			stuck += 1
+			var c: Vector2i = m.route[i]
+			var q := PhysicsRayQueryParameters3D.create(p.global_position + Vector3.UP * 0.5, target + Vector3.UP * 0.5, 1)
+			var r := get_viewport().world_3d.direct_space_state.intersect_ray(q)
+			print("        stuck going %s -> %s (%s%s%s), at %s, target %s; in the way: %s at %s (maze seed %d)" % [m.route[i - 1], c, m.kind.get(c, "?"), ", bridge" if m.bridge_sites.has(c) or m.bridges.any(func(b: Dictionary) -> bool: return b.cell == c) else "", ", bay" if m.bays.has(c) else "", p.global_position, target, r.get("collider"), r.get("position"), m.rng.seed])
 		else:
 			reached += 1
 	_key(KEY_W, false)
@@ -1314,6 +1610,8 @@ func _overhaul() -> void:
 	trench_seed = sd
 	await _new_game(3)
 	trench_seed = 0
+	if OS.get_cmdline_user_args().has("nomist"):
+		game._world_env.environment.volumetric_fog_enabled = false
 	var m: TrenchMaze = game.maze
 	game.player.visible = false
 	for cl in game.find_children("*", "CanvasLayer", true, false):
@@ -1416,14 +1714,52 @@ func _overhaul() -> void:
 			var p := m.cell_center(c) + Vector3.UP * 1.65
 			shots.append(["support_stand", p + Vector3(0, 0, -0.5), p + Vector3(3.0, -0.2, 1.6)])
 			break
+	# up on a fire step looking out over No Man's Land (the mist), and down at
+	# the floor where the puddles are
+	for c: Vector2i in m.bays:
+		var st := Vector3((c.x + 0.5) * m.cell, 0, c.y * m.cell + TrenchMaze.EDGE + 0.3)
+		st.y = m.floor_height(st) + 1.8
+		shots.append(["nml_mist", st, st + Vector3(0.6, -0.9, -25.0)])
+		break
+	var wettest := Vector2i(-1, -1)
+	var most := 0.0
+	for c: Vector2i in m.open_cells:
+		if m.flooded.has(c) or m.bays.has(c) or m.top_cells.has(c):
+			continue
+		var p := m.cell_center(c)
+		var sum := 0.0
+		for dz in range(-4, 5):
+			for dx in range(-4, 5):
+				var ix := int(round((p.x + dx * 0.2 - m.origin.x) / TrenchMaze.RES))
+				var iz := int(round((p.z + dz * 0.2 - m.origin.y) / TrenchMaze.RES))
+				if ix >= 0 and iz >= 0 and ix < m.hx and iz < m.hz:
+					sum += m.puddle[ix + iz * m.hx]
+		if sum > most:
+			most = sum
+			wettest = c
+	if wettest.x >= 0:
+		var p := m.cell_center(wettest)
+		var e := p
+		for dir in Maze.DIRS:
+			if m.linked(wettest, wettest + dir):
+				e = p + Vector3(dir.x, 0, dir.y) * 1.3
+				break
+		e.y = m.floor_height(e) + 1.6
+		shots.append(["puddles", e, p + Vector3.DOWN * 0.3])
 	await _frames(4)
 	var first := true
+	for a: String in OS.get_cmdline_user_args():
+		if a.begins_with("only="):
+			var keep := a.substr(5).split(",")
+			shots = shots.filter(func(sh: Array) -> bool: return keep.has(sh[0]))
 	for sh: Array in shots:
 		cam.global_position = sh[1]
 		cam.look_at(sh[2])
-		await _frames(40 if first else 14)
+		var t0 := Time.get_ticks_msec()
+		await _frames(24 if first else 10)
 		first = false
 		await _shot("ov_%s_%s" % [sh[0], tag])
+		print("      shot %s: %d ms" % [sh[0], Time.get_ticks_msec() - t0])
 	for c in men:
 		c.queue_free()
 	cam.queue_free()

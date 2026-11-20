@@ -24,11 +24,13 @@ const BAG := Vector3(0.52, 0.14, 0.3)
 ## (pbr_object.gdshader parameters). Wattle has no scan: it keeps its
 ## procedural texture.
 const PBR_FOR := {
-	"board": {set = "rough_wood", tile = 1.0, grain = true, darken = 0.78, wet = 0.45, grime = 0.35, rough_min = 0.5, tint = Color(0.95, 0.88, 0.8)},
-	"planks_wet": {set = "rough_wood", tile = 1.0, grain = true, darken = 0.75, wet = 0.5, grime = 0.4, rough_min = 0.5, tint = Color(0.95, 0.88, 0.8)},
-	"timber": {set = "rough_wood", tile = 1.0, grain = true, darken = 0.62, wet = 0.5, grime = 0.45, rough_min = 0.5, tint = Color(0.9, 0.82, 0.74)},
-	"burlap": {set = "hessian_230", tile = 0.45, grain = false, darken = 0.5, saturation = 0.7, wet = 0.55, grime = 0.75, rough_min = 0.62, tint = Color(0.86, 0.78, 0.66), normal_strength = 1.2},
-	"iron": {set = "rusty_metal_04", tile = 1.6, grain = false, darken = 0.8, wet = 0.25, grime = 0.3, rough_min = 0.45, metal_from_albedo = 0.55},
+	"board": {set = "rough_wood", tile = 1.0, grain = true, darken = 0.74, wet = 0.55, grime = 0.42, rough_min = 0.42, tint = Color(0.93, 0.86, 0.78), splash = 0.9, wet_edges = 0.8},
+	"planks_wet": {set = "rough_wood", tile = 1.0, grain = true, darken = 0.7, wet = 0.62, grime = 0.48, rough_min = 0.38, tint = Color(0.93, 0.86, 0.78), splash = 1.0, wet_edges = 0.9},
+	"timber": {set = "rough_wood", tile = 1.0, grain = true, darken = 0.58, wet = 0.6, grime = 0.5, rough_min = 0.42, tint = Color(0.88, 0.8, 0.72), splash = 0.9, wet_edges = 0.7},
+	"burlap": {set = "hessian_230", tile = 0.45, grain = false, darken = 0.46, saturation = 0.66, wet = 0.68, grime = 0.85, rough_min = 0.55, tint = Color(0.84, 0.76, 0.64), normal_strength = 1.2, splash = 1.0},
+	"dug_timber": {set = "rough_wood", tile = 1.0, grain = true, darken = 0.58, wet = 0.5, grime = 0.5, rough_min = 0.45, tint = Color(0.88, 0.8, 0.72), under_cover = 1.0},
+	"dug_iron": {set = "rusty_metal_04", tile = 1.6, grain = false, darken = 0.7, wet = 0.2, grime = 0.4, rough_min = 0.5, metal_from_albedo = 0.2, under_cover = 1.0},
+	"iron": {set = "rusty_metal_04", tile = 1.6, grain = false, darken = 0.8, wet = 0.3, grime = 0.35, rough_min = 0.4, metal_from_albedo = 0.55, splash = 0.7},
 }
 
 
@@ -60,6 +62,7 @@ func build(m: TrenchMaze) -> void:
 	_carnival()
 	_wind_things()
 	_smoke()
+	_mist()
 	_flush()
 	_share_sky()
 	var amb := TrenchAmbience.new()
@@ -128,7 +131,18 @@ static func make_environment() -> Environment:
 	env.fog_depth_curve = 1.7
 	env.fog_aerial_perspective = 0.6
 	env.fog_sky_affect = 0.2
-	env.volumetric_fog_enabled = false
+	# the ground mist's volume (TrenchArt._mist) needs the volumetric fog; it
+	# has no fog of its own everywhere (density 0), only what the volume adds,
+	# lit by the sky's ambient and a little by the sun
+	env.volumetric_fog_enabled = true
+	env.volumetric_fog_density = 0.0
+	env.volumetric_fog_albedo = Color(0.66, 0.7, 0.75)
+	env.volumetric_fog_ambient_inject = 0.85
+	env.volumetric_fog_anisotropy = 0.35
+	env.volumetric_fog_length = 90.0
+	env.volumetric_fog_detail_spread = 2.0
+	env.volumetric_fog_sky_affect = 0.0
+	env.volumetric_fog_temporal_reprojection_enabled = true
 	env.glow_enabled = true
 	env.glow_intensity = 0.3
 	env.glow_bloom = 0.02
@@ -188,7 +202,7 @@ static func setup_sun(sun: DirectionalLight3D) -> void:
 	sun.light_energy = 0.85
 	sun.light_specular = 0.08            # overcast: no hard sun glints on the water
 	sun.light_angular_distance = 2.5
-	sun.light_volumetric_fog_energy = 0.0
+	sun.light_volumetric_fog_energy = 0.35
 	sun.shadow_enabled = true
 	sun.shadow_opacity = 1.0
 	sun.shadow_blur = 1.5
@@ -311,7 +325,7 @@ func _terrain() -> void:
 					var dmg := _damage_at(verts_x(m, ix), m.origin.y + iz * res) if sd < 3.0 else 0.0
 					cols[k] = Color(m.wet[i], 1.0 if sd <= 0.0 else 0.0, clampf(sd * 0.5, 0.0, 1.0), dmg)
 					verts[k] = Vector3(m.origin.x + ix * res, h, m.origin.y + iz * res)
-					uv2[k] = Vector2(m.sky_vis[i], 0.0)
+					uv2[k] = Vector2(m.sky_vis[i], m.puddle[i] if not m.puddle.is_empty() else 0.0)
 					k += 1
 			var idx := PackedInt32Array()
 			idx.resize((nx - 1) * (nz - 1) * 6)
@@ -783,8 +797,9 @@ func _bunker_portal(c: Vector2i, dir: Vector2i) -> void:
 ## A dugout: a timber-framed entrance off the trench, a roof of beams,
 ## corrugated iron and sandbags over the pit, and a lantern inside.
 func _dugout(l: Dictionary) -> void:
-	var timber := _mat("timber", 0.8)
-	var iron := _mat("iron", 1.0)
+	# (under the roof: the sky's light shut out of the timber and the iron)
+	var timber := _mat("dug_timber", 0.8)
+	var iron := _mat("dug_iron", 1.0)
 	var cells: Array[Vector2i] = []
 	for c: Vector2i in maze.open_cells:
 		if maze.kind[c] == "dugout" and Vector2(c).distance_to(Vector2(l.cell)) < 2.5:
@@ -879,7 +894,8 @@ func _bridges() -> void:
 		# stringers along the deck's edges (not under it: headroom for a man
 		# walking the trench below), running out onto the ground
 		for s: float in [-1.0, 1.0]:
-			var p: Vector3 = mid + side * s * (wdt * 0.5 + 0.06) + up * 0.0
+			# (flush with the deck: no kerb for a body to catch on going over the side)
+			var p: Vector3 = mid + side * s * (wdt * 0.5 + 0.06) - up * 0.07
 			_box("br_beams", timber, p, basis, Vector3(0.12, 0.14, length + 0.6))
 			_collide(p, basis, Vector3(0.12, 0.14, length + 0.6))
 		# planks across, uneven: gaps, a few short or split, some sagging
@@ -900,6 +916,7 @@ func _bridges() -> void:
 			_box("br_beams", timber, end - up * 0.12, basis, Vector3(wdt + 0.3, 0.16, 0.2))
 		# a handrail on one side: posts and a rail
 		var rs := 1.0 if rng.randf() < 0.5 else -1.0
+		b["rail_side"] = side * rs          # (which side the rail is on: tests, the AI)
 		var posts := maxi(2, int(length / 1.3) + 1)
 		for i in posts:
 			var t := float(i) / (posts - 1)
@@ -2049,6 +2066,30 @@ var _smoke_mat: StandardMaterial3D
 
 ## A tall billowing smoke column: slow, dense at the root, spreading and
 ## thinning as it rises, carried off by the wind. `shade`: how dark.
+## The ground mist (shaders/ground_mist.gdshader): a fog volume over the whole
+## battlefield, low and drifting, thicker over No Man's Land. Forward+ only
+## (the volumetric fog); the depth haze carries the distance without it.
+var mist: FogVolume
+
+
+func _mist() -> void:
+	var w := maze.w * maze.cell
+	var d := maze.d * maze.cell
+	var lo := Vector3(-60.0, -3.2, -110.0)
+	var hi := Vector3(w + 60.0, 5.0, d + 30.0)
+	mist = FogVolume.new()
+	mist.name = "GroundMist"
+	mist.shape = RenderingServer.FOG_VOLUME_SHAPE_BOX
+	mist.size = hi - lo
+	mist.position = (hi + lo) * 0.5
+	var fm := ShaderMaterial.new()
+	fm.shader = load("res://shaders/ground_mist.gdshader")
+	fm.set_shader_parameter("noise_tex", tex("noise"))
+	fm.set_shader_parameter("nml_z", TrenchMaze.FIRE_ROW * maze.cell - 2.5)
+	mist.material = fm
+	add_child(mist)
+
+
 static func make_column(mat: Material, at: Vector3, size: float, shade: float, phase: float) -> CPUParticles3D:
 	var p := CPUParticles3D.new()
 	var q := QuadMesh.new()

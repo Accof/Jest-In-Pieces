@@ -69,6 +69,11 @@ varying vec3 wpos;
 varying vec3 wnrm;
 varying vec4 vcol;
 varying float skyv;
+varying float pud;      // shallow standing water baked per vertex (TrenchMaze.puddle)
+uniform float puddle_amount = 1.0;
+uniform vec3 puddle_col : source_color = vec3(0.075, 0.068, 0.058);   // dark muddy water
+// how dry the open ground away from the trenches is: rougher, a little lighter, in patches
+uniform float dry_ground = 0.6;
 uniform float sky_occlusion = 1.0;   // how much the baked sky visibility (UV2.x) takes from the ambient light
 uniform float sky_floor = 0.12;      // never darker than this: deep, not crushed
 
@@ -77,6 +82,7 @@ void vertex() {
 	wnrm = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
 	vcol = COLOR;
 	skyv = UV2.x;
+	pud = UV2.y;
 }
 
 // A tangent-space normal from a normal map: x and y from red and green, z
@@ -268,6 +274,26 @@ void fragment() {
 	alb = mix(alb, f_alb, fw);
 	rough = mix(rough, f_rough, fw);
 	wn_world = normalize(mix(wn_world, f_n, fw));
+	// --- drier ground up top, away from the trenches: matte, a little lighter, in patches
+	float dry = smoothstep(1.2, 3.5, sd) * smoothstep(0.35, 0.7, nz.r) * dry_ground * (1.0 - on_floor);
+	alb *= mix(1.0, 1.12, dry);
+	rough = mix(rough, max(rough, 0.93), dry);
+	// --- shallow puddles in the floor's low places: dark muddy water, a soaked
+	// rim round it; an irregular edge; flat, with the faintest stir
+	float pv = pud * puddle_amount;
+	if (pv > 0.01) {
+		float edge_n = (nz2.b - 0.5) * 0.4 + (nz.a - 0.5) * 0.25;
+		float water = smoothstep(0.3, 0.55, pv + edge_n);
+		float rim = smoothstep(0.05, 0.3, pv + edge_n) * (1.0 - water);
+		alb = mix(alb, alb * 0.62, rim);
+		rough = mix(rough, rough * 0.5, rim);
+		vec3 pc = puddle_col * mix(0.85, 1.15, nz.b);
+		alb = mix(alb, pc, water * 0.94);
+		rough = mix(rough, 0.035, water);
+		vec2 st = wpos.xz * 3.0 + vec2(TIME * 0.05, TIME * 0.03);
+		vec3 stir = vec3(texture(noise_tex, st * 0.11).r - 0.5, 0.0, texture(noise_tex, st * 0.11 + 0.5).g - 0.5) * 0.06;
+		wn_world = normalize(mix(wn_world, normalize(n + stir), water));
+	}
 	AO = mix(ao, f_ao, fw) * mix(1.0, max(skyv, sky_floor), sky_occlusion);
 	AO_LIGHT_AFFECT = 0.15;
 	ALBEDO = alb;

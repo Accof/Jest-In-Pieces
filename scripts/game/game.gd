@@ -293,6 +293,14 @@ func next_floor() -> void:
 		var z := spawn_zornhauptmann()
 		var zc: Vector2i = cells[rng.randi() % cells.size()]
 		z.global_position = maze.cell_center(zc)
+	battle = null
+	if outdoor:
+		# the battle going on round you: the soldiers at their posts, the enemy over there
+		battle = TrenchBattle.new()
+		battle.name = "Battle"
+		_world.add_child(battle)
+		battle.player = player
+		battle.assign(maze as TrenchMaze, clowns, rng.randi(), spawn)
 	remaining = clowns.size()
 	_floor_finale = false
 	if kill_cam:
@@ -766,6 +774,10 @@ func _build_environment() -> void:
 	sun.directional_shadow_max_distance = 40.0
 	sun.rotation = Vector3(deg_to_rad(-28.0), deg_to_rad(-140.0), 0.0)
 	add_child(sun)
+
+
+## The trench floor's battle (soldiers' duties, the far side's fire); null indoors.
+var battle: TrenchBattle
 
 
 func is_trench_floor(n: int) -> bool:

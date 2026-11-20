@@ -15,6 +15,7 @@ const BODIES := {
 		shapes = {},
 	},
 	"witzsoldat": {
+		muddy = true,
 		model = "res://art/witzsoldat/witzsoldat.glb", gibs = "res://art/witzsoldat/witzsoldat_gibs.glb",
 		rest_min = Vector3(-0.91675, -0.005, -0.28225), rest_size = Vector3(1.83328, 1.91, 0.56441),
 		helmet = "res://art/witzsoldat/witzsoldat_helmet.glb",
@@ -33,6 +34,7 @@ const BODIES := {
 	# maps (pbr); its gibs and helmet carry no images and take the body's
 	# material (share_material). Its Stahlhelm is steel: no roughness override.
 	"witzsoldat_dark": {
+		muddy = true,
 		model = "res://art/witzsoldat_dark/witzsoldat_dark.glb", gibs = "res://art/witzsoldat_dark/witzsoldat_dark_gibs.glb",
 		rest_min = Vector3(-0.96070, -0.00508, -0.20810), rest_size = Vector3(1.92620, 1.89495, 0.42203),
 		helmet = "res://art/witzsoldat_dark/witzsoldat_dark_helmet.glb",
@@ -745,6 +747,11 @@ func _start_ragdoll(info: Dictionary, zone: StringName) -> void:
 	var wall_gap := -1.0 if crawling or info.get("blast", false) or info.get("stake", false) else _wall_behind(info.direction)
 	if force_variant == "wall_slide" and wall_gap < 0.0:
 		wall_gap = 0.5
+	# the ground falls away behind it (the edge of a trench, a footbridge's
+	# side): thrown back, it goes over
+	var drop := false
+	if not (crawling or last_stand or ragdoll.active or info.has("profile")) and info.has("direction"):
+		drop = _drop_behind(info.direction)
 	if info.has("profile"):
 		profile = info.profile                      # the caller knows best (an event room)
 	elif info.get("blast", false) or info.get("stake", false):
@@ -755,13 +762,15 @@ func _start_ragdoll(info: Dictionary, zone: StringName) -> void:
 		profile = ClownRagdoll.profile_wall_slide(wall_gap)
 	elif info.get("heavy", false):
 		profile = ClownRagdoll.profile_heavy(force_variant == "heavy_flat" or (force_variant == "" and randf() < 0.45))
-	elif force_variant == "" and velocity.length() > 1.5 and randf() < 0.6:
+	elif force_variant == "" and velocity.length() > 1.5 and randf() < 0.6 and not drop:
 		profile = ClownRagdoll.profile_tumble()
 	elif zone == &"Neck":
 		profile = ClownRagdoll.profile_headshot(force_variant)
 	else:
 		# A gut shot usually folds the clown forward; a chest shot throws it back.
 		var v := force_variant
+		if v == "" and drop and randf() < 0.85:
+			v = ["blown_back", "stagger"].pick_random()
 		if v == "":
 			v = ("double" if randf() < 0.15 else "double_flat") if (zone in [&"Spine", &"Hips"] and randf() < 0.7) or randf() < 0.2 else ["stagger", "blown_back"].pick_random()
 		profile = ClownRagdoll.profile_bodyshot(v)
@@ -782,7 +791,10 @@ func _start_ragdoll(info: Dictionary, zone: StringName) -> void:
 	if ragdoll.active:
 		ragdoll.restart(profile)          # already on the floor (shot while down)
 	else:
-		ragdoll.start(profile, info.direction, info.get("fling", velocity))
+		var fling: Vector3 = info.get("fling", velocity)
+		if drop:
+			fling += Vector3(info.direction.x, 0, info.direction.z).normalized() * 1.4
+		ragdoll.start(profile, info.direction, fling)
 	downed = false
 	if broken_leg != "":
 		ragdoll.break_knee(broken_leg, info.direction)
@@ -2892,6 +2904,29 @@ func muzzle_position() -> Vector3:
 		return _muzzle.global_position
 	var hand: PhysicalBone3D = ragdoll.bones.get(&"RightHand")
 	return hand.global_position if hand else global_position + Vector3.UP * 1.3
+
+
+## Whether the ground drops away (more than 1.2 m) within a metre behind the
+## clown along the shot, with nothing in the way: the lip of a trench, the
+## open side of a footbridge.
+func _drop_behind(shot_dir: Vector3) -> bool:
+	var back := Vector3(shot_dir.x, 0, shot_dir.z)
+	if back.length() < 0.01 or not is_inside_tree():
+		return false
+	back = back.normalized()
+	var space := get_world_3d().direct_space_state
+	var feet := global_position.y
+	var chest := global_position + Vector3.UP * 1.1
+	for d: float in [0.55, 0.95]:
+		var q := PhysicsRayQueryParameters3D.create(chest, chest + back * d, 1)
+		if not space.intersect_ray(q).is_empty():
+			return false
+		var top := global_position + back * d + Vector3.UP * 0.5
+		var down := PhysicsRayQueryParameters3D.create(top, top + Vector3.DOWN * 4.0, 1)
+		var r := space.intersect_ray(down)
+		if r.is_empty() or (r.position as Vector3).y < feet - 1.2:
+			return true
+	return false
 
 
 ## Distance to a wall close behind the clown along the shot, or -1 if there is

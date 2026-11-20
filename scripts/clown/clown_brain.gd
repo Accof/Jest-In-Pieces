@@ -62,6 +62,18 @@ var _axis_pushing := 0.0
 enum Mind { IDLE, HUNT, SEARCH }
 var mind := Mind.IDLE
 
+## Became aware of the player (from IDLE or SEARCH). `firsthand`: it saw or was
+## hit; otherwise it only heard it or was told.
+signal alerted(where: Vector3, firsthand: bool)
+## A battlefield duty (BattleDuty, the trench floors): while unaware it does
+## that instead of wandering, and goes back to it after a search.
+var duty: BattleDuty = null
+## Seconds between looks for the player while unaware (0: every frame). Once
+## hunting it looks every frame.
+var perceive_every := 0.0
+var _perceive_t := 0.0
+var _seen_last := false
+
 var clown: Clown
 var maze: Maze
 var player: FpsPlayer
@@ -134,14 +146,17 @@ func _ready() -> void:
 
 # --- awareness ------------------------------------------------------------------
 ## Become aware of the player. `where` is the best guess at their position.
-func alert(where: Vector3, startled: bool = true) -> void:
+func alert(where: Vector3, startled: bool = true, firsthand: bool = true) -> void:
 	_last_known = where
-	_unseen = 0.0
+	# heard or told: it knows where to go, not where the player is now (it
+	# hunts "blind" to that spot until it sees them for itself)
+	_unseen = 0.0 if firsthand else maxf(_unseen, 1.6)
 	if mind != Mind.HUNT:
 		mind = Mind.HUNT
 		_repath = 0.0
 		if startled:
 			_react = randf_range(0.25, 0.6)
+		alerted.emit(where, firsthand)
 
 
 ## A gunshot went off at `where`. Heard if it is close enough along the corridors.
@@ -149,8 +164,10 @@ func hear(where: Vector3, extra_cells: int = 0) -> void:
 	if clown.dead or mind == Mind.HUNT:
 		return
 	var cells := maze.path_cells(maze.cell_of(clown.global_position), maze.cell_of(where)) - 1
+	if duty:
+		extra_cells += duty.hearing_bonus()
 	if cells <= maze.span(hearing_cells + extra_cells):
-		alert(where)
+		alert(where, true, duty == null)
 
 
 ## This clown was shot: it knows, and so does any clown close enough to see it happen.
@@ -293,7 +310,15 @@ func _physics_process(delta: float) -> void:
 		_hide(delta)
 		return
 	# Noticing: the player has to stay in view for a moment before it registers.
-	var seen := _can_see_player()
+	var seen := false
+	if perceive_every <= 0.0 or mind == Mind.HUNT:
+		seen = _can_see_player()
+	else:
+		_perceive_t -= delta
+		if _perceive_t <= 0.0:
+			_perceive_t = perceive_every
+			_seen_last = _can_see_player()
+		seen = _seen_last
 	if seen:
 		_notice += delta
 		if _notice > 0.3 or mind == Mind.HUNT:
@@ -303,6 +328,8 @@ func _physics_process(delta: float) -> void:
 		_unseen += delta
 
 	if mind == Mind.IDLE:
+		if duty and duty.tick(delta):
+			return
 		_idle(delta)
 		return
 	if _react > 0.0:

@@ -123,6 +123,10 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _drip(0.25, rng)
 		"timber_creak":
 			data = _creak(1.1, rng)
+		"shout":                                  # a man calling out, muffled through a gas mask
+			data = _shout(0.62, rng)
+		"bridge_step":                            # a boot on a footbridge's planks: a knock and a give
+			data = _mix(_thump(0.12, 210.0, 120.0, 0.03, 0.7, rng, 0.01, 0.35), _creak(0.25, rng))
 		# --- the revolver
 		"revolver_shot":
 			data = _gunshot(rng)
@@ -407,6 +411,46 @@ static func _creak(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array
 		lp += (rng.randf_range(-1.0, 1.0) * stick - lp) * 0.35
 		out[i] = lp * sin(u * PI) * 0.55
 	return out
+
+
+## A man shouting, two syllables, through a mask: a buzzy voice (a sawtooth with
+## jitter) shaped by two moving formants, the highs gone in the rubber.
+static func _shout(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var ph := 0.0
+	var b1 := [0.0, 0.0]
+	var b2 := [0.0, 0.0]
+	var lp := 0.0
+	var f0 := rng.randf_range(170.0, 230.0)
+	for i in n:
+		var t := float(i) / RATE
+		var u := t / len
+		var syl := 0 if u < 0.42 else 1
+		var su := u / 0.42 if syl == 0 else (u - 0.48) / 0.52
+		var env := 0.0 if u > 0.42 and u < 0.48 else clampf(su * 8.0, 0.0, 1.0) * clampf((1.0 - su) * 4.0, 0.0, 1.0)
+		var f := f0 * (1.0 + 0.12 * sin(su * PI) - 0.08 * syl) * (1.0 + rng.randf_range(-0.01, 0.01))
+		ph = fmod(ph + f / RATE, 1.0)
+		var src := ph * 2.0 - 1.0
+		# two resonances (an "a" sliding to an "e"), a simple two-pole each
+		var fa: float = lerpf(750.0, 500.0, float(syl))
+		var fb: float = lerpf(1150.0, 1800.0, float(syl))
+		var y1 := _reson(src, fa, 9.0, b1)
+		var y2 := _reson(src, fb, 11.0, b2)
+		var v := y1 * 0.6 + y2 * 0.4
+		lp += (v - lp) * 0.3                     # the mask takes the top off
+		out[i] = lp * env * 0.5
+	return out
+
+
+static func _reson(x: float, f: float, q: float, st: Array) -> float:
+	var w := TAU * f / RATE
+	var r := 1.0 - w / (2.0 * q)
+	var y := x * (1.0 - r) + 2.0 * r * cos(w) * float(st[0]) - r * r * float(st[1])
+	st[1] = st[0]
+	st[0] = y
+	return y
 
 
 ## A sharp crack: a snap of noise with a hard, dry body (bone, or wood).

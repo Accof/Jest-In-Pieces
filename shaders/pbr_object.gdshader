@@ -33,6 +33,15 @@ uniform float grime = 0.4;                    // mud smeared over it, in patches
 uniform vec3 grime_col : source_color = vec3(0.16, 0.12, 0.09);
 uniform float metal_from_albedo = 0.0;        // >0: bare (grey, unrusted) patches read as metal
 uniform float ao_strength = 1.0;
+// Mud thrown up and soaked in low down (within about half a metre of the
+// ground: boots, rain splash, men brushing past): 0 none .. 1 heavy. Needs the
+// ground's height (sky_tex G), so only in the trenches.
+uniform float splash = 0.0;
+// Darker, slicker wet edges and ends (water runs off and soaks in there).
+uniform float wet_edges = 0.0;
+// Under a roof (a dugout's beams, sheets and props): the sky is shut out,
+// whatever the ground's visibility says at that spot.
+uniform float under_cover = 0.0;
 // the trench floor's baked sky visibility (TrenchMaze.sky_texture: R vis, G ground height)
 uniform sampler2D sky_tex : filter_linear, repeat_disable;
 uniform bool sky_on = false;
@@ -121,6 +130,28 @@ void fragment() {
 	float rough = ard.g * rough_scale;
 	rough = mix(rough, rough * 0.8, wet);
 	rough = mix(rough, 0.9, smear * 0.5);
+	// soaked, darker edges: the second-nearest face of the piece (the nearest
+	// is the one this is on) within a few centimetres
+	if (wet_edges > 0.0) {
+		vec3 dist = osize * 0.5 - abs(opos);
+		float a = min(dist.x, min(dist.y, dist.z));
+		float b = max(dist.x, max(dist.y, dist.z));
+		float c2 = dist.x + dist.y + dist.z - a - b;
+		float edge = (1.0 - smoothstep(0.004, 0.035, c2)) * wet_edges;
+		alb *= mix(1.0, 0.7, edge);
+		rough = mix(rough, rough * 0.6, edge);
+	}
+	// mud splashed up from the ground and soaked in, low down: thickest at the
+	// foot, in splashes above that; wet, with a dull sheen
+	if (splash > 0.0 && sky_on) {
+		vec2 gs = texture(sky_tex, (wpos.xz - sky_origin) / sky_size).rg;
+		float above = wpos.y - gs.g;
+		float low = 1.0 - smoothstep(0.02, 0.55, above);
+		float sp = texture(noise_tex, wpos.xz * 1.7 + vec2(wpos.y * 2.3, seed)).b;
+		float mud = clamp(low * splash * smoothstep(0.3, 0.6, sp + low * 0.45), 0.0, 1.0);
+		alb = mix(alb, grime_col * 0.75, mud * 0.85);
+		rough = mix(rough, 0.42, mud);
+	}
 	float metal = 0.0;
 	if (metal_from_albedo > 0.0) {
 		// bare metal where the scan is grey rather than rust-brown
@@ -135,6 +166,7 @@ void fragment() {
 		float up = clamp((wpos.y - g.g) / max(-g.g + 0.2, 0.3), 0.0, 1.0);
 		vis = mix(max(g.r, sky_floor), 1.0, up);
 	}
+	vis = mix(vis, sky_floor * 0.6, under_cover);
 	ALBEDO = alb;
 	ROUGHNESS = clamp(max(rough, rough_min), 0.0, 1.0);
 	METALLIC = metal;

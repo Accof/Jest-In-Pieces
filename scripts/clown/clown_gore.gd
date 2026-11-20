@@ -47,11 +47,19 @@ var _smear_last := {}           # bone -> last point smeared on a wall
 var _bleeding := false
 var _bleed_time := 0.0
 var _rng := RandomNumberGenerator.new()
+var mud_level := 0.0            # how muddy this one's uniform is (0..1)
 
 
 func setup(c: Clown) -> void:
 	clown = c
 	_rng.randomize()
+	# trench mud on the uniform, each man his own (the soldiers only)
+	var mud := 0.0
+	var mud_seed := 0.0
+	if clown.spec.get("muddy", false):
+		mud = _rng.randf_range(0.55, 1.0)
+		mud_seed = _rng.randf_range(0.0, 100.0)
+	mud_level = mud
 	var m := clown.mesh.mesh
 	for i in m.get_surface_count():
 		var src := m.surface_get_material(i) as BaseMaterial3D
@@ -80,6 +88,10 @@ func setup(c: Clown) -> void:
 					sm.set_shader_parameter("use_normal", true)
 		sm.set_shader_parameter("rest_min", clown.spec.rest_min)
 		sm.set_shader_parameter("rest_size", clown.spec.rest_size)
+		if mud > 0.0 and not (src and src.resource_name in ["Gore", "BoneCore"]):
+			sm.set_shader_parameter("mud_amount", mud)
+			sm.set_shader_parameter("mud_seed", mud_seed)
+			sm.set_shader_parameter("mud_hem", clown.spec.get("mud_hem", 0.66))
 		if clown.mechanical:
 			_mech_surface(sm, src)
 		clown.mesh.set_surface_override_material(i, sm)

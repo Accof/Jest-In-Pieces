@@ -12,12 +12,15 @@ var tag := "x"
 var cam: Camera3D
 var speed := 0.0
 var turning := 0.0
+var mud := -1.0         # --mud=x: every uniform this muddy (else each man's own)
 
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--light="):
 			light = a.substr(8)
+		if a.begins_with("--mud="):
+			mud = float(a.substr(6))
 		if a.begins_with("--tag="):
 			tag = a.substr(6)
 	_stage()
@@ -101,6 +104,9 @@ func _shot(state: String, views := ["front", "side"]) -> void:
 			"close":
 				cam.position = Vector3(0, 1.7, 2.0)
 				mid = Vector3(0, 1.6, 0)
+			"legs":
+				cam.position = Vector3(0.6, 0.75, 2.3)
+				mid = Vector3(0, 0.55, 0)
 			"floor":
 				cam.position = Vector3(0.3, 2.2, 3.4)
 				mid = Vector3(0, 0.25, -0.2)
@@ -132,9 +138,14 @@ func _run() -> void:
 		c.set_process(true)
 		pair.append(c)
 	await _frames(20)
+	for c in pair:
+		if mud >= 0.0:
+			for m: ShaderMaterial in c.gore._materials:
+				m.set_shader_parameter("mud_amount", mud)
+		print("mud ", c.look, " ", c.gore.mud_level, " -> ", c.gore._materials[0].get_shader_parameter("mud_amount"))
 	_state(0, 0, 0)
 	await _frames(30)
-	await _shot("1_stand", ["front", "side", "close"])
+	await _shot("1_stand", ["front", "side", "close", "legs"])
 	speed = 1.5
 	_state(1, 0, 0)
 	await _frames(37)

@@ -806,11 +806,13 @@ func _carve() -> void:
 			sdf[i] = sd
 			wet[i] = clampf(wetness, 0.0, 1.0)
 	_cut_ramps()
+	_fill_troughs()
 	col_h = vis_h.duplicate()
 	_bake_sky()
 	_ease_fire_steps()
 	_lay_duckboards()
 	_lay_water()
+	_bake_puddles()
 
 
 ## How much of the sky each point of the ground can see (0..1), on a grid
@@ -1135,6 +1137,13 @@ func _lay_duckboards() -> void:
 		var run: Array[Vector2i] = []
 		for i in cells.size():
 			var c: Vector2i = cells[i]
+			# no boards over the stretch dug out under a footbridge: laid level
+			# across it they would stand a knee's height over the mud at the
+			# ends, a ledge to anyone coming in from a side trench
+			if bridge_sites.has(c) or bridge_sites.has(c + Vector2i(1, 0)) or bridge_sites.has(c - Vector2i(1, 0)):
+				_board_run(run)
+				run = []
+				continue
 			if not run.is_empty():
 				var prev: Vector2i = run.back()
 				var straight := run.size() < 2 or (c - prev) == (prev - run[run.size() - 2])
@@ -1200,6 +1209,71 @@ func _cell_floor(c: Vector2i) -> Vector3:
 	var p := Vector3((c.x + 0.5) * cell, 0.0, (c.y + 0.5) * cell)
 	p.y = _sample(vis_h, p.x, p.z)
 	return p
+
+
+## Shallow puddles in the floor's low places: how much water (0..1) stands
+## at each sample, for the ground's shader (UV2.y). A sample holds water
+## where it lies below the floor round it (sumps, ruts, the hollow along a
+## wall's foot) and the ground is wet; and a few waterlogged corners, in
+## patches. Not in the flooded stretches (they have their own water) or up top.
+var puddle := PackedFloat32Array()
+
+
+func _bake_puddles() -> void:
+	puddle.resize(hx * hz)
+	puddle.fill(0.0)
+	# the floor round each sample: a 1 m box blur of the surface, rows then columns
+	var tmp := PackedFloat32Array()
+	tmp.resize(hx * hz)
+	var mean := PackedFloat32Array()
+	mean.resize(hx * hz)
+	var r := 2
+	for iz in hz:
+		var row := iz * hx
+		for ix in hx:
+			var sum := 0.0
+			var n := 0
+			for k in range(maxi(ix - r, 0), mini(ix + r, hx - 1) + 1):
+				sum += vis_h[row + k]
+				n += 1
+			tmp[row + ix] = sum / n
+	for iz in hz:
+		for ix in hx:
+			var sum := 0.0
+			var n := 0
+			for k in range(maxi(iz - r, 0), mini(iz + r, hz - 1) + 1):
+				sum += tmp[ix + k * hx]
+				n += 1
+			mean[ix + iz * hx] = sum / n
+	var corners := FastNoiseLite.new()
+	corners.seed = rng.randi()
+	corners.frequency = 0.22
+	var count := 0
+	var floor_n := 0
+	for iz in hz:
+		for ix in hx:
+			var i := ix + iz * hx
+			if sdf[i] > -0.1:
+				continue
+			var x := origin.x + ix * RES
+			var z := origin.y + iz * RES
+			var c := Vector2i(int(floor(x / cell)), int(floor(z / cell)))
+			if flooded.has(c) or (bays.has(c) and z < c.y * cell + EDGE + 0.2):
+				continue
+			floor_n += 1
+			var low := mean[i] - vis_h[i]
+			var p := smoothstep(0.006, 0.035, low) * smoothstep(0.6, 0.85, wet[i])
+			# waterlogged corners: a patch here and there where it is wettest
+			var corner := smoothstep(0.62, 0.8, corners.get_noise_2d(x, z) * 0.5 + 0.5) * smoothstep(-0.05, -0.45, sdf[i] + 0.0) * 0.85
+			p = maxf(p, corner * smoothstep(0.7, 0.9, wet[i]))
+			puddle[i] = p
+			if p > 0.4:
+				count += 1
+	puddle_share = float(count) / maxf(floor_n, 1)
+
+
+## Share of the trench floor under a puddle (for tests).
+var puddle_share := 0.0
 
 
 ## Standing water: each connected group of flooded cells gets one level,
@@ -1330,6 +1404,41 @@ func _pick_ramps() -> void:
 ## wall's foot up to the ground RAMP_LEN beyond, with steep cut sides; counted
 ## as trench floor (sdf) so a soldier on it is still in the trench until he
 ## reaches the top.
+## Narrow troughs in a trench floor (where two cells' floors and the
+## smoothing between them leave a dip a hand's breadth to a stride across)
+## are filled in: a man could not climb out of one without a step. Only dips
+## under 1.2 m across with floor both sides, never the flooded stretches (their
+## water sits in them) or the long dig under a footbridge (far wider).
+var troughs_filled := 0
+
+
+func _fill_troughs() -> void:
+	var floor_of := func(i: int) -> bool: return sdf[i] < -0.05
+	for pass_ in 3:
+		for axis in 2:
+			var step := 1 if axis == 0 else hx
+			for iz in range(3, hz - 3):
+				for ix in range(3, hx - 3):
+					var i := ix + iz * hx
+					if not floor_of.call(i):
+						continue
+					var x := origin.x + ix * RES
+					var z := origin.y + iz * RES
+					var c := Vector2i(int(floor(x / cell)), int(floor(z / cell)))
+					if flooded.has(c):
+						continue
+					var best := -INF
+					for d in range(1, 4):
+						var a := i - d * step
+						var b := i + d * step
+						if not (floor_of.call(a) and floor_of.call(b)):
+							break
+						best = maxf(best, minf(vis_h[a], vis_h[b]))
+					if best > vis_h[i] + 0.12:
+						vis_h[i] = best - 0.04
+						troughs_filled += 1
+
+
 func _cut_ramps() -> void:
 	for r: Dictionary in ramps:
 		var c: Vector2i = r.cell
