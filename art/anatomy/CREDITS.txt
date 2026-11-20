@@ -1,0 +1,26 @@
+Anatomy meshes in art/anatomy (head.glb, neck.glb, chest.glb, belly.glb,
+pelvis.glb, joints.glb) are built from two CC BY 4.0 sources by the scripts in
+art/anatomy/source/ (joined, welded, decimated, cut and fitted to each body).
+They are derived works under the same terms; the attribution below must ship
+with the game (credits screen or bundled notice).
+
+1. BodyParts3D
+   BodyParts3D, (c) The Database Center for Life Science, licensed under
+   CC Attribution 4.0 International (https://creativecommons.org/licenses/by/4.0/).
+   https://dbarchive.biosciencedbc.jp/en/bodyparts3d/
+   Used: skull, mandible, teeth, brain, vertebrae, ribs, sternum, costal
+   cartilage, clavicles, intervertebral disks, hip bones, sacrum, stomach,
+   colon, kidneys, muscles of the trunk, oesophagus; humerus, radius, ulna,
+   femur, tibia and fibula (joints.glb).
+   Read via the human-atlas packing (github.com/ashemag/human-atlas).
+
+2. HuBMAP CCF 3D Reference Object Library (Human Reference Atlas)
+   Licensed under CC BY 4.0. Visible Human male models by Kristen Browne
+   and Heidi Schlehlein. https://github.com/hubmapconsortium/ccf-releases (v1.3)
+   Used: heart (VH_M_Heart), lungs (VH_M_Lung), liver (VH_M_Liver),
+   small intestine (VH_M_Small_Intestine).
+
+Changes made: geometry merged per region, decimated, smoothed, re-scaled and
+placed on game skeletons, long bones cut and splintered with filled ends.
+Textures in art/anatomy/tex are original (procedural, make_textures.py).
+The hanging bowel link (ClownAnatomy.gut_link) is procedural geometry.

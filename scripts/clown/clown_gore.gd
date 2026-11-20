@@ -37,6 +37,10 @@ var _spurts: Array = []         # {bone, local, dir, left, next}
 var _tunnels: Array[Vector4] = []      # rest-space point + radius
 var _tunnel_dirs: Array[Vector4] = []  # rest-space direction + reach
 var _innards := {}              # region -> Node3D of exposed insides, shown once blown open
+## The old insides made of boxes and spheres instead of the real anatomy
+## (ClownAnatomy): kept only to compare against.
+static var procedural_innards := false
+var _anat_mats: Array[ShaderMaterial] = []      # this body's anatomy: they carry its wounds
 var _gutted := false
 var _smear_last := {}           # bone -> last point smeared on a wall
 var _bleeding := false
@@ -224,7 +228,7 @@ func _throw_chunks(pos: Vector3, dir: Vector3, count: int, skull: bool) -> void:
 func _hang_guts(pb: PhysicsBody3D, world_pos: Vector3, out: Vector3, links: int = 6, keep: bool = false) -> void:
 	var prev: PhysicsBody3D = pb
 	var at := world_pos + out * 0.04
-	var mesh := _cable_mesh() if clown.mechanical else _gut_mesh()
+	var mesh: Mesh = _cable_mesh() if clown.mechanical else (ClownAnatomy.gut_link() if _anatomy_bones() else _gut_mesh())
 	for i in links:
 		var link := GoreBit.make(mesh, 0.018 if clown.mechanical else 0.024, 0.08, 0.1)
 		link.oil = clown.mechanical
@@ -255,6 +259,16 @@ func _show_innards(region: StringName) -> void:
 		return
 	if clown.mechanical:
 		_show_machinery(region)
+		return
+	if not procedural_innards and ClownAnatomy.has_fit(clown.body):
+		var holders: Array = []
+		for part: String in ClownAnatomy.SHOWS[region]:
+			var made := ClownAnatomy.build(clown.skeleton, clown.body, part)
+			holders.append(made[0])
+			for m: ShaderMaterial in made[1]:
+				_anat_mats.append(m)
+		_innards[region] = holders[0]
+		_push_wounds()
 		return
 	var skel := clown.skeleton
 	var bone := {&"head": "Head", &"chest": "Chest", &"belly": "Spine"}[region] as String
@@ -511,7 +525,7 @@ func _push_wounds() -> void:
 	while pos.size() < MAX_WOUNDS:
 		pos.append(Vector4.ZERO)
 		fx.append(Vector4.ZERO)
-	for sm in _materials:
+	for sm in _materials + _anat_mats:
 		sm.set_shader_parameter("wound_count", _wound_pos.size())
 		sm.set_shader_parameter("wounds", pos)
 		sm.set_shader_parameter("wound_fx", fx)
@@ -647,7 +661,9 @@ func show_broken_knee(side: String) -> void:
 		var holder := Node3D.new()
 		att.add_child(holder)
 		holder.transform = skel.get_bone_global_rest(skel.find_bone(pair[0])).affine_inverse()
-		if pair[1]:
+		if _anatomy_bones():
+			_broken_knee_bones(holder, side, s, knee, pair[1])
+		elif pair[1]:
 			# femur end: driven forward and down out through the front of the knee
 			var p0 := knee + Vector3(s * 0.01, 0.07, -0.01)
 			var p1 := knee + Vector3(s * 0.025, -0.045, 0.17)
@@ -678,6 +694,31 @@ func show_broken_knee(side: String) -> void:
 	set_process(true)
 	set_physics_process(true)
 	_bleeding = true
+
+
+## The knee's real bones, out of place: the end of the femur driven forward
+## out through the front, the condyles first; the shin snapped below its top,
+## the splintered end out through the side. Raw meat round both.
+func _broken_knee_bones(holder: Node3D, side: String, s: float, knee: Vector3, femur: bool) -> void:
+	var mats := ClownAnatomy.exposed_materials()
+	if femur:
+		var length := _bone_length(side, "Femur")
+		var joint := knee + Vector3(s * 0.02, -0.015, 0.11)
+		var mi := ClownAnatomy.piece_node(side + "Femur_Dist", joint, knee + Vector3(s * 0.005, 0.35, -0.04), length, 0.06, mats)
+		if mi:
+			holder.add_child(mi)
+		_part(holder, _chunk_mesh(false), ClownAnatomy.exposed("muscle"), knee + Vector3(s * 0.015, 0.0, 0.075), Vector3(0.05, 0.05, 0.04) * 33.0)
+	else:
+		var length := _bone_length(side, "Shin")
+		var info := ClownAnatomy.piece(side + "Shin_Prox")
+		var p1 := knee + Vector3(s * 0.12, -0.04, 0.06)
+		var from := knee + Vector3(s * 0.01, -0.03, 0.0)
+		var dir := (p1 - from).normalized()
+		var reach: float = info.get("kept", 0.1) * length / maxf(info.get("length", 0.38), 0.01)
+		var mi := ClownAnatomy.piece_node(side + "Shin_Prox", p1 - dir * reach, p1, length, 0.05, mats)
+		if mi:
+			holder.add_child(mi)
+		_part(holder, _chunk_mesh(false), ClownAnatomy.exposed("muscle"), knee + Vector3(s * 0.07, -0.06, 0.03), Vector3(0.045, 0.05, 0.04) * 33.0)
 
 
 ## A length of bone running from `a` to `b` (rest space of the holder).
@@ -741,6 +782,8 @@ func sever(bone: StringName, impulse: Vector3) -> void:
 		_mech_gib(gib, s)
 		clown.get_parent().add_child(gib)
 		gib.global_transform = xf
+		if i == 0:
+			_gib_bone(gib, s, src)
 		part_severed.emit(s, gib)
 		if pb and clown.ragdoll.active:
 			gib.linear_velocity = PhysicsServer3D.body_get_state(pb.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY)
@@ -748,6 +791,8 @@ func sever(bone: StringName, impulse: Vector3) -> void:
 		gib.apply_torque_impulse(Vector3(_rng.randf_range(-1, 1), _rng.randf_range(-1, 1), _rng.randf_range(-1, 1)) * gib.mass * 0.12)
 		removed.append(bone_name)
 		spawned.append(gib)
+	if not removed.is_empty():
+		_stump_bone(parts[0], gib_scene)
 	gib_scene.free()
 	_no_self_collide(spawned)
 	clown.ragdoll.remove_bones(removed)
@@ -773,6 +818,101 @@ func _no_self_collide(gibs: Array) -> void:
 	for a in gibs.size():
 		for b in range(a + 1, gibs.size()):
 			(gibs[a] as PhysicsBody3D).add_collision_exception_with(gibs[b])
+
+
+## Real bone ends at a cut (ClownAnatomy joint pieces, BodyParts3D): the end of
+## the bone above poking out of the stump, the top of the bone below out of the
+## severed limb. Not on clockwork bodies or with the old procedural innards.
+func _anatomy_bones() -> bool:
+	return not clown.mechanical and not procedural_innards and ClownAnatomy.has_fit(clown.body)
+
+
+func _bone_length(side: String, piece: String) -> float:
+	var skel := clown.skeleton
+	var span: Array = ClownAnatomy.SPANS[piece.get_slice("_", 0)]
+	var a := skel.find_bone(side + span[0])
+	var b := skel.find_bone(side + span[1])
+	if a < 0 or b < 0:
+		return 0.3
+	return skel.get_bone_global_rest(a).origin.distance_to(skel.get_bone_global_rest(b).origin)
+
+
+func _limb_radius(gib_scene: Node, seg: String) -> float:
+	var src := gib_scene.get_node_or_null("Gib_" + seg) as MeshInstance3D
+	if src == null:
+		return 0.04
+	var sz := src.mesh.get_aabb().size
+	var v := [sz.x, sz.y, sz.z]
+	v.sort()
+	return v[1] * 0.5
+
+
+func _stump_bone(seg: StringName, gib_scene: Node) -> void:
+	if not _anatomy_bones():
+		return
+	var s := String(seg)
+	if s == "Head":
+		_neck_stump()
+		return
+	var side := "Left" if s.begins_with("Left") else "Right"
+	var piece: String = ClownAnatomy.STUMP_PIECE.get(s.trim_prefix(side), "")
+	if piece == "":
+		return
+	var skel := clown.skeleton
+	var parent := String(_stump_parent(seg))
+	var joint: Vector3 = skel.get_bone_global_rest(skel.find_bone(s)).origin
+	var top: Vector3 = skel.get_bone_global_rest(skel.find_bone(parent)).origin
+	var dir := (joint - top).normalized()
+	var att := BoneAttachment3D.new()
+	att.bone_name = parent
+	skel.add_child(att)
+	var holder := Node3D.new()
+	att.add_child(holder)
+	holder.transform = skel.get_bone_global_rest(skel.find_bone(parent)).affine_inverse()
+	# the joint end stands a little proud of the cap
+	var mi := ClownAnatomy.piece_node(side + piece, joint + dir * 0.012, top, _bone_length(side, piece), _limb_radius(gib_scene, parent), ClownAnatomy.exposed_materials())
+	if mi:
+		holder.add_child(mi)
+
+
+func _gib_bone(gib: Gib, seg: StringName, src: MeshInstance3D) -> void:
+	if not _anatomy_bones():
+		return
+	var s := String(seg)
+	if s == "Head":
+		return
+	var side := "Left" if s.begins_with("Left") else "Right"
+	var piece: String = ClownAnatomy.GIB_PIECE.get(s.trim_prefix(side), "")
+	if piece == "":
+		return
+	var skel := clown.skeleton
+	var span: Array = ClownAnatomy.SPANS[piece.get_slice("_", 0)]
+	var joint: Vector3 = skel.get_bone_global_rest(skel.find_bone(side + span[0])).origin
+	var below: Vector3 = skel.get_bone_global_rest(skel.find_bone(side + span[1])).origin
+	var sz := src.mesh.get_aabb().size
+	var v := [sz.x, sz.y, sz.z]
+	v.sort()
+	# the gib's own space is rest space less the piece's offset
+	var mi := ClownAnatomy.piece_node(side + piece, joint - src.position - (below - joint).normalized() * 0.012, below - src.position,
+		_bone_length(side, piece), v[1] * 0.5, ClownAnatomy.exposed_materials())
+	if mi:
+		gib.add_child(mi)
+
+
+## The head off: the neck's vertebrae standing out of the top of the trunk.
+func _neck_stump() -> void:
+	var skel := clown.skeleton
+	var built: Array = ClownAnatomy.build(skel, clown.body, "neck")
+	if built.is_empty():
+		return
+	# the neck bone went with the head: the trunk carries it
+	var holder: Node3D = built[0]
+	(holder.get_parent() as BoneAttachment3D).bone_name = &"Chest"
+	holder.transform = skel.get_bone_global_rest(skel.find_bone(&"Chest")).affine_inverse() * ClownAnatomy.fit(clown.body, "neck")
+	for m: ShaderMaterial in built[1]:
+		m.set_shader_parameter("show_all", true)
+		m.set_shader_parameter("breaks", false)
+		m.set_shader_parameter("blood_amount", 0.6)
 
 
 func _stump_parent(seg: StringName) -> StringName:
@@ -1055,6 +1195,18 @@ func show_broken_arm(side: String) -> void:
 		C.span(holder, C.mat("steel"), p0, p1, 0.016)
 		C.part(holder, C.shard(2), C.mat("steel"), p1, Vector3.ONE * 0.022, Vector3(0.3, 0.5, 0))
 		C.cable(holder, C.mat("wire_red"), mid, mid + out * 0.05 - along * 0.05, 0.02, 0.005)
+	elif _anatomy_bones():
+		# the forearm snapped midway: the top half's splintered end out through the skin
+		var elbow_up := elbow - along * 0.0
+		var piece := side + "Forearm_Prox"
+		var info := ClownAnatomy.piece(piece)
+		var length := _bone_length(side, "Forearm")
+		var dir := (p1 - elbow_up).normalized()
+		var reach: float = info.get("kept", 0.07) * length / maxf(info.get("length", 0.24), 0.01)
+		var mi := ClownAnatomy.piece_node(piece, p1 - dir * reach, p1, length, 0.035, ClownAnatomy.exposed_materials())
+		if mi:
+			holder.add_child(mi)
+		_part(holder, _chunk_mesh(false), ClownAnatomy.exposed("muscle"), mid + out * 0.03, Vector3(0.035, 0.03, 0.035) * 33.0)
 	else:
 		_part_between(holder, _mat("bone"), p0, p1, 0.02)
 		for k in 3:
