@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b1lllc8dopppd"
-path="res://.godot/imported/stick_grenade_grenade_handle.png-4ca1abbd0fcd4dd92a97f09d65f96410.ctex"
+path.s3tc="res://.godot/imported/stick_grenade_grenade_handle.png-4ca1abbd0fcd4dd92a97f09d65f96410.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "c242e1dc0f40a35f687c0e4a9e59b425"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://art/weapons/grenade/stick_grenade_grenade_handle.png"
-dest_files=["res://.godot/imported/stick_grenade_grenade_handle.png-4ca1abbd0fcd4dd92a97f09d65f96410.ctex"]
+dest_files=["res://.godot/imported/stick_grenade_grenade_handle.png-4ca1abbd0fcd4dd92a97f09d65f96410.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0
