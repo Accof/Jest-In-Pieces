@@ -1727,6 +1727,11 @@ func _overhaul() -> void:
 		if m.flooded.has(c) or m.bays.has(c) or m.top_cells.has(c):
 			continue
 		var p := m.cell_center(c)
+		if m.surface_at(p) != "mud":
+			continue                       # (puddles under the duckboards don't show)
+		var upq := PhysicsRayQueryParameters3D.create(p + Vector3.UP * 0.5, p + Vector3.UP * 8.0, 1)
+		if not get_viewport().world_3d.direct_space_state.intersect_ray(upq).is_empty():
+			continue                       # (nor under a roof)
 		var sum := 0.0
 		for dz in range(-4, 5):
 			for dx in range(-4, 5):

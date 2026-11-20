@@ -820,12 +820,24 @@ func _dugout(l: Dictionary) -> void:
 		for u in [0.15, 0.5, 0.85]:
 			for v in [0.15, 0.5, 0.85]:
 				top_floor = maxf(top_floor, maze.floor_height(Vector3((c.x + u) * maze.cell, 0, (c.y + v) * maze.cell)))
+	# and up to the ground round it, so the earth walls (which lean back as
+	# they rise) meet the roof instead of showing daylight between
+	var ground := INF
+	for c in cells:
+		for dir in Maze.DIRS:
+			var n: Vector2i = c + dir
+			if not maze.open_cells.has(n):
+				ground = minf(ground, maze.floor_height(Vector3((n.x + 0.5) * maze.cell, 0, (n.y + 0.5) * maze.cell)))
 	var roof_y := top_floor + 2.3
-	var size := hi - lo + Vector2(0.4, 0.4)
+	if ground < INF:
+		roof_y = clampf(ground - 0.1, roof_y, top_floor + 3.0)
+	# out past the room's floor into the earth all round: the walls lean back
+	# as they rise, and a roof cut to the floor left daylight down the sides
+	var size := hi - lo + Vector2(1.4, 1.4)
 	# beams across, iron over them, bags on top
 	var n := int(size.x / 0.45)
 	for i in n:
-		var x := lo.x - 0.2 + (i + 0.5) * size.x / n
+		var x := lo.x - 0.7 + (i + 0.5) * size.x / n
 		_box("dug_beams", timber, Vector3(x, roof_y, mid.y), Basis(), Vector3(0.14, 0.16, size.y))
 	_box("dug_iron", iron, Vector3(mid.x, roof_y + 0.1, mid.y), Basis(), Vector3(size.x, 0.03, size.y))
 	var bag := _mat("burlap", 0.5)
@@ -833,11 +845,25 @@ func _dugout(l: Dictionary) -> void:
 	for r in 2:
 		for i in int(size.x / 0.5):
 			for j in int(size.y / 0.32):
-				var p := Vector3(lo.x - 0.1 + (i + 0.5) * 0.5 + (0.25 if j % 2 else 0.0), roof_y + 0.18 + r * 0.13, lo.y - 0.1 + (j + 0.5) * 0.32)
-				if p.x > hi.x + 0.15:
+				var p := Vector3(lo.x - 0.6 + (i + 0.5) * 0.5 + (0.25 if j % 2 else 0.0), roof_y + 0.18 + r * 0.13, lo.y - 0.6 + (j + 0.5) * 0.32)
+				if p.x > hi.x + 0.65:
 					continue
 				_add("bags", mesh, bag, Transform3D(Basis(Vector3.UP, rng.randf_range(-0.2, 0.2)), p))
 	_collide(Vector3(mid.x, roof_y + 0.12, mid.y), Basis(), Vector3(size.x, 0.3, size.y))
+	# boarded headers round the room under the roof's edge: where an earth
+	# wall leans back from the floor, they close the gap up to the roof
+	var hdr := 1.3
+	for side: Array in [[Vector2(lo.x, mid.y), Vector2(0, 1), hi.y - lo.y], [Vector2(hi.x, mid.y), Vector2(0, 1), hi.y - lo.y], [Vector2(mid.x, lo.y), Vector2(1, 0), hi.x - lo.x], [Vector2(mid.x, hi.y), Vector2(1, 0), hi.x - lo.x]]:
+		var at: Vector2 = side[0]
+		var along: Vector2 = side[1]
+		var out := Vector2(along.y, along.x) * signf((at - mid).dot(Vector2(along.y, along.x)))
+		# not across the door
+		var door_c := Vector2(l.entrance) * maze.cell + Vector2.ONE * maze.cell * 0.5
+		if (door_c - mid).dot(out) > 0.0 and absf((door_c - at).dot(along)) < (side[2] as float) * 0.5:
+			continue
+		var c3 := Vector3(at.x + out.x * 0.04, roof_y - hdr * 0.5, at.y + out.y * 0.04)
+		var sz := Vector3(0.06, hdr, side[2] + 0.2) if along.y != 0 else Vector3(side[2] + 0.2, hdr, 0.06)
+		_box("dug_beams", timber, c3, Basis(), sz)
 	# entrance frame where the stub meets it
 	var ent: Vector2i = l.entrance
 	var dir: Vector2i = l.dir
