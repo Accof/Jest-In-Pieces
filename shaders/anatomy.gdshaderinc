@@ -29,6 +29,12 @@ uniform float reveal_min = 0.08;         // ...and never less than this (m)
 uniform bool breaks = false;             // bone: broken away under the hole
 uniform bool show_all = false;           // drawn whole: a piece that sticks out of a stump or a break
 uniform float break_k = 0.95;            // how much of the hole's radius the bone is gone in
+// The channel a heavy hit tore through the body (a blast from its entry to
+// its exit, a hole punched clean through): every tissue inside it is gone,
+// organs too, so you see out the other side; what is round it is torn open.
+uniform int core_count = 0;
+uniform vec4 core_a[8];                  // xyz rest-space start, w radius (m)
+uniform vec4 core_b[8];                  // xyz rest-space end, w seed
 uniform vec3 blood_color : source_color = vec3(0.24, 0.008, 0.012);
 uniform float blood_amount = 0.35;       // a film of blood over everything inside
 
@@ -86,6 +92,23 @@ void fragment() {
 			}
 			edge = max(edge, 1.0 - smoothstep(r, r + 0.012, d));
 		}
+	}
+	for (int i = 0; i < core_count; i++) {
+		vec3 a = core_a[i].xyz;
+		vec3 ab = core_b[i].xyz - a;
+		float t = clamp(dot(rest_pos - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+		float off = distance(rest_pos, a + ab * t);
+		float r = core_a[i].w;
+		float sd = core_b[i].w;
+		float ragged = off + (noise3(rest_pos * 40.0 + sd) - 0.5) * r * 0.6 + (noise3(rest_pos * 130.0 + sd) - 0.5) * r * 0.25;
+		if (ragged < r) {
+			discard;
+		}
+		if (off < r * 2.2) {
+			seen = true;
+			close = max(close, 1.0 - off / (r * 2.2));
+		}
+		edge = max(edge, 1.0 - smoothstep(r, r + 0.015, ragged));
 	}
 	if (!seen && !show_all) {
 		discard;

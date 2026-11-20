@@ -138,7 +138,10 @@ func _run() -> void:
 	var crown: Vector3 = hit.position if not hit.is_empty() else head + Vector3.UP * 0.12
 	c.gore.blast(&"Neck", crown + fwd * 0.02, Vector3.DOWN, 0.06)
 	c._head_open = true
-	c.gore.blast(&"Chest", chest + fwd * 0.12, -fwd, 0.095)
+	if "--punch" in OS.get_cmdline_user_args():
+		c.gore.punch_through(&"Chest", chest + fwd * 0.12, -fwd, c.punch_radius)    # point-blank shotgun, clean through
+	else:
+		c.gore.blast(&"Chest", chest + fwd * 0.12, -fwd, 0.095)
 	c.gore.blast(&"Spine", belly + fwd * 0.12, -fwd, 0.09)
 	c.gore.show_broken_knee("Right")
 	c.gore.show_broken_arm("Right")

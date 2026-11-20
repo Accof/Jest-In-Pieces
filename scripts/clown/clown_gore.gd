@@ -37,6 +37,7 @@ var _spurts: Array = []         # {bone, local, dir, left, next}
 var _tunnels: Array[Vector4] = []      # rest-space point + radius
 var _tunnel_dirs: Array[Vector4] = []  # rest-space direction + reach
 var _innards := {}              # region -> Node3D of exposed insides, shown once blown open
+var _cores: Array = []          # [a, b]: rest-space Vector4s, the channels heavy hits tore through the anatomy
 ## The old insides made of boxes and spheres instead of the real anatomy
 ## (ClownAnatomy): kept only to compare against.
 static var procedural_innards := false
@@ -150,8 +151,9 @@ func punch_through(bone: StringName, world_pos: Vector3, dir: Vector3, radius: f
 	# but the middle is gone.
 	var region := &"chest" if bone == &"Chest" else &"belly"
 	_show_innards(region)
+	_add_core(rest_pos - rest_dir * 0.32, rest_pos + rest_dir * 0.32, radius)
 	var holder: Node3D = _innards[region]
-	for part in holder.get_children():
+	for part in (holder.get_children() if not _anat_region(holder) else []):
 		var d: Vector3 = (part as Node3D).position - rest_pos
 		var off := (d - rest_dir * d.dot(rest_dir)).length()
 		if off < radius * 1.25:
@@ -185,6 +187,12 @@ func punch_through(bone: StringName, world_pos: Vector3, dir: Vector3, radius: f
 func blast(bone: StringName, world_pos: Vector3, dir: Vector3, size: float) -> void:
 	var region := &"head" if bone == &"Neck" else (&"chest" if bone == &"Chest" else &"belly")
 	_show_innards(region)
+	# the channel it tore: organs and all, from the entry to (for the trunk) the exit
+	var rr := _rest_of(bone, world_pos, dir)
+	# (not in the head: a face or crown hole has no exit, and a channel there
+	# only empties the skull of what should show in it)
+	if region != &"head":
+		_add_core(rr[0] - rr[1] * 0.03, rr[0] + rr[1] * 0.24, size * 0.72)
 	_add_wound_entry(bone, world_pos, size * 1.15, size * 0.45, size)
 	if region != &"head":
 		# The shot carries on through: a second, smaller hole out the back.
@@ -519,6 +527,28 @@ func _physics_process(delta: float) -> void:
 		set_physics_process(false)
 
 
+## A point and a direction on `bone`, now, into the body's rest space.
+func _rest_of(bone: StringName, world_pos: Vector3, dir: Vector3) -> Array:
+	var skel := clown.skeleton
+	var idx := skel.find_bone(bone)
+	var back := skel.get_bone_global_rest(idx) * clown.ragdoll.bone_pose(idx).affine_inverse()
+	var p := back * (skel.global_transform.affine_inverse() * world_pos)
+	var d := (back.basis * (skel.global_transform.basis.inverse() * dir)).normalized()
+	return [p, d]
+
+
+func _anat_region(holder: Node3D) -> bool:
+	return String(holder.name).begins_with("Anatomy_")
+
+
+## Tear a channel through the anatomy (8 at most; the oldest goes first).
+func _add_core(a: Vector3, b: Vector3, radius: float) -> void:
+	_cores.append([Vector4(a.x, a.y, a.z, radius), Vector4(b.x, b.y, b.z, _rng.randf() * 50.0)])
+	if _cores.size() > 8:
+		_cores.pop_front()
+	_push_wounds()
+
+
 func _push_wounds() -> void:
 	var pos := _wound_pos.duplicate()
 	var fx := _wound_fx.duplicate()
@@ -529,6 +559,20 @@ func _push_wounds() -> void:
 		sm.set_shader_parameter("wound_count", _wound_pos.size())
 		sm.set_shader_parameter("wounds", pos)
 		sm.set_shader_parameter("wound_fx", fx)
+	if _anat_mats.is_empty():
+		return
+	var ca: Array[Vector4] = []
+	var cb: Array[Vector4] = []
+	for c: Array in _cores:
+		ca.append(c[0])
+		cb.append(c[1])
+	while ca.size() < 8:
+		ca.append(Vector4.ZERO)
+		cb.append(Vector4.ZERO)
+	for sm in _anat_mats:
+		sm.set_shader_parameter("core_count", _cores.size())
+		sm.set_shader_parameter("core_a", ca)
+		sm.set_shader_parameter("core_b", cb)
 
 
 # --- dismemberment ------------------------------------------------------------
