@@ -129,6 +129,7 @@ var misses := 0                                   ## tests
 var rounds := 47                                  ## left in the pan
 var bursts := 0                                   ## tests
 var shots_fired := 0                              ## tests
+var rounds_fired := 0                             ## tests: every round at the player
 var _lmg_t := 0.0                                 ## > 0 while a burst is going
 var _lmg_acc := 0.0
 var _backoff := -2.0              # > 0 while stepping back from a player too close; < 0 resting from it
@@ -992,6 +993,7 @@ func _burst_step(delta: float, dist: float) -> void:
 
 
 func _fire(dist: float) -> bool:
+	rounds_fired += 1
 	if debug_cover:
 		print("fire at %.1fm" % dist)
 	var from := clown.muzzle_position()

@@ -20,6 +20,12 @@ const PROFILES := {
 	"frag": {radius = 5.5, player_damage = 70.0, power = 0.75, fling = 0.55, shake = 0.75, light = 10.0, light_range = 10.0,
 		fire = 6, smoke = 12, dust = 14, sparks = 26, shards = 0, frags = 12, scorch = 2.2, chain = 0.6, noise_cells = 6,
 		weapon = "Stick Grenade", sound = "grenade_boom"},
+	# a field-gun shell landing out in No Man's Land (TrenchBattle's field):
+	# a grenade's burst, thrown wider; nobody in the trenches comes running
+	# (noise_cells < 0: no noise_at)
+	"shell": {radius = 6.0, player_damage = 60.0, power = 0.9, fling = 0.8, shake = 0.5, light = 12.0, light_range = 12.0,
+		fire = 8, smoke = 16, dust = 18, sparks = 30, shards = 0, frags = 14, scorch = 2.6, chain = 0.6, noise_cells = -1,
+		weapon = "Shell", sound = "grenade_boom"},
 }
 const LAYER_WORLD := 1
 const TEX := "res://art/level/"
@@ -121,7 +127,7 @@ func _go() -> void:
 				n.apply_central_impulse((to.normalized() + Vector3.UP * 0.6) * n.mass * 12.0 * s * float(profile.fling))
 	# every clown in earshot comes looking
 	var game := tree.get_first_node_in_group(&"game")
-	if game and game.has_method("noise_at"):
+	if game and game.has_method("noise_at") and int(profile.noise_cells) >= 0:
 		game.noise_at(global_position, int(profile.noise_cells))
 
 

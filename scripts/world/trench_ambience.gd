@@ -29,6 +29,8 @@ var tunes := 0
 
 var _wind: AudioStreamPlayer
 var _rumble: AudioStreamPlayer
+## The battle's pacing (TrenchBattle.calm): above 1 the guns go quieter.
+var calm := 1.0
 var _t_boom := 3.0
 var _t_mg := 8.0
 var _t_rifle := 4.0
@@ -101,13 +103,13 @@ func _process(delta: float) -> void:
 	_t_slosh -= delta
 	_t_whistle -= delta
 	if _t_boom <= 0.0:
-		_t_boom = rng.randf_range(5.0, 16.0)
+		_t_boom = rng.randf_range(5.0, 16.0) * calm
 		_shell(at)
 	if _t_mg <= 0.0:
-		_t_mg = rng.randf_range(9.0, 26.0)
+		_t_mg = rng.randf_range(9.0, 26.0) * calm
 		_far_sound("mg_far", at, rng.randf_range(120.0, 400.0), -14.0)
 	if _t_rifle <= 0.0:
-		_t_rifle = rng.randf_range(3.0, 10.0)
+		_t_rifle = rng.randf_range(3.0, 10.0) * calm
 		_far_sound("rifle_far", at, rng.randf_range(80.0, 300.0), -12.0)
 	if _t_creak <= 0.0:
 		_t_creak = rng.randf_range(8.0, 22.0)

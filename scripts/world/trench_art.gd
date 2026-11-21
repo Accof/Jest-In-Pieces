@@ -138,7 +138,7 @@ static func make_environment() -> Environment:
 	env.volumetric_fog_density = 0.0
 	env.volumetric_fog_albedo = Color(0.66, 0.7, 0.75)
 	env.volumetric_fog_ambient_inject = 0.85
-	env.volumetric_fog_anisotropy = 0.35
+	env.volumetric_fog_anisotropy = 0.55            # (stronger toward the light: figures out there against the glow)
 	env.volumetric_fog_length = 90.0
 	env.volumetric_fog_detail_spread = 2.0
 	env.volumetric_fog_sky_affect = 0.0
@@ -1161,6 +1161,11 @@ func height_at(x: float, z: float) -> float:
 	return lerpf(edge_h - 0.04, h, smoothstep(0.0, 25.0, Vector2(dx, dz).length()))
 
 
+## The wrecked sandbag posts out in No Man's Land (their middles, on the
+## ground): cover for the soldiers out there (TrenchBattle's field).
+var nml_posts: Array[Vector3] = []
+
+
 # --- materials for the clutter -----------------------------------------------------
 func _plain(key: String, col: Color, rough := 0.8, metal := 0.0) -> StandardMaterial3D:
 	if _mats.has(key):
@@ -1383,6 +1388,7 @@ func _horizon() -> void:
 	var burlap := _mat("burlap", 1.0)
 	for i in 3:
 		var c := Vector3(rng.randf_range(12.0, maze.w * maze.cell - 12.0), 0, rng.randf_range(-48.0, -16.0))
+		nml_posts.append(c)
 		var turn := rng.randf() * TAU
 		for k in 3:
 			if rng.randf() < 0.25:

@@ -125,6 +125,8 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _creak(1.1, rng)
 		"shout":                                  # a man calling out, muffled through a gas mask
 			data = _shout(0.62, rng)
+		"scream":                                 # a man screaming somewhere out there, through a mask
+			data = _scream(1.5, rng)
 		"bridge_step":                            # a boot on a footbridge's planks: a knock and a give
 			data = _mix(_thump(0.12, 210.0, 120.0, 0.03, 0.7, rng, 0.01, 0.35), _creak(0.25, rng))
 		# --- the revolver
@@ -441,6 +443,32 @@ static func _shout(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array
 		var v := y1 * 0.6 + y2 * 0.4
 		lp += (v - lp) * 0.3                     # the mask takes the top off
 		out[i] = lp * env * 0.5
+	return out
+
+
+## A long, rising, breaking scream: the voice pushed high and ragged (pitch
+## climbing then cracking, a fast waver), two formants, the mask dulling it.
+static func _scream(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var ph := 0.0
+	var b1 := [0.0, 0.0]
+	var b2 := [0.0, 0.0]
+	var lp := 0.0
+	var f0 := rng.randf_range(330.0, 420.0)
+	for i in n:
+		var t := float(i) / RATE
+		var u := t / len
+		var env := clampf(u * 12.0, 0.0, 1.0) * pow(1.0 - u, 0.6)
+		var crack := 1.0 + 0.35 * smoothstep(0.55, 0.62, u) - 0.25 * smoothstep(0.62, 0.9, u)
+		var f := f0 * (1.0 + 0.4 * sin(u * PI * 0.8)) * crack * (1.0 + 0.04 * sin(t * 38.0)) * (1.0 + rng.randf_range(-0.02, 0.02))
+		ph = fmod(ph + f / RATE, 1.0)
+		var src := (ph * 2.0 - 1.0) + rng.randf_range(-0.25, 0.25)
+		var y1 := _reson(src, 850.0, 7.0, b1)
+		var y2 := _reson(src, 1350.0, 9.0, b2)
+		lp += ((y1 * 0.6 + y2 * 0.4) - lp) * 0.35
+		out[i] = lp * env * 0.55
 	return out
 
 

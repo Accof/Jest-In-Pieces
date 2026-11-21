@@ -807,6 +807,7 @@ func _carve() -> void:
 			wet[i] = clampf(wetness, 0.0, 1.0)
 	_cut_ramps()
 	_fill_troughs()
+	_ease_digs()
 	col_h = vis_h.duplicate()
 	_bake_sky()
 	_ease_fire_steps()
@@ -1161,8 +1162,8 @@ func _lay_duckboards() -> void:
 		var dir := (e - a)
 		var length := Vector2(dir.x, dir.z).length()
 		var u := Vector2(dir.x, dir.z) / maxf(length, 0.001)
-		var lo := Vector2(minf(a.x, e.x), minf(a.z, e.z)) - Vector2.ONE * 0.6
-		var hi := Vector2(maxf(a.x, e.x), maxf(a.z, e.z)) + Vector2.ONE * 0.6
+		var lo := Vector2(minf(a.x, e.x), minf(a.z, e.z)) - Vector2.ONE * 1.2
+		var hi := Vector2(maxf(a.x, e.x), maxf(a.z, e.z)) + Vector2.ONE * 1.2
 		for iz in range(int((lo.y - origin.y) / RES), int((hi.y - origin.y) / RES) + 2):
 			for ix in range(int((lo.x - origin.x) / RES), int((hi.x - origin.x) / RES) + 2):
 				if ix < 0 or iz < 0 or ix >= hx or iz >= hz:
@@ -1172,10 +1173,14 @@ func _lay_duckboards() -> void:
 				var across := absf(p.dot(Vector2(-u.y, u.x)))
 				var beyond := absf(p.dot(u) - along)
 				var top := lerpf(a.y, e.y, along / maxf(length, 0.001))
-				var k := 1.0 - smoothstep(0.31, 0.5, across) * 1.0
-				k *= 1.0 - smoothstep(0.0, 0.25, beyond)
 				var i := ix + iz * hx
-				if k > 0.0:
+				# where the boards stand well above the mud round them (a deeper
+				# stretch alongside, a run's end over a dip) the walked surface
+				# eases down off them instead of dropping: no ledge to catch on
+				var lift := clampf((top - vis_h[i]) * 1.6, 0.0, 0.6)
+				var k := 1.0 - smoothstep(0.31, 0.5 + lift, across) * 1.0
+				k *= 1.0 - smoothstep(0.0, 0.25 + lift, beyond)
+				if k > 0.0 and sdf[i] < 0.0:
 					col_h[i] = maxf(col_h[i], lerpf(vis_h[i], top, k))
 					if across < 0.36 and beyond < 0.05:
 						vis_h[i] = minf(vis_h[i], top - 0.07)   # boards sit in the mud
@@ -1439,6 +1444,47 @@ func _fill_troughs() -> void:
 						troughs_filled += 1
 
 
+## Round the stretches dug out under the footbridges (and where a site was
+## dug but no bridge built) the floor drops 0.45-0.55 m from one cell to the
+## next: ease it so no slope there is steeper than a man walks without a step
+## (about 24 degrees). Only near the digs; never a fire bay, a ramp or a
+## flooded stretch.
+func _ease_digs() -> void:
+	if bridge_sites.is_empty():
+		return
+	var near := {}
+	for site: Vector2i in bridge_sites:
+		for dz in range(-2, 3):
+			for dx in range(-3, 4):
+				near[site + Vector2i(dx, dz)] = true
+	var idxs := PackedInt32Array()
+	for iz in range(1, hz - 1):
+		for ix in range(1, hx - 1):
+			var i := ix + iz * hx
+			if sdf[i] > -0.05:
+				continue
+			var x := origin.x + ix * RES
+			var z := origin.y + iz * RES
+			var c := Vector2i(int(floor(x / cell)), int(floor(z / cell)))
+			if not near.has(c) or bays.has(c) or flooded.has(c) or not ramp_at(Vector3(x, 0, z)).is_empty():
+				continue
+			idxs.append(i)
+	var ok := {}
+	for i in idxs:
+		ok[i] = true
+	var lim := 0.09
+	for pass_ in 10:
+		for i in idxs:
+			for j in [i + 1, i + hx]:
+				if not ok.has(j):
+					continue
+				var d: float = vis_h[i] - vis_h[j]
+				if absf(d) > lim:
+					var adj: float = (absf(d) - lim) * 0.5 * signf(d)
+					vis_h[i] -= adj
+					vis_h[j] += adj
+
+
 func _cut_ramps() -> void:
 	for r: Dictionary in ramps:
 		var c: Vector2i = r.cell
@@ -1673,18 +1719,25 @@ func _build_trench_world() -> void:
 	cs.position = Vector3(origin.x + (hx - 1) * RES * 0.5, 0.0, origin.y + (hz - 1) * RES * 0.5)
 	cs.scale = Vector3(RES, 1.0, RES)
 	body.add_child(cs)
-	# the edge of the world: the carved ground ends MARGIN past the grid (the far
-	# scenery beyond has no collision); a wall there keeps the player in
+	# the edge of the world: the carved ground ends MARGIN past the grid; a wall
+	# there keeps the player in. It stops the player only (LAYER_RAMP): rounds,
+	# grenades and bodies go on out over No Man's Land (TrenchBattle's field
+	# gives the ground out there its own collision)
+	var edge := StaticBody3D.new()
+	edge.name = "Edge"
+	edge.collision_layer = LAYER_RAMP
+	edge.collision_mask = 0
+	add_child(edge)
 	var lo := Vector3(origin.x, 0, origin.y)
 	var hi := Vector3(origin.x + (hx - 1) * RES, 0, origin.y + (hz - 1) * RES)
 	for side: Array in [[Vector3(lo.x, 0, (lo.z + hi.z) * 0.5), Vector3(0.4, 12, hi.z - lo.z)], [Vector3(hi.x, 0, (lo.z + hi.z) * 0.5), Vector3(0.4, 12, hi.z - lo.z)],
 			[Vector3((lo.x + hi.x) * 0.5, 0, lo.z), Vector3(hi.x - lo.x, 12, 0.4)], [Vector3((lo.x + hi.x) * 0.5, 0, hi.z), Vector3(hi.x - lo.x, 12, 0.4)]]:
-		var wall_cs := CollisionShape3D.new()
 		var bx := BoxShape3D.new()
 		bx.size = side[1]
+		var wall_cs := CollisionShape3D.new()
 		wall_cs.shape = bx
 		wall_cs.position = side[0]
-		body.add_child(wall_cs)
+		edge.add_child(wall_cs)
 	var art := TrenchArt.new()
 	art.name = "Art"
 	add_child(art)

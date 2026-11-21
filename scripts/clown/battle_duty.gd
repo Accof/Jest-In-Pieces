@@ -20,9 +20,31 @@ extends Node
 ## place he called, not for where the player is now. That call is passed on
 ## once at most.
 
-enum Kind { FRONTLINE, GUARD, RUNNER, PATROL }
+##   TOP_RIFLE  up on the open ground in front of the fire trench, behind what
+##              cover there is: kneels, comes up to fire out across No Man's
+##              Land. Seen from the fire step and from the trench below.
+##   SENTRY     up on the top where he can see down a trench or over a stretch
+##              of ground: watches, turning slowly.
+##   MARKSMAN   up on the top well away from the start, watching: when he can
+##              see the player's head (the fire step, a ramp, the top, a
+##              bridge) for long enough he fires, a carefully aimed round every
+##              few seconds, the flash and the crack showing where he is. He
+##              misses more than he hits at range. Close in, or hit, he fights
+##              like any other.
+##   TRENCH_PATROL  walks a beat of three or four places along the trenches,
+##              round the bends, stopping to listen.
+enum Kind { FRONTLINE, GUARD, RUNNER, PATROL, TOP_RIFLE, SENTRY, MARKSMAN, TRENCH_PATROL }
 
-const NAMES := ["frontline", "guard", "runner", "patrol"]
+const NAMES := ["frontline", "guard", "runner", "patrol", "top_rifle", "sentry", "marksman", "trench_patrol"]
+
+## MARKSMAN: how far he will shoot, how long he must see the head first, the
+## wait between rounds, the damage of a hit, and his chance (at 0 m, lost per
+## metre, the least).
+const MARK_RANGE := 75.0
+const MARK_NOTICE := 1.6
+const MARK_GAP := Vector2(4.0, 7.0)
+const MARK_DAMAGE := 14.0
+const MARK_CHANCE := Vector3(0.42, 0.005, 0.1)
 
 var kind := Kind.GUARD
 ## Where he stands (FRONTLINE, GUARD) and which way he faces.
@@ -45,6 +67,22 @@ var legs := 0              ## RUNNER/PATROL: route legs finished
 var shouted := 0
 var told_hops := 0         ## set by whoever told him (0: saw it himself)
 var returned := 0          ## times he took up his duty again after an alert
+## The second man of a pair on a beat: walks a step or two behind `leader`.
+## Sent across the player's way (TrenchBattle._encounter): the places to
+## walk through first, then back to his duty.
+var detour: Array[Vector3] = []
+var crossed := 0
+var leader: BattleDuty = null
+var follower: BattleDuty = null
+## MARKSMAN: other places he could watch from (TrenchBattle picks the one with
+## the most ground in view once the world's collision is in place).
+var candidates: Array = []
+var view := -1             ## MARKSMAN: how many of the sampled places he can see
+var follow_delay := 0.0
+var mark_shots := 0        ## MARKSMAN: rounds at the player
+var mark_hits := 0
+var _spot := 0.0           # MARKSMAN: how long he has had the player's head in view
+var _sweep := 0.0
 
 var _leg := 0
 var _wait := 0.0
@@ -79,9 +117,9 @@ func attach(b: ClownBrain) -> void:
 ## guard is listening for it.
 func hearing_bonus() -> int:
 	match kind:
-		Kind.FRONTLINE:
+		Kind.FRONTLINE, Kind.TOP_RIFLE:
 			return -2
-		Kind.GUARD:
+		Kind.GUARD, Kind.SENTRY, Kind.TRENCH_PATROL:
 			return 1
 	return 0
 
@@ -98,15 +136,39 @@ func tick(delta: float) -> bool:
 		_on_duty_senses()
 		_phase = 0
 		_t = 0.0
+	if not detour.is_empty():
+		if _flat(detour[0] - clown.global_position).length() < 0.5:
+			detour.remove_at(0)
+			if detour.is_empty():
+				crossed += 1
+		else:
+			_walk_to(detour[0], delta, brain.move_speed * (0.75 if kind == Kind.RUNNER else 0.6))
+			# not getting there: give it up
+			if _last_pos != Vector3.INF and clown.global_position.distance_to(_last_pos) < 0.2 * delta:
+				_stuck += delta
+			else:
+				_stuck = maxf(_stuck - delta, 0.0)
+			_last_pos = clown.global_position
+			if _stuck > 5.0:
+				_stuck = 0.0
+				detour.clear()
+			return true
 	match kind:
-		Kind.FRONTLINE:
+		Kind.FRONTLINE, Kind.TOP_RIFLE:
 			_frontline(delta)
-		Kind.GUARD:
+		Kind.GUARD, Kind.SENTRY:
 			_guard(delta)
 		Kind.RUNNER:
 			_travel(delta, brain.run_speed * 0.8, 2.5, 6.0)
 		Kind.PATROL:
 			_travel(delta, brain.move_speed * 0.42, 3.0, 8.0)
+		Kind.TRENCH_PATROL:
+			if leader != null and is_instance_valid(leader) and is_instance_valid(leader.clown) and not leader.clown.dead and leader.brain.mind == ClownBrain.Mind.IDLE:
+				_follow(delta)
+			else:
+				_travel(delta, brain.move_speed * 0.4, 2.0, 6.0)
+		Kind.MARKSMAN:
+			_marksman(delta)
 	return true
 
 
@@ -128,6 +190,8 @@ func _frontline(delta: float) -> void:
 	match _phase:
 		0:  # resting below the parapet, now and then a glance along the trench
 			clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 2.5)
+			if kind == Kind.TOP_RIFLE:
+				clown.crouch_amount = move_toward(clown.crouch_amount, 1.0, delta * 2.0)     # down behind his cover
 			var look := face
 			if fmod(_t, 7.0) < 1.6:
 				look = face.rotated(Vector3.UP, 0.9 * signf(sin(_t * 0.37 + post.x)))
@@ -140,6 +204,7 @@ func _frontline(delta: float) -> void:
 				_pick_target()
 		1, 2:  # up over the parapet, picking a target out there
 			brain.sight_half_angle = 32.0
+			clown.crouch_amount = move_toward(clown.crouch_amount, 0.0, delta * 3.0)
 			brain._face(_aim_at - clown.global_position, delta, 5.0)
 			clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 3.0)
 			clown.aim_point = _aim_at
@@ -172,9 +237,76 @@ func _fire() -> void:
 	if not clown.has_rifle:
 		return
 	shots += 1
+	if brain.lmg:
+		# a Lewis gun: a short burst out across No Man's Land
+		for i in randi_range(4, 9):
+			get_tree().create_timer(i * 0.11).timeout.connect(_one_round)
+		return
+	_one_round()
+
+
+func _one_round() -> void:
+	if not is_instance_valid(clown) or clown.dead or brain.mind != ClownBrain.Mind.IDLE:
+		return
 	var from := clown.muzzle_position()
 	clown.fired()
-	brain._tracer(from, from + (_aim_at - from).normalized() * 60.0)
+	var spread := Vector3(randf_range(-1.5, 1.5), randf_range(-0.5, 0.8), 0)
+	brain._tracer(from, from + (_aim_at + spread - from).normalized() * 60.0)
+
+
+func _marksman(delta: float) -> void:
+	if _go_back(delta):
+		return
+	brain._settle(delta, false)
+	clown.attack_amount = 0.0
+	var pl := brain.player
+	var head := pl.global_position + Vector3.UP * 1.55
+	var eye := clown.global_position + Vector3.UP * 1.5
+	var to := head - eye
+	var d := to.length()
+	var in_cone := Vector3(face.x, 0, face.z).normalized().dot(Vector3(to.x, 0, to.z).normalized()) > cos(deg_to_rad(75.0))
+	var sees := d < MARK_RANGE and in_cone and brain._clear(eye, head)
+	if sees and d < 14.0:
+		brain.alert(pl.global_position)          # close: he fights like the rest
+		return
+	_spot = minf(_spot + delta, 6.0) if sees else maxf(_spot - delta * 0.6, 0.0)
+	_t -= delta
+	if _spot > MARK_NOTICE:
+		# on him: the rifle up, tracking him
+		brain._face(to, delta, 4.0)
+		clown.crouch_amount = move_toward(clown.crouch_amount, 0.3, delta * 2.0)
+		clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 3.0)
+		clown.aim_point = head
+		if _t <= 0.0 and sees and clown.aim_amount > 0.9:
+			_mark_fire(head, d)
+			_t = randf_range(MARK_GAP.x, MARK_GAP.y)
+	else:
+		# watching his ground: kneeling, the rifle half up, turning slowly
+		_t = maxf(_t, randf_range(1.0, 2.0))
+		clown.crouch_amount = move_toward(clown.crouch_amount, 0.6, delta * 1.5)
+		clown.aim_amount = move_toward(clown.aim_amount, 0.35, delta * 1.5)
+		_sweep += delta * 0.25
+		brain._face(face.rotated(Vector3.UP, sin(_sweep) * 0.6), delta, 1.2)
+
+
+func _mark_fire(head: Vector3, d: float) -> void:
+	if not clown.has_rifle:
+		return
+	mark_shots += 1
+	var from := clown.muzzle_position()
+	clown.fired()
+	# the crack carries a long way (where it came from is how you find him)
+	SfxSynth.play(clown, "rifle_shot", from, 4.0, randf_range(0.92, 1.05), 18.0, 220.0)
+	var pl := brain.player
+	var chance := clampf(MARK_CHANCE.x - d * MARK_CHANCE.y, MARK_CHANCE.z, MARK_CHANCE.x)
+	if pl.velocity.length() > 2.0:
+		chance *= 0.5
+	var end := head + Vector3(randf_range(-0.9, 0.9), randf_range(-0.3, 0.8), randf_range(-0.9, 0.9))
+	if randf() < chance:
+		mark_hits += 1
+		end = head
+		pl.take_damage(MARK_DAMAGE, (head - from).normalized())
+	brain._tracer(from, from + (end - from).normalized() * (d + 3.0))
 
 
 func _guard(delta: float) -> void:
@@ -199,6 +331,11 @@ func _travel(delta: float, speed: float, rest_min: float, rest_max: float) -> vo
 		if kind == Kind.PATROL:
 			brain._face(Vector3(0, 0, -1), delta, 1.5)    # looking out over No Man's Land
 		return
+	# leading a pair: wait for the other to catch up
+	if follower != null and is_instance_valid(follower) and is_instance_valid(follower.clown) and not follower.clown.dead and follower.brain.mind == ClownBrain.Mind.IDLE and follower.follow_delay <= 0.0:
+		if clown.global_position.distance_to(follower.clown.global_position) > 3.0:
+			brain._settle(delta)
+			return
 	if _flat(goal - clown.global_position).length() < 0.45:
 		legs += 1
 		_leg += 1
@@ -215,6 +352,23 @@ func _travel(delta: float, speed: float, rest_min: float, rest_max: float) -> vo
 	if _stuck > 6.0:
 		_stuck = 0.0
 		_leg += 1
+
+
+func _follow(delta: float) -> void:
+	var lc := leader.clown
+	var back := Vector3(lc.global_basis.z.x, 0, lc.global_basis.z.z).normalized()
+	var spot := lc.global_position - back * 1.3
+	if follow_delay > 0.0:
+		follow_delay -= delta
+		brain._settle(delta)
+		return
+	var gap := _flat(spot - clown.global_position).length()
+	if gap > 0.6:
+		# falling behind: hurry
+		_walk_to(spot, delta, brain.move_speed * (0.5 if gap < 2.5 else 0.95))
+	else:
+		brain._settle(delta)
+		brain._face(back, delta, 2.0)
 
 
 func _walk_to(to: Vector3, delta: float, speed: float) -> void:
@@ -241,10 +395,23 @@ func _on_duty_senses() -> void:
 		Kind.PATROL:
 			brain.sight_half_angle = 60.0
 			brain.sight_range = maxf(float(_senses.sight_range), 20.0)
+		Kind.TOP_RIFLE:
+			brain.sight_half_angle = 40.0
+			brain.sense_range = 1.2
+		Kind.SENTRY:
+			brain.sight_half_angle = 80.0
+			brain.sense_range = 2.5
+			brain.sight_range = maxf(float(_senses.sight_range), 22.0)
+		Kind.MARKSMAN:
+			brain.sight_half_angle = 60.0
+		Kind.TRENCH_PATROL:
+			brain.sight_half_angle = 60.0
+			brain.sense_range = 2.0
 
 
 func _on_alerted(where: Vector3, firsthand: bool) -> void:
 	_was_alert = true
+	detour.clear()
 	for k: String in _senses:
 		brain.set(k, _senses[k])
 	clown.crouch_amount = 0.0
