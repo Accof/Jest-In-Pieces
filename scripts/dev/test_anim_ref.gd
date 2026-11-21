@@ -23,19 +23,20 @@ func _check(ok: bool, what: String) -> void:
 
 
 ## Which clip should be carrying each state.
-const EXPECT := {"walk": "run", "walk_slow": "walk", "run": "run", "walk_back": "walk_back", "stand": "stand", "aim": "stand", "crouch_idle": "kneel", "crouch_walk": "crouch_walk",
-		"crouch_run": "crouch_run", "strafe_left": "strafe", "strafe_right": "strafe", "turn_right": "turn",
-		"turn_slow": "turn", "kneel_hit": "kneel", "cower": "cower", "crouch_turn": "turn"}
+const EXPECT := {"crouch_strafe": ["cwalk8"], "crouch_back": ["cwalk8"], "turn_about": ["turn"], "diag_fl": ["walk8"], "diag_br": ["walk8"], "walk": ["walk8"], "walk_slow": ["walk"], "run": ["run8"], "walk_back": ["walk8"],
+		"stand": ["stand", "idle"], "aim": ["stand", "idle_aim"], "crouch_idle": ["kneel"], "crouch_walk": ["cwalk8"],
+		"crouch_run": ["crun4"], "strafe_left": ["walk8"], "strafe_right": ["walk8"], "turn_right": ["turn", "turn90_right", "turn180_right"],
+		"turn_slow": ["turn", "turn90_right"], "kneel_hit": ["kneel"], "cower": ["cower"], "crouch_turn": ["turn", "crouch_turn90_right"]}
 
 
 func _check_weights(state: String, w: Dictionary) -> void:
 	if EXPECT.has(state):
-		var want: String = EXPECT[state]
+		var wants: Array = EXPECT[state]
 		var best := ""
 		for k: String in w:
 			if k != "share" and (best == "" or float(w[k]) > float(w[best])):
 				best = k
-		_check(best == want and float(w.get("share", 0.0)) > 0.9, "%s: carried by the %s clip (%s %.2f, share %.2f)" % [state, want, best, float(w.get(best, 0.0)), float(w.get("share", 0.0))])
+		_check(wants.has(best) and float(w.get("share", 0.0)) > 0.9, "%s: carried by the %s clips (%s %.2f, share %.2f)" % [state, wants[0], best, float(w.get(best, 0.0)), float(w.get("share", 0.0))])
 
 const MAP := {
 	"Hips": "Hips", "Spine": "Spine", "Chest": "Spine2", "Neck": "Neck", "Head": "Head",
@@ -83,7 +84,7 @@ func _record(secs: float, film: String = "") -> Array:
 			fr["world_" + foot] = [wp.x, wp.y, wp.z]
 		out.append(fr)
 		if film != "" and cam and k % 3 == 0:
-			var side_dir := s.global_basis.x if not film.begins_with("strafe") else s.global_basis.z
+			var side_dir := s.global_basis.x if not (film.begins_with("strafe") or film == "crouch_strafe") else s.global_basis.z
 			cam.global_position = s.global_position + side_dir * 3.4 + Vector3.UP * 1.0
 			cam.look_at(s.global_position + Vector3.UP * 0.8)
 			await get_tree().process_frame
@@ -136,6 +137,13 @@ func _run() -> void:
 		["walk_slow", Vector3(0, 0, 1.4), 0.47, 0.0, 0.0, 0.0, 0.0, 2.0],
 		["walk", Vector3(0, 0, 3.0), 1.0, 0.0, 0.0, 0.0, 0.0, 2.0],
 		["walk_back", Vector3(0, 0, -1.2), 0.4, 0.0, 0.0, 0.0, 0.0, 2.0],
+		["diag_fl", Vector3(1.4, 0, 1.4), 0.66, 0.0, 0.0, 0.0, 0.0, 2.0],
+		["crouch_strafe", Vector3(1.3, 0, 0), 0.43, 0.0, 0.7, 0.0, 0.0, 2.0],
+		["crouch_back", Vector3(0, 0, -1.3), 0.43, 0.0, 0.7, 0.0, 0.0, 2.0],
+		["turn_about", Vector3.ZERO, 0.0, 0.0, 0.0, 0.0, -2.4, 1.3],
+		["kneel_cycle", Vector3.ZERO, 0.0, 0.0, 0.0, 0.0, 0.0, 3.0],
+		["dodge_film", Vector3.ZERO, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0],
+		["diag_br", Vector3(-1.0, 0, -1.0), 0.47, 0.0, 0.0, 0.0, 0.0, 2.0],
 		["run", Vector3(0, 0, 5.4), 1.0, 1.0, 0.0, 0.0, 0.0, 2.0],
 		["crouch_idle", Vector3.ZERO, 0.0, 0.0, 1.0, 0.0, 0.0, 3.0],
 		["crouch_walk", Vector3(0, 0, 1.8), 0.6, 0.0, 0.7, 0.0, 0.0, 2.0],
@@ -173,11 +181,23 @@ func _run() -> void:
 			t.tween_property(s, "rotation:y", s.rotation.y + float(p[6]) * float(p[7]), float(p[7]))
 		if p[0] == "cower":
 			s.cower = true
+		if p[0] == "turn_about":
+			s.turn_goal = -PI
+		if p[0] == "kneel_cycle":
+			var tk := create_tween()
+			tk.set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
+			tk.tween_interval(0.3)
+			tk.tween_property(s, "crouch_amount", 1.0, 0.8)
+			tk.tween_interval(0.9)
+			tk.tween_property(s, "crouch_amount", 0.0, 0.8)
+		if p[0] == "dodge_film":
+			get_tree().create_timer(0.3).timeout.connect(func() -> void: s.dodge(1.0))
 		if p[0] in ["kneel_hit", "hit"]:
 			get_tree().create_timer(0.3).timeout.connect(func() -> void:
 				s._flinch_from(s.global_position + Vector3.UP * 1.3 + s.global_basis.z * 0.2, -s.global_basis.z, 40.0))
 		rec = await _record(p[7], p[0] if film else "")
 		s.cower = false
+		s.turn_goal = 0.0
 		states[p[0]] = {"frames": rec, "length": p[7], "speed": (p[1] as Vector3).length(), "weights": s.clip_weights.duplicate()}
 		_check_weights(p[0], s.clip_weights)
 		print("recorded %s: %d frames" % [p[0], rec.size()])
@@ -185,6 +205,40 @@ func _run() -> void:
 		vel = Vector3.ZERO
 		s.velocity = Vector3.ZERO
 		s.turn_rate = 0.0
+	# getting down on one knee and up again: the clips of it, part way
+	if want.call("kneel_down"):
+		s.global_position = Vector3(-3, 0, -6)
+		s.rotation.y = 0.0
+		s.walk_amount = 0.0
+		s.aim_amount = 0.0
+		s.aim_point = Vector3.INF
+		s.crouch_amount = 0.0
+		vel = Vector3.ZERO
+		moving = false
+		await _frames(30)
+		var tw := create_tween()
+		tw.set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
+		tw.tween_property(s, "crouch_amount", 1.0, 0.8)
+		await _frames(24)
+		var down_w: Dictionary = s.clip_weights.duplicate()
+		await _frames(60)
+		var tw2 := create_tween()
+		tw2.set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
+		tw2.tween_property(s, "crouch_amount", 0.0, 0.8)
+		await _frames(24)
+		var up_w: Dictionary = s.clip_weights.duplicate()
+		_check(float(down_w.get("stance_change", 0.0)) > 0.5 and s._stance_dir > -2.0, "getting down on one knee plays the clip of it (%.2f)" % float(down_w.get("stance_change", 0.0)))
+		_check(float(up_w.get("stance_change", 0.0)) > 0.5, "and getting up, its own (%.2f)" % float(up_w.get("stance_change", 0.0)))
+		await _frames(60)
+	# a near miss: a man standing still jinks away from it
+	if want.call("dodge"):
+		s.crouch_amount = 0.0
+		await _frames(30)
+		var ok := s.dodge(1.0)
+		await _frames(18)
+		_check(ok and float(s.clip_weights.get("dodge", 0.0)) > 0.8, "a standing man dodges a near miss (%.2f)" % float(s.clip_weights.get("dodge", 0.0)))
+		_check(not s.dodge(-1.0), "but not again straight away")
+		await _frames(90)
 	# the clips stay off where they do not belong
 	var k: Clown = Clown.new()
 	k.body = "klappersoldat"
@@ -252,7 +306,10 @@ func _run() -> void:
 ## The reference clips on Mixamo's own character, filmed the same way
 ## (/tmp/arref_<clip>_NN.png), to set beside ours.
 func _film_ref() -> void:
-	var pairs := {"Rifle_Walk_1": "walk_slow", "Rifle_Run_1": "run", "Backwards_Rifle_Walk": "walk_back", "Crouch_Idle": "crouch_idle", "Walk_Crouching_Forward": "crouch_walk", "Crouched_Run": "crouch_run",
+	var pairs := {"P_walk_forward": "walk", "P_walk_forward_left": "diag_fl", "P_walk_left": "strafe_left", "P_walk_right": "strafe_right",
+			"P_walk_backward": "walk_back", "P_run_forward": "run", "P_walk_crouching_left": "crouch_strafe", "P_walk_crouching_backward": "crouch_back",
+			"Rifle_Turn_1": "turn_about", "Rifle_Stand_To_Kneel": "kneel_cycle", "Dodging": "dodge_film", "P_idle": "stand", "P_idle_aiming": "aim",
+			"Rifle_Walk_1": "walk_slow", "Rifle_Run_1": "run", "Backwards_Rifle_Walk": "walk_back", "Crouch_Idle": "crouch_idle", "Walk_Crouching_Forward": "crouch_walk", "Crouched_Run": "crouch_run",
 			"Strafe": "strafe_left", "Rifle_Down_To_Aim": "aim", "Turning_Right_90_Degrees": "turn_right",
 			"Hit_Reaction": "kneel_hit", "Rifle_Crouch_Turn": "crouch_turn", "Rifle_Shielding_Face": "cower"}
 	for f: String in pairs:
@@ -275,7 +332,7 @@ func _film_ref() -> void:
 				continue
 			var hp := sk.global_transform * sk.get_bone_global_pose(hips).origin
 			var at := Vector3(hp.x, root.global_position.y, hp.z)
-			var side := Vector3.RIGHT if not f.begins_with("Strafe") else Vector3.BACK
+			var side := Vector3.RIGHT if not (f.begins_with("Strafe") or f in ["P_walk_left", "P_walk_right", "P_walk_crouching_left"]) else Vector3.BACK
 			cam.global_position = at + side * 3.4 + Vector3.UP * 1.0
 			cam.look_at(at + Vector3.UP * 0.8)
 			await get_tree().process_frame

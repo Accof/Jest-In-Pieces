@@ -1043,6 +1043,7 @@ func _apply_turn(delta: float) -> void:
 	_yaw_rate = move_toward(_yaw_rate, want_rate, TURN_ACCEL * delta)
 	clown.rotation.y = wrapf(clown.rotation.y + _yaw_rate * delta, -PI, PI)
 	clown.turn_rate = _yaw_rate
+	clown.turn_goal = wrapf(_yaw_want - clown.rotation.y, -PI, PI) if _yaw_want != INF else 0.0
 	yaw_rate_max = maxf(yaw_rate_max, absf(_yaw_rate))
 	_yaw_want = INF
 
@@ -1072,14 +1073,21 @@ func _look(delta: float) -> void:
 ## shot): he flinches and ducks, his aim breaks, he looks for where it came
 ## from, and enough of them keep his head down (suppression). Only close ones
 ## count, and not more than about one a second.
-func near_miss(from: Vector3, closest: float) -> void:
+func near_miss(from: Vector3, closest: float, passed := Vector3.INF) -> void:
 	if not weighty or clown.dead or _near_t > 0.0:
 		return
 	_near_t = randf_range(0.5, 0.9)
 	near_misses += 1
 	var power := clampf(1.2 - closest, 0.3, 1.0)
 	suppression = minf(suppression + 0.3 * power + 0.1, 1.5)
-	_duck_t = randf_range(0.35, 0.7) * (0.6 + power)
+	# a man standing his ground jinks down and away from it (the motion-captured
+	# dodge); anyone else ducks into a crouch
+	var dodged := false
+	if passed != Vector3.INF and clown.crouch_amount < 0.3 and _vel.length() < 1.0:
+		var side := (passed - clown.global_position).dot(clown.global_basis.x.normalized())
+		dodged = clown.dodge(-1.0 if side > 0.0 else 1.0)
+	if not dodged:
+		_duck_t = randf_range(0.35, 0.7) * (0.6 + power)
 	var away := (clown.global_position - from)
 	away.y = 0.0
 	clown.flinch_away(away.normalized(), 0.35 + 0.4 * power)

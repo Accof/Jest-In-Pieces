@@ -302,14 +302,16 @@ func _fire_reactions(m: Maze, a: Vector3, b: Vector3, run_dir: Vector3) -> void:
 	game.player._near_misses(from, from + run_dir * 30.0, null)
 	var flinch_peak := 0.0
 	var crouch_peak := 0.0
+	var dodge_peak := 0.0
 	for i in 30:
 		br._after(1.0 / 60.0)
 		await get_tree().physics_frame
 		flinch_peak = maxf(flinch_peak, c._flinch.length())
 		crouch_peak = maxf(crouch_peak, c.crouch_amount)
+		dodge_peak = maxf(dodge_peak, float(c.clip_weights.get("dodge", 0.0)))
 	print("      near miss 0.5 m: suppression %.2f, duck to %.2f (from %.2f), flinch %.2f rad, mind %s" % [br.suppression, crouch_peak, c0, flinch_peak, br.mind])
 	_check(br.near_misses == 1, "a round 0.5 m past him registers")
-	_check(crouch_peak > c0 + 0.3, "he ducks (%.2f)" % crouch_peak)
+	_check(crouch_peak > c0 + 0.3 or dodge_peak > 0.5, "he ducks, or (standing still, rifle in hand) jinks down and away (crouch %.2f, dodge %.2f)" % [crouch_peak, dodge_peak])
 	_check(flinch_peak > 0.05, "he flinches away from it (%.2f rad)" % flinch_peak)
 	_check(br.mind != ClownBrain.Mind.IDLE, "an unaware man is alerted by it")
 	# a second straight after: the reaction has a cooldown

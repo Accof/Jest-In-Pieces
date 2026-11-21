@@ -724,7 +724,7 @@ func _near_misses(from: Vector3, to: Vector3, hit_collider: Object) -> void:
 			continue
 		var b := c.get_node_or_null("Brain")
 		if b and b.has_method("near_miss"):
-			b.near_miss(from, d)
+			b.near_miss(from, d, from + seg * t)
 		var f := c.get_node_or_null("Field")
 		if f and f.has_method("duck"):
 			f.duck(randf_range(0.8, 1.6))

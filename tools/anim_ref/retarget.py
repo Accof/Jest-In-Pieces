@@ -205,23 +205,51 @@ def hip_start_drop(name, thresh):
 
 clips = {
     'kneel': pack(oneshot('Crouch_Idle.fbx', keep_xz=True) | {'loop': True}),
-    'crouch_walk': pack(cycle('Walk_Crouching_Forward.fbx')),
-    'crouch_run': pack(cycle('Crouched_Run.fbx')),
     'walk': pack(cycle('Rifle_Walk_1.fbx')),
     'run': pack(cycle('Rifle_Run_1.fbx')),
     'walk_back': pack(cycle('Backwards_Rifle_Walk.fbx')),
     'strafe_left': pack(cycle('Strafe.fbx')),
-    'raise': pack(oneshot('Rifle_Down_To_Aim.fbx')),
     'recoil': pack(oneshot('Firing_Rifle_1.fbx', additive=True)),
-    'turn_right': pack(turn('Turning_Right_90_Degrees.fbx')),
-    'turn_left': pack(turn('Turning_Right_90_Degrees.fbx', mirror_it=True)),
-    'crouch_turn_right': pack(turn('Rifle_Crouch_Turn.fbx')),
-    'crouch_turn_left': pack(turn('Rifle_Crouch_Turn.fbx', mirror_it=True)),
     'turn_open_right': pack(turn('Turning_Right_90_Degrees.fbx', open_stance=True)),
     'turn_open_left': pack(turn('Turning_Right_90_Degrees.fbx', mirror_it=True, open_stance=True)),
     'kneel_hit': pack(oneshot('Hit_Reaction.fbx', additive=True)),
     'cower': pack(oneshot('Rifle_Shielding_Face.fbx', start=hip_start_drop('Rifle_Shielding_Face.fbx', 0.03))),
 }
+# The rifle locomotion pack (8 ways at a walk and a run, sprint, crouched 8
+# ways) and the rest: angles are the way he moves, relative to the way he
+# faces (0 ahead, 90 to his left, -90 to his right, 180 straight back).
+EIGHT = {0: 'forward', 45: 'forward_left', -45: 'forward_right', 90: 'left', -90: 'right',
+         180: 'backward', 135: 'backward_left', -135: 'backward_right'}
+for ang, nm in EIGHT.items():
+    clips['walk8_%d' % ang] = pack(cycle('P_walk_%s.fbx' % nm))
+    clips['run8_%d' % ang] = pack(cycle('P_run_%s.fbx' % nm))
+    clips['cwalk8_%d' % ang] = pack(cycle('P_walk_crouching_%s.fbx' % nm))
+# (the pack's crouched walk ahead and ahead-left skate the right foot: 59% and
+# 44% of the body's speed, by compare.py; the single Walk_Crouching_Forward
+# does not, and ahead-left is ahead-right mirrored)
+clips['cwalk8_0'] = pack(cycle('Walk_Crouching_Forward.fbx'))
+clips['cwalk8_45'] = pack(cycle('P_walk_crouching_forward_right.fbx', mirror_it=True))
+for ang, nm in {0: 'forward', 45: 'forward_left', -45: 'forward_right'}.items():
+    clips['sprint_%d' % ang] = pack(cycle('P_sprint_%s.fbx' % nm))
+clips['crun4_0'] = pack(cycle('Crouched_Run.fbx'))
+clips['crun4_-90'] = pack(cycle('Crouched_Strafe_Run.fbx'))
+clips['crun4_90'] = pack(cycle('Crouched_Strafe_Run.fbx', mirror_it=True))
+clips['crun4_180'] = pack(cycle('Crouch_Run_Backwards.fbx'))
+clips['idle'] = pack(oneshot('P_idle.fbx', keep_xz=True) | {'loop': True})
+clips['idle_aim'] = pack(oneshot('P_idle_aiming.fbx', keep_xz=True) | {'loop': True})
+clips['kneel_aim'] = pack(oneshot('P_idle_crouching_aiming.fbx', keep_xz=True) | {'loop': True})
+clips['turn90_right'] = pack(turn('P_turn_90_right.fbx'))
+clips['turn90_left'] = pack(turn('P_turn_90_left.fbx'))
+clips['crouch_turn90_right'] = pack(turn('P_crouching_turn_90_right.fbx'))
+clips['crouch_turn90_left'] = pack(turn('P_crouching_turn_90_left.fbx'))
+clips['turn180_right'] = pack(turn('Rifle_Turn_1.fbx'))
+clips['turn180_left'] = pack(turn('Rifle_Turn_1.fbx', mirror_it=True))
+clips['stand_to_kneel'] = pack(oneshot('Rifle_Stand_To_Kneel.fbx'))
+clips['kneel_to_stand'] = pack(oneshot('Rifle_Kneel_To_Stand.fbx'))
+clips['dodge_right'] = pack(oneshot('Dodging.fbx', keep_xz=True))
+c = oneshot('Dodging.fbx', keep_xz=True)
+clips['dodge_left'] = pack(mirror(c) | {'loop': False, 'additive': False})
+
 json.dump(clips, open(OUT, 'w'), separators=(',', ':'))
 for k, v in clips.items():
     print('%-18s %3d frames%s%s%s' % (k, v['frames'], ' loop' if v['loop'] else '', ' stride %.2f m' % v['stride'] if 'stride' in v else '',

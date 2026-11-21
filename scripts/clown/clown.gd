@@ -1971,6 +1971,14 @@ var cower := false                   ## curled up under heavy fire (the brain se
 var _cower_t := 0.0
 var _cower_w := 0.0
 var _turn_w := 0.0                   # turning on the spot (the pivot clip's share)
+var _turn_clip := ""
+var turn_goal := 0.0                 ## how far he still means to turn (the brain sets it), radians
+var _dodge_t := 99.0
+var _dodge_side := 1.0
+var _idle_t := 0.0
+var _prev_crouch := 0.0
+var _stance_dir := 0.0
+var _trans_w := 0.0
 var _turn_acc := 0.0                 # how far round this turn has come (radians, signed)
 var _prev_yaw := INF
 var _flinch := Vector3.ZERO         # upper-body rotation, skeleton space (axis * angle)
@@ -2259,10 +2267,11 @@ func _clip_layer(delta: float, flat: Vector3, speed: float, side_amt: float, bac
 	if not use_clips or not (spec.get("soldier", false) or spec.get("mocap_legs", false)) or not drive_phase \
 			or broken_leg != "" or pinned or attack_amount > 0.01 or not SoldierClips.available():
 		return
-	# Riflemen take the whole of every clip but the arms. A soldier without a
-	# rifle (the officer with his pistol and sabre, a WitzSoldat with a club)
-	# takes only the legs, hips and lower spine of the walking, running,
-	# side-stepping and turning: the clips' upper bodies are holding rifles.
+	# Riflemen take the whole of every clip but the arms. A man without a
+	# rifle (the officer with his pistol and sabre, a WitzSoldat with a club,
+	# a clown) takes only the legs, hips and lower spine of the square-on
+	# walking, running, side-stepping and turning: the rifle pack's upper
+	# bodies are holding rifles, bladed behind them.
 	var full: bool = has_rifle and spec.get("soldier", false)
 	if _clip_rest_g.is_empty():
 		# straight after the reset to the base pose: the bones' rest rotations
@@ -2273,22 +2282,26 @@ func _clip_layer(delta: float, flat: Vector3, speed: float, side_amt: float, bac
 		_clip_idx = SoldierClips.indices(skeleton)
 	var moving := smoothstep(0.05, 0.5, speed)
 	var low := smoothstep(0.12, 0.55, crouch_amount) if full else 0.0    # crouched enough to move crouched
-	var kneel_w := smoothstep(0.1, 0.8, crouch_amount) * (1.0 - moving) if full else 0.0
+	var down := smoothstep(0.1, 0.8, crouch_amount) if full else 0.0     # down on one knee, when still
 	var lateral := 0.0
 	var ahead := 1.0
 	if speed > 0.05:
 		lateral = flat.dot(global_basis.x.normalized()) / speed
 		ahead = flat.dot(global_basis.z.normalized()) / speed
-	var side_w := smoothstep(0.5, 0.85, side_amt)
-	var w_crouch := low * moving
-	var w_strafe := (1.0 - low) * moving * side_w
-	var w_upright := (1.0 - low) * moving * (1.0 - side_w)        # walking or running, forward or back
-	var w_back := w_upright * clampf(-ahead * 2.0, 0.0, 1.0)
-	var w_fwd := w_upright - w_back
-	var w_stand := (1.0 - smoothstep(0.1, 0.8, crouch_amount)) * (1.0 - moving) if full else 0.0
-	# Turning on the spot: the pivot clip, played as far as he has turned (its
+	var heading := rad_to_deg(atan2(lateral, ahead))      # the way he moves: 0 ahead, +90 to his left
+	var still := 1.0 - moving
+	# A near miss dodged: the clip's jink down and away, over everything
+	# else while it lasts.
+	_dodge_t += delta
+	var dodge_w := 0.0
+	var dc: SoldierClips.Clip = SoldierClips.clip("dodge_left" if _dodge_side < 0.0 else "dodge_right")
+	if full and dc and _dodge_t < dc.length():
+		dodge_w = smoothstep(0.0, 0.08, _dodge_t) * (1.0 - smoothstep(dc.length() - 0.35, dc.length(), _dodge_t))
+	var rest_w := 1.0 - dodge_w
+	# Turning on the spot: a pivot clip, played as far as he has turned (its
 	# own turn is taken out of it, so the feet stay put while the body turns
-	# over them); past its 90 degrees it starts again from the new stance.
+	# over them). Chosen as the turn starts: about-turns (more than ~125
+	# degrees to go) take the 180, kneeling men the crouched turns.
 	var yaw := global_rotation.y
 	var dyaw := 0.0 if _prev_yaw == INF else wrapf(yaw - _prev_yaw, -PI, PI)
 	_prev_yaw = yaw
@@ -2296,99 +2309,184 @@ func _clip_layer(delta: float, flat: Vector3, speed: float, side_amt: float, bac
 	if turning:
 		if _turn_w < 0.05 or signf(dyaw) != signf(_turn_acc) and absf(_turn_acc) > 0.05:
 			_turn_acc = 0.0
+			var lr := "left" if dyaw > 0.0 else "right"
+			if not full:
+				_turn_clip = "turn_open_" + lr
+			elif low > 0.5:
+				_turn_clip = "crouch_turn90_" + lr
+			elif absf(turn_goal) > 2.2:
+				_turn_clip = "turn180_" + lr
+			else:
+				_turn_clip = "turn90_" + lr
 		_turn_acc += dyaw
 		_turn_w = move_toward(_turn_w, 1.0, delta * 5.0)
 	else:
 		_turn_w = move_toward(_turn_w, 0.0, delta * 4.0)
-	var tname := ("crouch_turn_" if low > 0.5 else "turn_") if full else "turn_open_"
-	var tc := SoldierClips.clip(tname + ("left" if _turn_acc > 0.0 else "right"))
+	var tc: SoldierClips.Clip = SoldierClips.clip(_turn_clip) if _turn_clip != "" else null
 	if tc and absf(_turn_acc) > absf(tc.total_turn()):
 		_turn_acc -= tc.total_turn()
+		if _turn_clip.begins_with("turn180"):
+			_turn_clip = _turn_clip.replace("turn180", "turn90")       # carrying on round: the quarter turns
+	var turn_w := 0.0
 	if tc and _turn_w > 0.001:
-		var tw := _turn_w * (1.0 - moving)
-		_mix.add(tc, tc.frame_for_turn(_turn_acc), tw)
-		w_stand *= 1.0 - _turn_w
-		kneel_w *= 1.0 - _turn_w
-	# Moving cycles, all starting on the left foot's plant and sharing one
-	# phase, so they blend step for step; the phase runs at the real speed
-	# over each clip's own stride, so the planted foot stays planted.
-	var cw := SoldierClips.clip("crouch_walk")
-	var cr := SoldierClips.clip("crouch_run")
-	var wk := SoldierClips.clip("walk")
-	var rn := SoldierClips.clip("run")
-	var wb := SoldierClips.clip("walk_back")
-	# one side-step clip for both ways: stepping right is the left side-step
-	# run backwards, so he keeps his rifleman's stance (a mirrored clip would
-	# blade him the wrong way round) and a change of direction is the cycle
-	# simply reversing, with no jump
-	var st := SoldierClips.clip("strafe_left")
-	var crouch_run := smoothstep(1.9, 2.8, speed)
-	var run_mix := smoothstep(1.5, 4.0, speed)       # the walk clip is at 1.1 m/s, the run at 4.0
-	var parts := [
-		[w_crouch, lerpf(cw.stride, cr.stride, crouch_run), back],
-		[w_fwd, lerpf(wk.stride, rn.stride, run_mix), 1.0],
-		[w_back, wb.stride, 1.0],                      # (that clip walks backwards itself)
-		[w_strafe, st.stride, 1.0 if lateral >= 0.0 else -1.0],
-	]
+		turn_w = _turn_w * still * rest_w
+		_mix.add(tc, tc.frame_for_turn(_turn_acc), turn_w)
+	var hold := still * rest_w * (1.0 - turn_w)          # what is left for standing or kneeling still
+	# Moving: blended from the nearest of the eight ways at a walk, a run and a
+	# sprint (crouched: eight ways at a walk, four at a run), all cycles
+	# starting on the left foot's plant and sharing one phase that runs at the
+	# real speed over each clip's own stride, so they blend step for step and
+	# the planted foot stays planted.
+	var go := moving * rest_w
+	var parts: Array = []                                # [clip, weight]
+	if full:
+		var up := (1.0 - low) * go
+		var cr := low * go
+		# a slow, unhurried walk ahead (patrolling) is the relaxed rifle walk;
+		# the pack's walk is the low, ready combat walk
+		var relaxed := (1.0 - smoothstep(1.2, 1.8, speed)) * smoothstep(0.75, 0.95, ahead)
+		var run_mix := smoothstep(2.4, 3.8, speed)
+		var sprint_mix := smoothstep(5.0, 6.5, speed) * smoothstep(0.4, 0.75, ahead)
+		parts.append([SoldierClips.clip("walk"), up * relaxed])
+		_ways(parts, "walk8_", 45, heading, up * (1.0 - relaxed) * (1.0 - run_mix))
+		_ways(parts, "run8_", 45, heading, up * (1.0 - relaxed) * run_mix * (1.0 - sprint_mix))
+		_ways(parts, "sprint_", 45, clampf(heading, -45.0, 45.0), up * (1.0 - relaxed) * run_mix * sprint_mix)
+		var crun := smoothstep(1.9, 2.8, speed)
+		_ways(parts, "cwalk8_", 45, heading, cr * (1.0 - crun))
+		_ways(parts, "crun4_", 90, heading, cr * crun)
+	else:
+		# square-on: the relaxed walk and run ahead, the back-walk, the side-step
+		var side_w := smoothstep(0.5, 0.85, side_amt)
+		var bk := clampf(-ahead * 2.0, 0.0, 1.0) * (1.0 - side_w)
+		var fw := (1.0 - side_w) - bk
+		var run_mix := smoothstep(1.5, 4.0, speed)
+		parts.append([SoldierClips.clip("walk"), go * fw * (1.0 - run_mix)])
+		parts.append([SoldierClips.clip("run"), go * fw * run_mix])
+		parts.append([SoldierClips.clip("walk_back"), go * bk])
+		parts.append([SoldierClips.clip("strafe_left"), go * side_w * (1.0 if lateral >= 0.0 else -1.0)])
 	var rate := 0.0
 	var wsum := 0.0
 	for p: Array in parts:
-		rate += float(p[0]) * float(p[2]) / maxf(float(p[1]), 0.3)
-		wsum += float(p[0])
+		var c: SoldierClips.Clip = p[0]
+		var w: float = p[1]
+		if c == null or absf(w) < 0.0005:
+			continue
+		rate += w / maxf(c.stride, 0.3)                  # (a negative weight plays it backwards)
+		wsum += absf(w)
 	if wsum > 0.001:
 		_clip_phase += speed * delta * rate / wsum
 		# the procedural stride (arm swing, the rifle's sway, footstep sounds)
 		# kept in step with the clips' feet: its left heel strike is at 1.5 pi
 		walk_phase = lerp_angle(walk_phase, _clip_phase * TAU + PI * 1.5, clampf(wsum, 0.0, 1.0))
-	_mix.add(cw, _clip_phase * cw.frames, w_crouch * (1.0 - crouch_run))
-	_mix.add(cr, _clip_phase * cr.frames, w_crouch * crouch_run)
-	_mix.add(wk, _clip_phase * wk.frames, w_fwd * (1.0 - run_mix))
-	_mix.add(rn, _clip_phase * rn.frames, w_fwd * run_mix)
-	_mix.add(wb, _clip_phase * wb.frames, w_back)
-	_mix.add(st, _clip_phase * st.frames, w_strafe)
-	# kneeling behind cover: the clip's slow breathing and shifting
-	_kneel_t += delta
-	var kn := SoldierClips.clip("kneel")
-	_mix.add(kn, _kneel_t * 30.0, kneel_w)
-	# cowering under fire: the drop into the crouch, head down behind the rifle,
-	# then the held crouch (its last two seconds, over and over)
-	var cw_clip := SoldierClips.clip("cower")
-	if cower and moving < 0.5 and full:
-		if _cower_w < 0.01:
-			_cower_t = 0.0
-		_cower_w = move_toward(_cower_w, 1.0, delta * 4.0)
-	else:
-		_cower_w = move_toward(_cower_w, 0.0, delta * 2.5)
-	_cower_t += delta
-	if _cower_w > 0.001:
-		var cf := _cower_t * 30.0
-		if cf > cw_clip.frames - 1:
-			cf = cw_clip.frames - 60.0 + fposmod(cf - (cw_clip.frames - 60.0), 59.0)
-		var cww := _cower_w * (1.0 - moving)
-		_mix.add(cw_clip, cf, cww)
-		w_stand *= 1.0 - cww
-		kneel_w *= 1.0 - cww
-	# standing: the rifle stance, raised through the clip as he takes aim
-	var rz := SoldierClips.clip("raise")
-	var ra := smoothstep(0.0, 1.0, aim_amount)
-	_mix.add(rz, ra * 16.0, w_stand)
+	var named := {}
+	for p: Array in parts:
+		var c: SoldierClips.Clip = p[0]
+		var w := absf(float(p[1]))
+		if c == null or w < 0.0005:
+			continue
+		_mix.add(c, _clip_phase * c.frames, w)
+		var key := c.name
+		if c.name.get_slice("_", c.name.get_slice_count("_") - 1).is_valid_int():
+			key = c.name.substr(0, c.name.rfind("_"))
+		named[key] = float(named.get(key, 0.0)) + w
+	# Still: standing (breathing, shifting, raising the rifle as he takes aim)
+	# or kneeling (the same, down on one knee), and between the two the clips
+	# of getting down and getting up, played as far as he has gone.
+	var aim := smoothstep(0.0, 1.0, aim_amount)
+	var kneel_w := 0.0
+	var stand_w := 0.0
+	var trans_w := 0.0
+	if full:
+		_idle_t += delta
+		var dc_rate := crouch_amount - _prev_crouch
+		_prev_crouch = crouch_amount
+		if absf(dc_rate) > 0.0005:
+			_stance_dir = signf(dc_rate)
+		# (only while he is actually getting down or up: held part way, he is
+		# just crouched, the kneel and the stance blended)
+		_trans_w = move_toward(_trans_w, 1.0 if absf(dc_rate) > 0.0005 else 0.0, delta * (8.0 if absf(dc_rate) > 0.0005 else 3.0))
+		var mid := clampf(4.0 * crouch_amount * (1.0 - crouch_amount), 0.0, 1.0)
+		trans_w = hold * mid * _trans_w
+		if _stance_dir > 0.0:
+			var sk2: SoldierClips.Clip = SoldierClips.clip("stand_to_kneel")
+			_mix.add(sk2, crouch_amount * (sk2.frames - 1), trans_w)
+		elif _stance_dir < 0.0:
+			var ks: SoldierClips.Clip = SoldierClips.clip("kneel_to_stand")
+			_mix.add(ks, (1.0 - crouch_amount) * (ks.frames - 1), trans_w)
+		var settled := hold * (1.0 - trans_w)
+		kneel_w = settled * down
+		stand_w = settled * (1.0 - down)
+		_cower_t += delta
+		var cw_clip: SoldierClips.Clip = SoldierClips.clip("cower")
+		if cower and moving < 0.5:
+			if _cower_w < 0.01:
+				_cower_t = 0.0
+			_cower_w = move_toward(_cower_w, 1.0, delta * 4.0)
+		else:
+			_cower_w = move_toward(_cower_w, 0.0, delta * 2.5)
+		if _cower_w > 0.001:
+			var cf := _cower_t * 30.0
+			if cf > cw_clip.frames - 1:
+				cf = cw_clip.frames - 60.0 + fposmod(cf - (cw_clip.frames - 60.0), 59.0)
+			var cww := _cower_w * still
+			_mix.add(cw_clip, cf, cww * rest_w)
+			stand_w *= 1.0 - cww
+			kneel_w *= 1.0 - cww
+		_mix.add(SoldierClips.clip("kneel"), _idle_t * 30.0, kneel_w * (1.0 - aim))
+		_mix.add(SoldierClips.clip("kneel_aim"), _idle_t * 30.0, kneel_w * aim)
+		_mix.add(SoldierClips.clip("idle"), _idle_t * 30.0, stand_w * (1.0 - aim))
+		_mix.add(SoldierClips.clip("idle_aim"), _idle_t * 30.0, stand_w * aim)
+		if dodge_w > 0.0:
+			_mix.add(dc, _dodge_t * 30.0, dodge_w)
 	_mix.apply(skeleton, _clip_rest_g, _clip_idx, SoldierClips.BONES if full else SoldierClips.LOWER)
 	_clip_share = minf(_mix.total, 1.0)
 	_clip_legs_only = not full
 	# the shot, absorbed through the body; a hit taken kneeling
 	_recoil_clip_t += delta
-	var rc := SoldierClips.clip("recoil")
+	var rc: SoldierClips.Clip = SoldierClips.clip("recoil")
 	if _recoil_clip_t < rc.length() and full:
 		SoldierClips.add_on(skeleton, rc, _recoil_clip_t * 30.0, aim_amount)
 	_khit_t += delta
-	var kh := SoldierClips.clip("kneel_hit")
+	var kh: SoldierClips.Clip = SoldierClips.clip("kneel_hit")
 	if _khit_t < kh.length():
 		var fade := 1.0 - smoothstep(kh.length() - 0.3, kh.length(), _khit_t)
 		SoldierClips.add_on(skeleton, kh, _khit_t * 30.0, kneel_w * fade)
-	clip_weights = {"crouch_walk": w_crouch * (1.0 - crouch_run), "crouch_run": w_crouch * crouch_run,
-			"walk": w_fwd * (1.0 - run_mix), "run": w_fwd * run_mix, "walk_back": w_back, "strafe": w_strafe,
-			"kneel": kneel_w, "stand": w_stand, "turn": _turn_w * (1.0 - moving), "cower": _cower_w * (1.0 - moving),
-			"share": _clip_share}
+	clip_weights = named
+	clip_weights.merge({"kneel": kneel_w, "stand": stand_w, "stance_change": trans_w, "turn": turn_w,
+			"cower": _cower_w * still, "dodge": dodge_w, "share": _clip_share})
+
+
+## Adds the clips of one set (`prefix` + angle, every `step` degrees) for
+## the way he is moving: the two either side of it, by how near each is.
+func _ways(parts: Array, prefix: String, step: int, heading: float, w: float) -> void:
+	if w < 0.0005:
+		return
+	var a0 := floorf(heading / step) * step
+	var t := (heading - a0) / step
+	for k in 2:
+		var a := int(a0) + k * step
+		if a <= -180:
+			a += 360
+		var c: SoldierClips.Clip = SoldierClips.clip(prefix + str(a))
+		if c == null and a == 180:
+			c = SoldierClips.clip(prefix + "180")
+		if c == null:
+			# (the sprint has no back or sideways clips: the nearest it has)
+			c = SoldierClips.clip(prefix + str(clampi(a, -45, 45)))
+		parts.append([c, w * (t if k == 1 else 1.0 - t)])
+
+
+## A near miss jinked away from (the brain asks): `side` -1 to his left, +1
+## to his right. False if he cannot (no clips, not a rifleman, already at it).
+func dodge(side: float) -> bool:
+	if not use_clips or not has_rifle or not spec.get("soldier", false) or not SoldierClips.available():
+		return false
+	if _dodge_t < 1.2:
+		return false
+	_dodge_t = 0.0
+	_dodge_side = side
+	set_process(true)
+	return true
 
 
 ## A broken arm hangs from the shoulder and swings with the body: the
