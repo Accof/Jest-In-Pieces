@@ -35,6 +35,8 @@ class Clip:
 	var turn := PackedFloat32Array()    ## radians turned by each frame (turns on the spot)
 	var bones := {}                     ## bone -> PackedFloat32Array of x,y,z,w per frame
 	var off := PackedFloat32Array()     ## hips offset per frame
+	var dist := PackedFloat32Array()    ## starts and stops: ground covered by each frame (m)
+	var phase := PackedFloat32Array()   ## and the walking cycle's phase each frame matches
 
 	func length() -> float:
 		return frames / 30.0
@@ -86,6 +88,35 @@ class Clip:
 				return i - 1 + (a - a0) / maxf(absf(turn[i]) - a0, 0.0001)
 		return frames - 1.0
 
+	## Ground speed of the clip's root at frame f (m/s at 30 fps).
+	func speed_at(f: float) -> float:
+		var i := clampi(int(f), 0, frames - 2)
+		return (dist[i + 1] - dist[i]) * 30.0
+
+	func phase_at(f: float) -> float:
+		return phase[clampi(int(round(f)), 0, frames - 1)]
+
+	## A stop met at `speed` with the cycle at `cyc_phase`: the frame to come in
+	## at (after the clip's fastest point, no faster than he is going, the legs
+	## as near as can be where his are).
+	func stop_entry(speed: float, cyc_phase: float, rate: float) -> int:
+		var peak := 0
+		for i in frames - 1:
+			if speed_at(i) > speed_at(peak):
+				peak = i
+		var best := -1
+		var best_cost := INF
+		for i in range(peak, frames - 4):
+			var v := speed_at(i) * rate
+			if v > speed * 1.15:
+				continue
+			var dp := absf(wrapf(phase[i] - cyc_phase, -0.5, 0.5))
+			var cost := absf(v - speed) / maxf(speed, 0.3) + dp * 1.5
+			if cost < best_cost:
+				best_cost = cost
+				best = i
+		return best
+
 	func total_turn() -> float:
 		return turn[frames - 1] if turn.size() > 0 else 0.0
 
@@ -118,6 +149,9 @@ static func _load() -> void:
 		c.stride = float(d.get("stride", 0.0))
 		if d.has("turn"):
 			c.turn = PackedFloat32Array(d.turn)
+		if d.has("dist"):
+			c.dist = PackedFloat32Array(d.dist)
+			c.phase = PackedFloat32Array(d.phase)
 		c.off = PackedFloat32Array(d.off)
 		for b: String in d.bones:
 			c.bones[b] = PackedFloat32Array(d.bones[b])

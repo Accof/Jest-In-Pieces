@@ -250,6 +250,61 @@ clips['dodge_right'] = pack(oneshot('Dodging.fbx', keep_xz=True))
 c = oneshot('Dodging.fbx', keep_xz=True)
 clips['dodge_left'] = pack(mirror(c) | {'loop': False, 'additive': False})
 
+# Starts and stops. Played by the ground covered, not by time: `dist` is how
+# far the clip's root has come by each frame (smoothed, so the hips keep their
+# surge), so a soldier's feet stay planted whatever his speed does. `phase` is,
+# for each frame, the point in the cycle it hands over to (or comes from) whose
+# legs look most like it, so the cycle can be met in step.
+def legs_vec(deltas, i):
+    return np.concatenate([deltas[b][i].as_rotvec() for b in ['LeftUpperLeg', 'LeftLowerLeg', 'RightUpperLeg', 'RightLowerLeg']])
+
+
+def transit(name, cycle_clips, trim_end=None):
+    c = load(name)
+    n = c['n'] if trim_end is None else trim_end
+    c['deltas'] = {b: r[:n] for b, r in c['deltas'].items()}
+    off = c['off'][:n].copy()
+    k = 7
+    z = np.convolve(np.pad(off[:, 2], (k, k), mode='edge'), np.ones(2 * k + 1) / (2 * k + 1), mode='same')[k:-k]
+    z = np.maximum.accumulate(z)
+    dist = z - z[0]
+    off[:, 2] -= z
+    off[:, 0] -= off[:, 0].mean()
+    c['off'] = off
+    c['n'] = n
+    c['loop'] = False
+    c['dist'] = dist.tolist()
+    # cycle phase that matches each frame's legs (weighted mix of the cycles given)
+    ph = []
+    cyc = [(cy, cycle(cy) if isinstance(cy, str) else cy) for cy in cycle_clips]
+    for i in range(n):
+        v = legs_vec(c['deltas'], i)
+        best = (1e9, 0.0)
+        for _, cc in cyc:
+            for j in range(cc['n']):
+                e = np.linalg.norm(v - legs_vec(cc['deltas'], j))
+                if e < best[0]:
+                    best = (e, j / cc['n'])
+        ph.append(best[1])
+    c['phase'] = ph
+    return c
+
+
+def pack_t(c):
+    out = pack(c)
+    out['dist'] = [round(float(x), 4) for x in c['dist']]
+    out['phase'] = [round(float(x), 4) for x in c['phase']]
+    return out
+
+
+clips['start_walk'] = pack_t(transit('Start_Walking.fbx', ['Rifle_Walk_1.fbx']))
+clips['start_run'] = pack_t(transit('Rifle_Start_Run.fbx', ['P_run_forward.fbx']))
+clips['stop_walk'] = pack_t(transit('Stop_Walking_With_Rifle.fbx', ['Rifle_Walk_1.fbx']))
+clips['stop_run'] = pack_t(transit('Rifle_Run_To_Stop.fbx', ['P_run_forward.fbx']))
+for k in ['start_walk', 'start_run', 'stop_walk', 'stop_run']:
+    dd = clips[k]['dist']; ph = clips[k]['phase']
+    print(k, 'covers %.2f m' % dd[-1], 'phase at start %.2f end %.2f' % (ph[0], ph[-1]))
+
 json.dump(clips, open(OUT, 'w'), separators=(',', ':'))
 for k, v in clips.items():
     print('%-18s %3d frames%s%s%s' % (k, v['frames'], ' loop' if v['loop'] else '', ' stride %.2f m' % v['stride'] if 'stride' in v else '',

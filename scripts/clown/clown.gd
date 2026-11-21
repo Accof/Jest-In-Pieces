@@ -1973,6 +1973,15 @@ var _cower_w := 0.0
 var _turn_w := 0.0                   # turning on the spot (the pivot clip's share)
 var _turn_clip := ""
 var turn_goal := 0.0                 ## how far he still means to turn (the brain sets it), radians
+## Starting off and pulling up (motion-captured): while one plays, the clip's
+## own pace is the man's (the brain reads transit_speed), so his feet stay
+## where they are put. 1 starting, 2 stopping, 0 neither.
+var _tr_state := 0
+var _tr_clip := ""
+var _tr_f := 0.0
+var _tr_rate := 1.0
+var _tr_w := 0.0
+var transit_speed := 0.0
 var _dodge_t := 99.0
 var _dodge_side := 1.0
 var _idle_t := 0.0
@@ -2298,6 +2307,28 @@ func _clip_layer(delta: float, flat: Vector3, speed: float, side_amt: float, bac
 	if full and dc and _dodge_t < dc.length():
 		dodge_w = smoothstep(0.0, 0.08, _dodge_t) * (1.0 - smoothstep(dc.length() - 0.35, dc.length(), _dodge_t))
 	var rest_w := 1.0 - dodge_w
+	# Starting off or pulling up: the clip, played at its own pace (which the
+	# brain follows), over the rest; handing over to the cycles (in step) or
+	# to standing at its end.
+	var trc: SoldierClips.Clip = SoldierClips.clip(_tr_clip) if _tr_clip != "" else null
+	if trc and full and crouch_amount < 0.3 and dodge_w < 0.01:
+		_tr_f = minf(_tr_f + delta * 30.0 * _tr_rate, trc.frames - 1.0)
+		if _tr_state == 1 and _tr_f >= trc.frames - 9.0:
+			_tr_state = 0                       # under way: the walking cycle takes him on
+		if _tr_state == 2 and _tr_f >= trc.frames - 1.0:
+			_tr_state = 0                       # stopped
+		transit_speed = trc.speed_at(_tr_f) * _tr_rate if _tr_state != 0 else 0.0
+		_tr_w = move_toward(_tr_w, 1.0 if _tr_state != 0 else 0.0, delta * (8.0 if _tr_state != 0 else (4.0 if _tr_clip.begins_with("start") else 2.5)))
+		if _tr_w > 0.0005:
+			_clip_phase = trc.phase_at(_tr_f) + (_clip_phase - fposmod(_clip_phase, 1.0)) if _tr_state != 0 else _clip_phase
+		else:
+			_tr_clip = ""
+	else:
+		_tr_state = 0
+		_tr_w = 0.0
+		_tr_clip = ""
+		transit_speed = 0.0
+	rest_w *= 1.0 - _tr_w
 	# Turning on the spot: a pivot clip, played as far as he has turned (its
 	# own turn is taken out of it, so the feet stay put while the body turns
 	# over them). Chosen as the turn starts: about-turns (more than ~125
@@ -2438,6 +2469,8 @@ func _clip_layer(delta: float, flat: Vector3, speed: float, side_amt: float, bac
 		_mix.add(SoldierClips.clip("idle_aim"), _idle_t * 30.0, stand_w * aim)
 		if dodge_w > 0.0:
 			_mix.add(dc, _dodge_t * 30.0, dodge_w)
+		if _tr_w > 0.0005 and trc:
+			_mix.add(trc, _tr_f, _tr_w * (1.0 - dodge_w))
 	_mix.apply(skeleton, _clip_rest_g, _clip_idx, SoldierClips.BONES if full else SoldierClips.LOWER)
 	_clip_share = minf(_mix.total, 1.0)
 	_clip_legs_only = not full
@@ -2452,6 +2485,8 @@ func _clip_layer(delta: float, flat: Vector3, speed: float, side_amt: float, bac
 		var fade := 1.0 - smoothstep(kh.length() - 0.3, kh.length(), _khit_t)
 		SoldierClips.add_on(skeleton, kh, _khit_t * 30.0, kneel_w * fade)
 	clip_weights = named
+	if _tr_w > 0.0005 and _tr_clip != "":
+		clip_weights[_tr_clip.get_slice("_", 0)] = _tr_w
 	clip_weights.merge({"kneel": kneel_w, "stand": stand_w, "stance_change": trans_w, "turn": turn_w,
 			"cower": _cower_w * still, "dodge": dodge_w, "share": _clip_share})
 
@@ -2474,6 +2509,67 @@ func _ways(parts: Array, prefix: String, step: int, heading: float, w: float) ->
 			# (the sprint has no back or sideways clips: the nearest it has)
 			c = SoldierClips.clip(prefix + str(clampi(a, -45, 45)))
 		parts.append([c, w * (t if k == 1 else 1.0 - t)])
+
+
+## Whether a motion-captured start or stop can be used now.
+func _transit_ok() -> bool:
+	return use_clips and has_rifle and spec.get("soldier", false) and drive_phase and broken_leg == "" \
+			and not pinned and attack_amount < 0.01 and crouch_amount < 0.2 and aim_amount < 0.5 \
+			and _dodge_t > 1.6 and SoldierClips.available()
+
+
+func transit_state() -> int:
+	return _tr_state
+
+
+## Starting off from standing, toward `goal_speed`: a walk start (played a
+## little quicker than the capture) or a run start.
+func begin_start(goal_speed: float) -> bool:
+	if _tr_state != 0 or not _transit_ok():
+		return false
+	_tr_clip = "start_run" if goal_speed > 2.2 else "start_walk"
+	_tr_rate = 1.0 if goal_speed > 2.2 else 1.5
+	_tr_f = 0.0
+	_tr_state = 1
+	transit_speed = 0.0
+	set_process(true)
+	return true
+
+
+func _stop_clip(speed: float) -> String:
+	return "stop_run" if speed > 2.0 else "stop_walk"
+
+
+## How far a stop met now, at `speed`, carries him (-1: none to be had).
+func stop_distance(speed: float) -> float:
+	if _tr_state != 0 or not _transit_ok():
+		return -1.0
+	var c: SoldierClips.Clip = SoldierClips.clip(_stop_clip(speed))
+	var e := c.stop_entry(speed, fposmod(_clip_phase, 1.0), 1.0)
+	return c.dist[c.frames - 1] - c.dist[e] if e >= 0 else -1.0
+
+
+## Pulling up from `speed`.
+func begin_stop(speed: float) -> bool:
+	if _tr_state != 0 or not _transit_ok():
+		return false
+	var c: SoldierClips.Clip = SoldierClips.clip(_stop_clip(speed))
+	var e := c.stop_entry(speed, fposmod(_clip_phase, 1.0), 1.0)
+	if e < 0:
+		return false
+	_tr_clip = _stop_clip(speed)
+	_tr_rate = 1.0
+	_tr_f = e
+	_tr_state = 2
+	transit_speed = c.speed_at(e)
+	set_process(true)
+	return true
+
+
+## Called off (he turns away, means to move on after all, drops down).
+func end_transit() -> void:
+	_tr_state = 0
+	transit_speed = 0.0
 
 
 ## A near miss jinked away from (the brain asks): `side` -1 to his left, +1

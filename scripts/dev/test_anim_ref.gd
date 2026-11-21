@@ -230,6 +230,52 @@ func _run() -> void:
 		_check(float(down_w.get("stance_change", 0.0)) > 0.5 and s._stance_dir > -2.0, "getting down on one knee plays the clip of it (%.2f)" % float(down_w.get("stance_change", 0.0)))
 		_check(float(up_w.get("stance_change", 0.0)) > 0.5, "and getting up, its own (%.2f)" % float(up_w.get("stance_change", 0.0)))
 		await _frames(60)
+	# starting off and pulling up, driven as the brain drives them: the clip's
+	# own pace while it plays
+	if want.call("start_stop"):
+		s.global_position = Vector3(-4, 0, -9)
+		s.rotation.y = 0.0
+		s.crouch_amount = 0.0
+		s.aim_amount = 0.0
+		s.walk_amount = 0.0
+		moving = false
+		vel = Vector3.ZERO
+		s.velocity = Vector3.ZERO
+		await _frames(40)
+		var sp := 0.0
+		var started := s.begin_start(3.0)
+		var stopped := false
+		var start_seen := 0.0
+		var stop_seen := 0.0
+		var t := 0.0
+		var k := 0
+		while t < 5.0:
+			if s.transit_state() != 0:
+				sp = s.transit_speed
+			elif not stopped and t < 2.6:
+				sp = move_toward(sp, 3.0, 3.2 / 60.0)
+			elif not stopped:
+				stopped = s.begin_stop(sp)
+				sp = s.transit_speed
+			else:
+				sp = move_toward(sp, 0.0, 6.0 / 60.0)
+			s.velocity = s.global_basis.z * sp
+			s.walk_amount = clampf(sp / 3.0, 0.0, 1.0)
+			s.global_position += s.velocity / 60.0
+			await get_tree().physics_frame
+			t += 1.0 / 60.0
+			start_seen = maxf(start_seen, float(s.clip_weights.get("start", 0.0)))
+			stop_seen = maxf(stop_seen, float(s.clip_weights.get("stop", 0.0)))
+			k += 1
+			if cam and k % 6 == 0:
+				cam.global_position = s.global_position + s.global_basis.x * 4.0 + Vector3.UP * 1.0
+				cam.look_at(s.global_position + Vector3.UP * 0.8)
+				await get_tree().process_frame
+				get_viewport().get_texture().get_image().save_png("/tmp/ar_start_stop_%02d.png" % (k / 6))
+		_check(started and start_seen > 0.9, "starting off plays the captured start (%.2f)" % start_seen)
+		_check(stopped and stop_seen > 0.9, "and pulling up the captured stop (%.2f)" % stop_seen)
+		s.velocity = Vector3.ZERO
+		await _frames(30)
 	# a near miss: a man standing still jinks away from it
 	if want.call("dodge"):
 		s.crouch_amount = 0.0

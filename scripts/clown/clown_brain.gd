@@ -845,6 +845,17 @@ func _go_to(to: Vector3, delta: float, speed: float) -> bool:
 			speed = lerpf(move_speed * 0.3, speed, lined)
 		else:
 			speed = lerpf(move_speed * 0.15, speed, lined)
+	if weighty and clown.transit_state() == 2:
+		# pulling up (the stop clip has the pace): on toward the spot
+		_step(dir * maxf(clown.transit_speed, 0.01), delta)
+		return false
+	if weighty and _cover_state == 0 and not face_player and target == to and _vel.length() > 0.6 \
+			and dir.dot(_vel.normalized()) > 0.9:
+		# near enough that the stop clip, met now, ends on the spot: pull up
+		var sd := clown.stop_distance(_vel.length())
+		if sd > 0.0 and flat.length() <= sd + 0.1 and clown.begin_stop(_vel.length()):
+			_step(dir * clown.transit_speed, delta)
+			return false
 	if weighty:
 		# eases up as it comes in, so it stops on the spot instead of skidding in
 		speed = minf(speed, sqrt(2.0 * BRAKE * 0.7 * flat.length()) + 0.25)
@@ -911,6 +922,27 @@ func _step(vel: Vector3, delta: float) -> void:
 		# the way on changes no faster than a man can change it: up to speed,
 		# down to a stop, through a stop to reverse
 		var want := Vector3(vel.x, 0, vel.z)
+		# Starting off and pulling up are motion-captured: while one plays he
+		# goes at its pace, so his feet stay where the clip puts them.
+		var facing := Vector3(clown.global_basis.z.x, 0, clown.global_basis.z.z).normalized()
+		if clown.transit_state() == 0 and _vel.length() < 0.1 and want.length() > 0.3 \
+				and want.normalized().dot(facing) > 0.85 and _cover_state == 0:
+			clown.begin_start(want.length())
+		elif clown.transit_state() == 0 and want.length() < 0.05 and _vel.length() > 0.6 \
+				and _vel.normalized().dot(facing) > 0.85 and _cover_state == 0:
+			clown.begin_stop(_vel.length())
+		var tr := clown.transit_state()
+		if tr == 1 and (want.length() < 0.05 or want.normalized().dot(facing) < 0.5):
+			clown.end_transit()                      # stopped short, or turning off
+			tr = 0
+		elif tr == 2 and want.length() > 0.3:
+			clown.end_transit()                      # moving on after all
+			tr = 0
+		if tr != 0:
+			var way := want.normalized() if want.length() > 0.05 else (_vel.normalized() if _vel.length() > 0.01 else facing)
+			_vel = way * clown.transit_speed
+			vel = _vel
+			want = _vel
 		var rate := BRAKE
 		if want.length() > _vel.length() + 0.01:
 			rate = ACCEL_RUN if want.length() > move_speed * 1.15 else ACCEL_WALK
@@ -987,7 +1019,7 @@ func _step(vel: Vector3, delta: float) -> void:
 
 
 func _settle(delta: float, drop_arm: bool = true) -> void:
-	if weighty and _vel.length() > 0.05:
+	if weighty and (_vel.length() > 0.05 or clown.transit_state() == 2):
 		# still carrying way: slows to a stop over a step or two
 		_step(Vector3.ZERO, delta)
 		clown.walk_amount = move_toward(clown.walk_amount, 0.0, delta * 3.0)

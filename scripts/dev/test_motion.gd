@@ -114,6 +114,7 @@ func _locomotion(m: Maze, a: Vector3, b: Vector3, run_dir: Vector3) -> void:
 	_check(br.weighty, "a WitzSoldat moves with weight")
 	var t := 0.0
 	var t90 := -1.0
+	var start_seen := 0.0
 	var first := -1.0
 	while t < 2.5:
 		br._go_to(b, 1.0 / 60.0, br.move_speed)
@@ -124,20 +125,27 @@ func _locomotion(m: Maze, a: Vector3, b: Vector3, run_dir: Vector3) -> void:
 			first = br._vel.length()
 		if t90 < 0.0 and br._vel.length() >= br.move_speed * 0.9:
 			t90 = t
+		start_seen = maxf(start_seen, float(c.clip_weights.get("start", 0.0)))
 	print("      walk %.2f m/s: first frame %.2f m/s, 90%% at %.2f s" % [br.move_speed, first, t90])
 	_check(first < 0.2, "it does not jump to full pace (first frame %.2f m/s)" % first)
-	_check(t90 > 0.5 and t90 < 1.6, "up to a walk in about a second (%.2f s)" % t90)
+	_check(t90 > 0.5 and t90 < 2.0, "up to a walk in a second or two (%.2f s)" % t90)
+	_check(start_seen > 0.9, "starting off is the captured start (%.2f)" % start_seen)
 	# stopping from a walk
 	var at := c.global_position
 	var stop_t := 0.0
-	while br._vel.length() > 0.05 and stop_t < 3.0:
+	var stop_seen := 0.0
+	while (br._vel.length() > 0.05 or c.transit_state() == 2) and stop_t < 3.0:
 		br._settle(1.0 / 60.0)
 		br._after(1.0 / 60.0)
 		await get_tree().physics_frame
 		stop_t += 1.0 / 60.0
+		stop_seen = maxf(stop_seen, float(c.clip_weights.get("stop", 0.0)))
 	var slide := Vector2(c.global_position.x - at.x, c.global_position.z - at.z).length()
 	print("      stops in %.2f s over %.2f m" % [stop_t, slide])
-	_check(stop_t > 0.2 and stop_t < 1.2 and slide > 0.1 and slide < 1.2, "pulls up over a step or two, not dead (%.2f m)" % slide)
+	# (the motion-captured stop: from about 3 m/s it takes a second or so and
+	# a couple of metres, as the capture does, instead of the 0.7 m of a 6 m/s/s brake)
+	_check(stop_t > 0.2 and stop_t < 1.8 and slide > 0.1 and slide < 2.8, "pulls up over a few steps, not dead (%.2f m in %.2f s)" % [slide, stop_t])
+	_check(stop_seen > 0.9, "the stop is the captured one (%.2f)" % stop_seen)
 	# a run, and the stop at the end of it: it comes in to the spot
 	c.global_position = a
 	br._vel = Vector3.ZERO
@@ -229,6 +237,46 @@ func _turning(m: Maze, a: Vector3, run_dir: Vector3) -> void:
 ## over the ground (the stride is matched to the speed).
 func _feet(m: Maze, a: Vector3, b: Vector3, run_dir: Vector3) -> void:
 	print("-- feet")
+	# starting off and pulling up: the feet as they are put down
+	for kind in ["start", "stop"]:
+		var c := _soldier(m, a)
+		var br := _quiet(c)
+		c.rotation.y = atan2(run_dir.x, run_dir.z)
+		await _frames(10)
+		var sk: Skeleton3D = c.skeleton
+		var feet := [sk.find_bone("LeftFoot"), sk.find_bone("RightFoot")]
+		var hist := [[], []]
+		var t := 0.0
+		var stop_at := 1.6 if kind == "stop" else 99.0
+		while t < 3.6:
+			if t < stop_at:
+				br._go_to(b, 1.0 / 60.0, br.move_speed)
+			else:
+				br._settle(1.0 / 60.0)
+			br._after(1.0 / 60.0)
+			await get_tree().process_frame
+			t += 1.0 / 60.0
+			var in_it: bool = (kind == "start" and t < 1.4) or (kind == "stop" and t >= stop_at)
+			if in_it:
+				for k in 2:
+					hist[k].append(sk.global_transform * sk.get_bone_global_pose(feet[k]).origin)
+		var slip := 0.0
+		var n := 0
+		for k in 2:
+			var low := INF
+			for p: Vector3 in hist[k]:
+				low = minf(low, p.y)
+			for i in range(1, hist[k].size()):
+				var p0: Vector3 = hist[k][i - 1]
+				var p1: Vector3 = hist[k][i]
+				if p0.y < low + 0.015 and p1.y < low + 0.015:
+					slip += Vector2(p1.x - p0.x, p1.z - p0.z).length() * 60.0
+					n += 1
+		slip /= maxf(n, 1)
+		print("      %s: planted feet move %.2f m/s over the ground (%d frames)" % [kind, slip, n])
+		_check(n > 10 and slip < 0.35, "%s: the planted feet hold the ground (%.2f m/s)" % [kind, slip])
+		c.queue_free()
+		await _frames(2)
 	for pace in ["walk", "run"]:
 		var c := _soldier(m, a)
 		var br := _quiet(c)
