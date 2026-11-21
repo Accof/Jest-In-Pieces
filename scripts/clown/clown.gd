@@ -1949,6 +1949,24 @@ var stride_override := 0.0
 
 var _model: Node3D
 var _base_rot := {}
+## Motion-captured movement (SoldierClips) under the procedural animation:
+## kneeling, crouch walk/run, side-steps, the rifle stance and raise, turns
+## on the spot, recoil and a kneeling hit. Off: all procedural, as before.
+@export var use_clips := true
+var _mix := SoldierClips.Mix.new()
+var _clip_rest_g := {}
+var _clip_share := 0.0               # how much of the pose the clips have this frame (0..1)
+var _clip_phase := 0.0               # moving cycles, in cycles
+var _kneel_t := 0.0
+var _recoil_clip_t := 99.0
+var _khit_t := 99.0
+var clip_weights := {}               # last frame's weights, for tests
+var cower := false                   ## curled up under heavy fire (the brain sets it)
+var _cower_t := 0.0
+var _cower_w := 0.0
+var _turn_w := 0.0                   # turning on the spot (the pivot clip's share)
+var _turn_acc := 0.0                 # how far round this turn has come (radians, signed)
+var _prev_yaw := INF
 var _flinch := Vector3.ZERO         # upper-body rotation, skeleton space (axis * angle)
 var _flinch_vel := Vector3.ZERO
 var _stagger := Vector3.ZERO        # model offset, metres
@@ -2016,7 +2034,12 @@ func _flinch_from(world_pos: Vector3, dir: Vector3, damage: float) -> void:
 		kick = Vector3(-0.2, 0, 0)
 	_flinch_vel += (kick * 22.0 * power).limit_length(11.0)
 	_stagger_vel += Vector3(d.x, 0, d.z) * 1.3 * power
+	if spec.get("soldier", false):
+		_stagger_vel.y -= 0.3 * power        # the knees give (3 cm or so in the references)
 	stagger_time = maxf(stagger_time, 0.18 + 0.12 * power)
+	if crouch_amount > 0.6 and use_clips and has_rifle:
+		_khit_t = 0.0                        # kneeling: the motion-captured hit plays over it
+		_flinch_vel *= 0.5                   # (and the spring takes less of it)
 	set_process(true)
 
 
@@ -2035,7 +2058,12 @@ func _process(delta: float) -> void:
 		return
 	delta = minf(delta, 1.0 / 30.0)         # the springs below go unstable on a long frame
 	stagger_time = maxf(stagger_time - delta, 0.0)
-	_flinch_vel += (-_flinch * 120.0 - _flinch_vel * 13.0) * delta
+	# (soldiers: tuned to the Mixamo hit reactions: snapped back in about a
+	# tenth of a second, swung through and back the other way about a third
+	# of a second later, settled by about a second)
+	var fk := 90.0 if spec.get("soldier", false) else 120.0
+	var fc := 6.7 if spec.get("soldier", false) else 13.0
+	_flinch_vel += (-_flinch * fk - _flinch_vel * fc) * delta
 	_flinch = (_flinch + _flinch_vel * delta).limit_length(0.6)
 	_stagger_vel += (-_stagger * 70.0 - _stagger_vel * 13.0) * delta
 	_stagger += _stagger_vel * delta
@@ -2080,6 +2108,8 @@ func _process(delta: float) -> void:
 		fwd_amt = absf(f2)
 		side_amt = absf(sd2)
 		back = -1.0 if f2 < -0.25 else 1.0
+	_model_sway = Vector3.ZERO
+	_clip_layer(delta, flat, speed, side_amt, back)
 	var bob := 0.0
 	# How much the legs swing: any real movement gets a full step (the step
 	# rate already follows the speed), so a slow side-step still lifts its feet.
@@ -2096,18 +2126,22 @@ func _process(delta: float) -> void:
 			if _shuffle_t <= 0.0:
 				_shuffle_t = randf_range(7.0, 16.0)
 				_shuffle = 0.9
-	if gait > 0.01:
+	var lg := gait * (1.0 - _clip_share)      # the legs the clips leave to the procedural walk
+	if lg > 0.01:
 		var sw := sin(walk_phase)
 		var stride := (stride_override if stride_override > 0.0 else lerpf(27.0, 44.0 if has_rifle else 50.0, run_amount)) * clampf(fwd_amt + 0.3, 0.0, 1.0)
 		var knee := lerpf(62.0, 75.0 if has_rifle else 90.0, run_amount)
 		var arm := lerpf(22.0, 48.0, run_amount)
-		_turn("Spine", Vector3.RIGHT, deg_to_rad(lerpf(4.0, 9.0 if has_rifle else 20.0, run_amount)) * gait * fwd_amt * (back if back > 0.0 else 0.25))
-		_turn("Spine", Vector3.BACK, deg_to_rad(3.0) * sw * gait)
-		_turn("Spine", Vector3.UP, deg_to_rad(5.0) * sw * gait * fwd_amt)        # hips and shoulders counter-turn
+		if not human:
+			_turn("Spine", Vector3.RIGHT, deg_to_rad(lerpf(4.0, 9.0 if has_rifle else 20.0, run_amount)) * lg * fwd_amt * (back if back > 0.0 else 0.25))
+		_turn("Spine", Vector3.BACK, deg_to_rad(3.0) * sw * lg)
+		_turn("Spine", Vector3.UP, deg_to_rad(5.0) * sw * lg * fwd_amt)        # hips and shoulders counter-turn
 		var legs := {"Left": 1.0, "Right": -1.0}
 		if spec.get("soldier", false):
-			_soldier_legs(gait, fwd_amt, side_amt, back)
+			_soldier_legs(lg, fwd_amt, side_amt, back)
 			legs = {}
+			if human:
+				bob += _soldier_walk_body(delta, lg, fwd_amt, back, flat)
 		for side: String in legs:
 			var s: float = legs[side]
 			var limp := side == broken_leg
@@ -2116,23 +2150,23 @@ func _process(delta: float) -> void:
 			var stance := maxf(0.0, -cos(walk_phase) * s)        # this leg is carrying the body
 			var behind := maxf(0.0, -sw * s)                      # trailing, about to push off
 			# thigh forward and back; out to the side when side-stepping
-			_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-stride) * sw * s * gait * k)
-			_turn(side + "UpperLeg", Vector3.BACK, deg_to_rad(15.0) * sw * side_amt * gait)
+			_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-stride) * sw * s * lg * k)
+			_turn(side + "UpperLeg", Vector3.BACK, deg_to_rad(15.0) * sw * side_amt * lg)
 			# knee: folds high as the foot comes through, gives a little under the
 			# weight, never quite locks straight
 			var knee_deg := knee * pow(swing, 1.4) + 9.0 * stance + 5.0
-			_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(knee_deg) * gait * (0.3 if limp else 1.0))
+			_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(knee_deg) * lg * (0.3 if limp else 1.0))
 			# ankle: toe pushes off behind, lifts clear coming through, lands heel first
 			# (positive turns the toe down)
-			_turn(side + "Foot", Vector3.RIGHT, deg_to_rad(20.0 * pow(behind, 2.0) * stance - 12.0 * swing) * gait * k)
+			_turn(side + "Foot", Vector3.RIGHT, deg_to_rad(20.0 * pow(behind, 2.0) * stance - 12.0 * swing) * lg * k)
 		if not has_rifle:
-			_turn("LeftUpperArm", Vector3.RIGHT, deg_to_rad(arm) * sw * gait)
-			_turn("LeftLowerArm", Vector3.RIGHT, deg_to_rad(-55.0) * run_amount * gait)
+			_turn("LeftUpperArm", Vector3.RIGHT, deg_to_rad(arm) * sw * lg)
+			_turn("LeftLowerArm", Vector3.RIGHT, deg_to_rad(-55.0) * run_amount * lg)
 		if attack_amount < 0.01 and aim_amount < 0.01 and not has_rifle:
-			_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-arm) * sw * gait)
-			_turn("RightLowerArm", Vector3.RIGHT, deg_to_rad(-55.0) * run_amount * gait)
+			_turn("RightUpperArm", Vector3.RIGHT, deg_to_rad(-arm) * sw * lg)
+			_turn("RightLowerArm", Vector3.RIGHT, deg_to_rad(-55.0) * run_amount * lg)
 		# the body drops a little onto each foot as it lands
-		bob = (0.5 + 0.5 * cos(walk_phase * 2.0)) * lerpf(0.035, 0.07, run_amount) * gait
+		bob = (0.5 + 0.5 * cos(walk_phase * 2.0)) * lerpf(0.035, 0.07, run_amount) * lg
 	# A broken leg: knee bent the wrong way, and the body lurches down onto it.
 	if broken_leg != "":
 		var s := 1.0 if broken_leg == "Left" else -1.0
@@ -2142,8 +2176,8 @@ func _process(delta: float) -> void:
 		_turn("Spine", Vector3.BACK, deg_to_rad(-10.0) * s * (0.4 + on_bad))
 		_turn("Spine", Vector3.RIGHT, deg_to_rad(12.0))
 	# Crouched behind cover.
-	if crouch_amount > 0.01:
-		var c := crouch_amount
+	if crouch_amount * (1.0 - _clip_share) > 0.01:
+		var c := crouch_amount * (1.0 - _clip_share)
 		for side: String in ["Left", "Right"]:
 			_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-80.0) * c)
 			_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(120.0) * c)
@@ -2151,7 +2185,7 @@ func _process(delta: float) -> void:
 	# A soldier taking aim stands bladed: left foot forward, right foot back.
 	_stance_w = 0.0
 	if spec.get("soldier", false) and has_rifle and aim_amount > 0.01:
-		_aim_stance(aim_amount * (1.0 - clampf(gait * 1.6, 0.0, 1.0)))
+		_aim_stance(aim_amount * (1.0 - clampf(gait * 1.6, 0.0, 1.0)) * (1.0 - _clip_share))
 	# The fighting arm (the right, or the left if the right is out): swung
 	# overhead to hit, or held out to aim (pistol gunmen).
 	var arm := main_arm()
@@ -2172,7 +2206,7 @@ func _process(delta: float) -> void:
 	var lean_shift := Vector3.ZERO
 	if human:
 		lean_shift = _soldier_body_language(delta, gait)
-	_model.position = _stagger + lean_shift + Vector3.DOWN * (bob + 0.47 * crouch_amount + 0.025 * _stance_w)
+	_model.position = _stagger + lean_shift + _model_sway + Vector3.DOWN * (bob + 0.47 * crouch_amount * (1.0 - _clip_share) + 0.025 * _stance_w) + _mix.off
 	if extra_pose.is_valid():
 		extra_pose.call()
 	if has_rifle and _rifle and is_instance_valid(_rifle):
@@ -2190,6 +2224,111 @@ func _process(delta: float) -> void:
 		_stagger = Vector3.ZERO
 		_model.position = Vector3.ZERO
 		set_process(false)
+
+
+## The motion-captured layer (see SoldierClips): chooses and weights the
+## clips for what the soldier is doing, poses the skeleton with them and
+## leaves `_clip_share` for the procedural animation to scale itself by.
+## Riflemen only (the clips' arms are not used: the hands stay on the rifle).
+func _clip_layer(delta: float, flat: Vector3, speed: float, side_amt: float, back: float) -> void:
+	_mix.reset()
+	_clip_share = 0.0
+	clip_weights.clear()
+	if not use_clips or not has_rifle or not spec.get("soldier", false) or not drive_phase \
+			or broken_leg != "" or pinned or attack_amount > 0.01 or not SoldierClips.available():
+		return
+	if _clip_rest_g.is_empty():
+		# straight after the reset to the base pose: the bones' rest rotations
+		for b: String in SoldierClips.BONES:
+			var bi := skeleton.find_bone(b)
+			if bi >= 0:
+				_clip_rest_g[b] = skeleton.get_bone_global_pose(bi).basis.get_rotation_quaternion()
+	var moving := smoothstep(0.05, 0.5, speed)
+	var low := smoothstep(0.12, 0.55, crouch_amount)        # crouched enough to move crouched
+	var kneel_w := smoothstep(0.1, 0.8, crouch_amount) * (1.0 - moving)
+	var lateral := 0.0
+	if speed > 0.05:
+		lateral = flat.dot(global_basis.x.normalized()) / speed
+	var w_crouch := low * moving
+	var w_strafe := (1.0 - low) * moving * smoothstep(0.5, 0.85, side_amt)
+	var w_stand := (1.0 - smoothstep(0.1, 0.8, crouch_amount)) * (1.0 - moving)
+	# Turning on the spot: the pivot clip, played as far as he has turned (its
+	# own turn is taken out of it, so the feet stay put while the body turns
+	# over them); past its 90 degrees it starts again from the new stance.
+	var yaw := global_rotation.y
+	var dyaw := 0.0 if _prev_yaw == INF else wrapf(yaw - _prev_yaw, -PI, PI)
+	_prev_yaw = yaw
+	var turning := absf(dyaw) > 0.25 * delta and moving < 0.3
+	if turning:
+		if _turn_w < 0.05 or signf(dyaw) != signf(_turn_acc) and absf(_turn_acc) > 0.05:
+			_turn_acc = 0.0
+		_turn_acc += dyaw
+		_turn_w = move_toward(_turn_w, 1.0, delta * 5.0)
+	else:
+		_turn_w = move_toward(_turn_w, 0.0, delta * 4.0)
+	var tc := SoldierClips.clip(("crouch_turn_" if low > 0.5 else "turn_") + ("left" if _turn_acc > 0.0 else "right"))
+	if tc and absf(_turn_acc) > absf(tc.total_turn()):
+		_turn_acc -= tc.total_turn()
+	if tc and _turn_w > 0.001:
+		var tw := _turn_w * (1.0 - moving)
+		_mix.add(tc, tc.frame_for_turn(_turn_acc), tw)
+		w_stand *= 1.0 - _turn_w
+		kneel_w *= 1.0 - _turn_w
+	# moving cycles: the step follows the real speed (stride from the clip)
+	var cw := SoldierClips.clip("crouch_walk")
+	var cr := SoldierClips.clip("crouch_run")
+	# one side-step clip for both ways: stepping right is the left side-step
+	# run backwards, so he keeps his rifleman's stance (a mirrored clip would
+	# blade him the wrong way round) and a change of direction is the cycle
+	# simply reversing, with no jump
+	var st := SoldierClips.clip("strafe_left")
+	var run_mix := smoothstep(1.9, 2.8, speed)
+	if w_crouch + w_strafe > 0.001:
+		var stride := (w_crouch * lerpf(cw.stride, cr.stride, run_mix) + w_strafe * st.stride) / (w_crouch + w_strafe)
+		_clip_phase += speed * delta / maxf(stride, 0.3) * (back if w_crouch > w_strafe else (1.0 if lateral >= 0.0 else -1.0))
+	_mix.add(cw, _clip_phase * cw.frames, w_crouch * (1.0 - run_mix))
+	_mix.add(cr, _clip_phase * cr.frames, w_crouch * run_mix)
+	_mix.add(st, _clip_phase * st.frames, w_strafe)
+	# kneeling behind cover: the clip's slow breathing and shifting
+	_kneel_t += delta
+	var kn := SoldierClips.clip("kneel")
+	_mix.add(kn, _kneel_t * 30.0, kneel_w)
+	# cowering under fire: the drop into the crouch, head down behind the rifle,
+	# then the held crouch (its last two seconds, over and over)
+	var cw_clip := SoldierClips.clip("cower")
+	if cower and moving < 0.5:
+		if _cower_w < 0.01:
+			_cower_t = 0.0
+		_cower_w = move_toward(_cower_w, 1.0, delta * 4.0)
+	else:
+		_cower_w = move_toward(_cower_w, 0.0, delta * 2.5)
+	_cower_t += delta
+	if _cower_w > 0.001:
+		var cf := _cower_t * 30.0
+		if cf > cw_clip.frames - 1:
+			cf = cw_clip.frames - 60.0 + fposmod(cf - (cw_clip.frames - 60.0), 59.0)
+		var cww := _cower_w * (1.0 - moving)
+		_mix.add(cw_clip, cf, cww)
+		w_stand *= 1.0 - cww
+		kneel_w *= 1.0 - cww
+	# standing: the rifle stance, raised through the clip as he takes aim
+	var rz := SoldierClips.clip("raise")
+	var ra := smoothstep(0.0, 1.0, aim_amount)
+	_mix.add(rz, ra * 16.0, w_stand)
+	_mix.apply(skeleton, _clip_rest_g)
+	_clip_share = minf(_mix.total, 1.0)
+	# the shot, absorbed through the body; a hit taken kneeling
+	_recoil_clip_t += delta
+	var rc := SoldierClips.clip("recoil")
+	if _recoil_clip_t < rc.length():
+		SoldierClips.add_on(skeleton, rc, _recoil_clip_t * 30.0, aim_amount)
+	_khit_t += delta
+	var kh := SoldierClips.clip("kneel_hit")
+	if _khit_t < kh.length():
+		var fade := 1.0 - smoothstep(kh.length() - 0.3, kh.length(), _khit_t)
+		SoldierClips.add_on(skeleton, kh, _khit_t * 30.0, kneel_w * fade)
+	clip_weights = {"crouch_walk": w_crouch * (1.0 - run_mix), "crouch_run": w_crouch * run_mix, "strafe": w_strafe,
+			"kneel": kneel_w, "stand": w_stand, "turn": _turn_w * (1.0 - moving), "cower": _cower_w * (1.0 - moving), "share": _clip_share}
 
 
 ## A broken arm hangs from the shoulder and swings with the body: the
@@ -2323,13 +2462,68 @@ func _soldier_legs(gait: float, fwd_amt: float, side_amt: float, back := 1.0) ->
 		var limp := side == broken_leg
 		var k := 0.35 if limp else 1.0
 		var hip := lerpf(_gait_curve(WALK_HIP, c), _gait_curve(RUN_HIP, c), r) * reach
+		if has_rifle and drive_phase:
+			# measured (test_motion "feet"): with the soft knees and the turning
+			# pelvis the old swing let the planted foot drift forward at ~40% of
+			# the body's speed; a longer swing at the hip brings it to ~15%
+			hip *= lerpf(1.3, 1.5, r)
 		var knee := lerpf(_gait_curve(WALK_KNEE, c), _gait_curve(RUN_KNEE, c), r)
 		var ankle := lerpf(_gait_curve(WALK_ANKLE, c), _gait_curve(RUN_ANKLE, c), r)
 		var s := 1.0 if side == "Left" else -1.0
+		if has_rifle and drive_phase:
+			# under a rifle and kit the knee never straightens (the reference
+			# clips' knees stay at 20-35 degrees through the stance): bend it,
+			# with the hip and ankle taking up the difference so the foot stays flat
+			var bend := lerpf(14.0, 8.0, r)
+			knee += bend
+			hip += bend * 0.5
+			ankle -= bend * 0.5
 		_turn(side + "UpperLeg", Vector3.RIGHT, deg_to_rad(-hip) * gait * k)
 		_turn(side + "UpperLeg", Vector3.BACK, deg_to_rad(15.0) * sw * side_amt * gait)
 		_turn(side + "LowerLeg", Vector3.RIGHT, deg_to_rad(knee + 4.0) * gait * (0.3 if limp else 1.0))
 		_turn(side + "Foot", Vector3.RIGHT, deg_to_rad(ankle) * gait * k)
+
+
+## What the reference clips' walking all share and the plain stride lacked
+## (measured from the Mixamo crouch walk, crouched run and strafe): the
+## pelvis turns with the leg that swings through (about 7 degrees each way)
+## and dips on the side that is lifted, the hips ride over the foot that
+## carries them (a centimetre or two of sway), the chest turns back against
+## the pelvis while the head keeps level, the body leans into the pace and
+## into a change of pace, and the rifle side drags the shoulders over a
+## little. Returns how much lower the hips ride (knees soft under a load).
+var _walk_prev := Vector3.ZERO
+var _walk_accel := 0.0
+
+
+func _soldier_walk_body(delta: float, g: float, fwd_amt: float, back: float, flat: Vector3) -> float:
+	var ph := walk_phase
+	var sw := sin(ph)
+	var r := run_amount
+	var forward := fwd_amt * (1.0 if back > 0.0 else 0.4)
+	# pelvis: turns toward the leg swinging through, dips on the swinging side
+	_turn("Hips", Vector3.UP, -deg_to_rad(lerpf(7.0, 5.0, r)) * sw * g * forward)
+	_turn("Hips", Vector3.BACK, deg_to_rad(lerpf(3.0, 4.0, r)) * cos(ph) * g)
+	# chest back the other way (more than the old spine counter-turn alone)
+	_turn("Chest", Vector3.UP, deg_to_rad(lerpf(2.0, 3.0, r)) * sw * g * forward)   # with the spine's 5: the chest holds steady over the turning pelvis
+	# leaning into the pace and into speeding up (back when braking)
+	var fwd_v := flat.dot(global_basis.z.normalized())
+	var acc := (fwd_v - _walk_prev.z) / maxf(delta, 0.001)
+	_walk_prev.z = fwd_v
+	_walk_accel = lerpf(_walk_accel, clampf(acc, -6.0, 6.0), clampf(delta * 6.0, 0.0, 1.0))
+	var lean := deg_to_rad(lerpf(6.0, 12.0, r)) * forward + deg_to_rad(1.4) * _walk_accel
+	_turn("Spine", Vector3.RIGHT, lean * g)
+	# the rifle's weight on the right: shoulders over to that side a little
+	_turn("Chest", Vector3.BACK, deg_to_rad(3.5) * g)
+	# the head stays level over all of it
+	_turn("Neck", Vector3.RIGHT, -lean * 0.7 * g)
+
+	# hips over the foot that carries them
+	_model_sway = Vector3(lerpf(0.012, 0.02, r) * cos(ph), 0, 0) * g
+	return lerpf(0.012, 0.02, r) * g                 # knees soft: hips ride lower
+
+
+var _model_sway := Vector3.ZERO
 
 
 ## Taking aim: hips turned a third of the way round to the right, left foot
@@ -2810,6 +3004,7 @@ func _recoil() -> float:
 ## then (on its own) the bolt is worked to chamber the next round.
 func fired() -> void:
 	_shot_t = 0.0
+	_recoil_clip_t = 0.0
 	_cased = false
 	var at := muzzle_position()
 	var dir := global_basis.z

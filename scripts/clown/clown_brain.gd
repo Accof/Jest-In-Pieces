@@ -360,6 +360,8 @@ func _after(delta: float) -> void:
 	if weighty:
 		_apply_turn(delta)
 		_look(delta)
+		# under fire this heavy he curls up behind the rifle, head down
+		clown.cower = suppression > 0.8 and _cover_state != 3 and not pinned
 
 
 func _think(delta: float) -> void:
