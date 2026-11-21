@@ -50,6 +50,7 @@ func _quiet(c: Clown) -> ClownBrain:
 
 
 func _run() -> void:
+	Clown.pose_lod = false
 	Engine.set_meta(&"test_save", true)
 	game = load("res://scenes/game.tscn").instantiate()
 	add_child(game)

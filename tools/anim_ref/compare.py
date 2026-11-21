@@ -73,7 +73,8 @@ pairs = [
     ('Firing_Rifle_1.fbx', 'aim', None),
     ('Turning_Right_90_Degrees.fbx', 'turn_right', None),
     ('Turning_Right_90_Degrees.fbx', 'turn_slow', None),
-    (None, 'stand', None), (None, 'walk_slow', None), (None, 'walk', None), (None, 'run', None), (None, 'strafe_right', None),
+    ('Rifle_Walk_1.fbx', 'walk_slow', None), ('Rifle_Walk_1.fbx', 'walk', None), ('Rifle_Run_1.fbx', 'run', None), ('Backwards_Rifle_Walk.fbx', 'walk_back', None),
+    (None, 'stand', None), (None, 'strafe_right', None),
 ]
 for rn, on, _ in pairs:
     print('==', rn or '(no reference)', '<->', on)
@@ -83,7 +84,7 @@ for rn, on, _ in pairs:
         show('ref', measure(F), np.linalg.norm(disp[[0, 2]]))
     if on in ours:
         st = ours[on]
-        mv = {'crouch_walk': [0, 0, 1.8], 'crouch_run': [0, 0, 2.7], 'walk_slow': [0, 0, 1.4], 'walk': [0, 0, 3.0], 'run': [0, 0, 5.4], 'strafe_left': [1, 0, 0], 'strafe_right': [-1, 0, 0]}.get(on, [0, 0, 0])
+        mv = {'crouch_walk': [0, 0, 1.8], 'crouch_run': [0, 0, 2.7], 'walk_slow': [0, 0, 1.4], 'walk': [0, 0, 3.0], 'run': [0, 0, 5.4], 'strafe_left': [1, 0, 0], 'strafe_right': [-1, 0, 0], 'walk_back': [0, 0, -1.2]}.get(on, [0, 0, 0])
         show('ours', measure(st['frames'], np.array(mv), 0.97), np.linalg.norm(mv))
 
 

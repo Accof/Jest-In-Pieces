@@ -149,12 +149,19 @@ def oneshot(name, start=0, end=None, keep_xz=False, additive=False):
     return c
 
 
-def turn(name, mirror_it=False):
+def turn(name, mirror_it=False, open_stance=False):
     """A turn on the spot: the hips' yaw is what the game's own turning does,
     so it is taken out of every bone (the feet then stay put on the ground
     while the root turns) and kept as the curve to drive the clip by."""
     c = load(name)
     yaw = c['yaw'] - c['yaw'][0]
+    if open_stance:
+        # square to the front (for men without a rifle to blade behind): the
+        # clip's opening stance yaw taken out of the whole thing
+        y0 = c['yaw'][0]
+        for b in list(c['deltas']):
+            c['deltas'][b] = R.from_rotvec([0, -y0, 0]) * c['deltas'][b]
+        c['off'] = R.from_rotvec([0, -y0, 0]).apply(c['off'])
     # smooth (the hips wobble about the turn): a short moving average
     k = 5
     ys = np.convolve(np.pad(yaw, (k, k), mode='edge'), np.ones(2 * k + 1) / (2 * k + 1), mode='same')[k:-k]
@@ -200,6 +207,9 @@ clips = {
     'kneel': pack(oneshot('Crouch_Idle.fbx', keep_xz=True) | {'loop': True}),
     'crouch_walk': pack(cycle('Walk_Crouching_Forward.fbx')),
     'crouch_run': pack(cycle('Crouched_Run.fbx')),
+    'walk': pack(cycle('Rifle_Walk_1.fbx')),
+    'run': pack(cycle('Rifle_Run_1.fbx')),
+    'walk_back': pack(cycle('Backwards_Rifle_Walk.fbx')),
     'strafe_left': pack(cycle('Strafe.fbx')),
     'raise': pack(oneshot('Rifle_Down_To_Aim.fbx')),
     'recoil': pack(oneshot('Firing_Rifle_1.fbx', additive=True)),
@@ -207,6 +217,8 @@ clips = {
     'turn_left': pack(turn('Turning_Right_90_Degrees.fbx', mirror_it=True)),
     'crouch_turn_right': pack(turn('Rifle_Crouch_Turn.fbx')),
     'crouch_turn_left': pack(turn('Rifle_Crouch_Turn.fbx', mirror_it=True)),
+    'turn_open_right': pack(turn('Turning_Right_90_Degrees.fbx', open_stance=True)),
+    'turn_open_left': pack(turn('Turning_Right_90_Degrees.fbx', mirror_it=True, open_stance=True)),
     'kneel_hit': pack(oneshot('Hit_Reaction.fbx', additive=True)),
     'cower': pack(oneshot('Rifle_Shielding_Face.fbx', start=hip_start_drop('Rifle_Shielding_Face.fbx', 0.03))),
 }

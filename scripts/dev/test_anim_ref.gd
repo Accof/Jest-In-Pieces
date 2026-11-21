@@ -23,7 +23,7 @@ func _check(ok: bool, what: String) -> void:
 
 
 ## Which clip should be carrying each state.
-const EXPECT := {"stand": "stand", "aim": "stand", "crouch_idle": "kneel", "crouch_walk": "crouch_walk",
+const EXPECT := {"walk": "run", "walk_slow": "walk", "run": "run", "walk_back": "walk_back", "stand": "stand", "aim": "stand", "crouch_idle": "kneel", "crouch_walk": "crouch_walk",
 		"crouch_run": "crouch_run", "strafe_left": "strafe", "strafe_right": "strafe", "turn_right": "turn",
 		"turn_slow": "turn", "kneel_hit": "kneel", "cower": "cower", "crouch_turn": "turn"}
 
@@ -36,8 +36,6 @@ func _check_weights(state: String, w: Dictionary) -> void:
 			if k != "share" and (best == "" or float(w[k]) > float(w[best])):
 				best = k
 		_check(best == want and float(w.get("share", 0.0)) > 0.9, "%s: carried by the %s clip (%s %.2f, share %.2f)" % [state, want, best, float(w.get(best, 0.0)), float(w.get("share", 0.0))])
-	elif state in ["walk", "walk_slow", "run"]:
-		_check(float(w.get("share", 1.0)) < 0.05, "%s: the procedural walk (no clip for it; share %.2f)" % [state, float(w.get("share", 0.0))])
 
 const MAP := {
 	"Hips": "Hips", "Spine": "Spine", "Chest": "Spine2", "Neck": "Neck", "Head": "Head",
@@ -94,6 +92,7 @@ func _record(secs: float, film: String = "") -> Array:
 
 
 func _run() -> void:
+	Clown.pose_lod = false
 	room = load("res://scenes/gore_sandbox.tscn").instantiate()
 	add_child(room)
 	await get_tree().physics_frame
@@ -136,6 +135,7 @@ func _run() -> void:
 		["aim", Vector3.ZERO, 0.0, 0.0, 0.0, 1.0, 0.0, 2.0],
 		["walk_slow", Vector3(0, 0, 1.4), 0.47, 0.0, 0.0, 0.0, 0.0, 2.0],
 		["walk", Vector3(0, 0, 3.0), 1.0, 0.0, 0.0, 0.0, 0.0, 2.0],
+		["walk_back", Vector3(0, 0, -1.2), 0.4, 0.0, 0.0, 0.0, 0.0, 2.0],
 		["run", Vector3(0, 0, 5.4), 1.0, 1.0, 0.0, 0.0, 0.0, 2.0],
 		["crouch_idle", Vector3.ZERO, 0.0, 0.0, 1.0, 0.0, 0.0, 3.0],
 		["crouch_walk", Vector3(0, 0, 1.8), 0.6, 0.0, 0.7, 0.0, 0.0, 2.0],
@@ -206,8 +206,41 @@ func _run() -> void:
 	club.set_process(true)
 	club.crouch_amount = 1.0
 	await _frames(20)
-	_check(club.clip_weights.get("share", 0.0) == 0.0, "a man without a rifle keeps the procedural pose")
+	_check(club.clip_weights.get("kneel", 0.0) == 0.0, "a man without a rifle does not take the rifleman's kneel")
 	club.queue_free()
+	# soldiers without rifles walk on the clips' legs, arms still their own
+	for kind: String in ["club", "zornhauptmann", "clown"]:
+		var m: Clown
+		if kind == "clown":
+			m = Clown.new()
+		elif kind == "club":
+			m = Clown.new()
+			m.body = "witzsoldat"
+		else:
+			m = (load("res://scripts/clown/zornhauptmann.gd") as GDScript).new()
+		room.add_child(m)
+		m.global_position = Vector3(2, 0, -8)
+		if kind == "club":
+			m.give_club()
+		m.always_pose = true
+		m.set_process(true)
+		m.walk_amount = 0.5
+		var arm0 := m.skeleton.get_bone_pose_rotation(m.skeleton.find_bone("LeftUpperArm"))
+		var arm_moves := 0.0
+		for i in 60:
+			m.velocity = m.global_basis.z * 1.4
+			m.global_position += m.velocity / 60.0
+			await get_tree().physics_frame
+			arm_moves = maxf(arm_moves, m.skeleton.get_bone_pose_rotation(m.skeleton.find_bone("LeftUpperArm")).angle_to(arm0))
+			if cam and i % 4 == 0:
+				cam.global_position = m.global_position - m.global_basis.x * 3.4 + Vector3.UP * 1.0
+				cam.look_at(m.global_position + Vector3.UP * 0.8)
+				await get_tree().process_frame
+				get_viewport().get_texture().get_image().save_png("/tmp/ar_legs_%s_%02d.png" % [kind, i / 4])
+		_check(float(m.clip_weights.get("walk", 0.0)) > 0.9 and m._clip_legs_only, "%s: walks on the clip's legs (walk %.2f)" % [kind, float(m.clip_weights.get("walk", 0.0))])
+		_check(arm_moves > 0.1, "%s: and still swings his own arms (%.2f rad)" % [kind, arm_moves])
+		m.queue_free()
+		await _frames(2)
 	print("ANIMREF: %d failed" % fails)
 	var fa := FileAccess.open("/tmp/anim_ours.json", FileAccess.WRITE)
 	fa.store_string(JSON.stringify(states))
@@ -219,7 +252,7 @@ func _run() -> void:
 ## The reference clips on Mixamo's own character, filmed the same way
 ## (/tmp/arref_<clip>_NN.png), to set beside ours.
 func _film_ref() -> void:
-	var pairs := {"Crouch_Idle": "crouch_idle", "Walk_Crouching_Forward": "crouch_walk", "Crouched_Run": "crouch_run",
+	var pairs := {"Rifle_Walk_1": "walk_slow", "Rifle_Run_1": "run", "Backwards_Rifle_Walk": "walk_back", "Crouch_Idle": "crouch_idle", "Walk_Crouching_Forward": "crouch_walk", "Crouched_Run": "crouch_run",
 			"Strafe": "strafe_left", "Rifle_Down_To_Aim": "aim", "Turning_Right_90_Degrees": "turn_right",
 			"Hit_Reaction": "kneel_hit", "Rifle_Crouch_Turn": "crouch_turn", "Rifle_Shielding_Face": "cower"}
 	for f: String in pairs:

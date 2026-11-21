@@ -19,6 +19,10 @@ const BONES := ["Hips", "Spine", "Chest", "Neck", "Head", "LeftShoulder", "Right
 		"LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "LeftToes",
 		"RightUpperLeg", "RightLowerLeg", "RightFoot", "RightToes"]
 
+## What a man without a rifle takes from the clips.
+const LOWER := ["Hips", "Spine", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "LeftToes",
+		"RightUpperLeg", "RightLowerLeg", "RightFoot", "RightToes"]
+
 static var _clips := {}
 
 
@@ -35,30 +39,43 @@ class Clip:
 	func length() -> float:
 		return frames / 30.0
 
-	## The frame (fractional) and the next to blend with.
-	func _at(f: float) -> Array:
+	## The frame (whole), the next one and how far between, for frame `f`.
+	var _i := 0
+	var _j := 0
+	var _u := 0.0
+
+	func _at(f: float) -> void:
 		if loop:
 			f = fposmod(f, float(frames))
-			var i := int(f)
-			return [i, (i + 1) % frames, f - i]
+			_i = int(f)
+			_j = _i + 1
+			if _j >= frames:
+				_j = 0
+			_u = f - _i
+			return
 		f = clampf(f, 0.0, float(frames - 1))
-		var i2 := mini(int(f), frames - 1)
-		return [i2, mini(i2 + 1, frames - 1), f - i2]
+		_i = mini(int(f), frames - 1)
+		_j = mini(_i + 1, frames - 1)
+		_u = f - _i
 
 	func rot(bone: String, f: float) -> Quaternion:
-		var a: PackedFloat32Array = bones[bone]
-		var at := _at(f)
-		var i: int = at[0] * 4
-		var j: int = at[1] * 4
+		_at(f)
+		return _rot_at(bones[bone])
+
+	func _rot_at(a: PackedFloat32Array) -> Quaternion:
+		var i := _i * 4
+		var j := _j * 4
 		var qa := Quaternion(a[i], a[i + 1], a[i + 2], a[i + 3])
-		var qb := Quaternion(a[j], a[j + 1], a[j + 2], a[j + 3])
-		return qa.slerp(qb, at[2])
+		if _u < 0.001:
+			return qa
+		return qa.slerp(Quaternion(a[j], a[j + 1], a[j + 2], a[j + 3]), _u)
 
 	func offset(f: float) -> Vector3:
-		var at := _at(f)
-		var i: int = at[0] * 3
-		var j: int = at[1] * 3
-		return Vector3(off[i], off[i + 1], off[i + 2]).lerp(Vector3(off[j], off[j + 1], off[j + 2]), at[2])
+		_at(f)
+		var i := _i * 3
+		var j := _j * 3
+		return Vector3(off[i], off[i + 1], off[i + 2]).lerp(Vector3(off[j], off[j + 1], off[j + 2]), _u)
+
 
 	## The frame at which a turn on the spot has turned `angle` (radians, signed).
 	func frame_for_turn(angle: float) -> float:
@@ -125,8 +142,9 @@ class Mix:
 	func add(c: Clip, f: float, weight: float, mirror_yaw := 0.0) -> void:
 		if c == null or weight <= 0.0005:
 			return
+		c._at(f)
 		for b: String in c.bones:
-			var r := c.rot(b, f)
+			var r := c._rot_at(c.bones[b])
 			if not q.has(b):
 				q[b] = r
 				w[b] = weight
@@ -140,21 +158,43 @@ class Mix:
 	## Pose the skeleton: each bone's skeleton-space rotation becomes the blend
 	## (taken `total` of the way from rest) times its rest rotation. `rest_g`
 	## holds the bones' skeleton-space rest rotations.
-	func apply(sk: Skeleton3D, rest_g: Dictionary) -> void:
+	## `idx` maps each bone to [its index, its parent's index] (see indices()).
+	## Each bone's skeleton-space rotation is worked out here down the chain,
+	## rather than asked of the skeleton bone by bone (that recomputes it).
+	func apply(sk: Skeleton3D, rest_g: Dictionary, idx: Dictionary, only: Array = BONES) -> void:
 		if total <= 0.0005:
 			return
 		var share := minf(total, 1.0)
+		var g := {}                              # bone index -> skeleton-space rotation now
 		for b: String in BONES:
-			if not q.has(b):
+			if not idx.has(b):
 				continue
-			var bi := sk.find_bone(b)
-			if bi < 0:
+			var bi: int = idx[b][0]
+			var parent: int = idx[b][1]
+			var pg: Quaternion
+			if g.has(parent):
+				pg = g[parent]
+			elif parent >= 0:
+				pg = sk.get_bone_global_pose(parent).basis.get_rotation_quaternion()
+			else:
+				pg = Quaternion.IDENTITY
+			if not q.has(b) or not only.has(b):
+				g[bi] = pg * sk.get_bone_pose_rotation(bi)
 				continue
 			var d: Quaternion = Quaternion.IDENTITY.slerp((q[b] as Quaternion).normalized(), share)
 			var wanted: Quaternion = d * (rest_g[b] as Quaternion)
-			var parent := sk.get_bone_parent(bi)
-			var pg := sk.get_bone_global_pose(parent).basis.get_rotation_quaternion() if parent >= 0 else Quaternion.IDENTITY
 			sk.set_bone_pose_rotation(bi, (pg.inverse() * wanted).normalized())
+			g[bi] = wanted
+
+
+## [index, parent index] of each clip bone in a skeleton.
+static func indices(sk: Skeleton3D) -> Dictionary:
+	var out := {}
+	for b: String in BONES:
+		var bi := sk.find_bone(b)
+		if bi >= 0:
+			out[b] = [bi, sk.get_bone_parent(bi)]
+	return out
 
 
 ## Layer an additive clip (rotations relative to its own first frame) over
