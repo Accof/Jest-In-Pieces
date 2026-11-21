@@ -29,6 +29,8 @@ var _jog := false
 var _weave := randf() * TAU
 var _after_duck := State.HOLD
 var _stuck := 0.0
+var _speed := 0.0          # his way on, eased (he carries his weight like the trench men)
+var _yaw_rate := 0.0
 
 
 func _ready() -> void:
@@ -96,6 +98,8 @@ func _physics_process(delta: float) -> void:
 			post.man = null
 		set_physics_process(false)
 		return
+	_yaw_rate = move_toward(_yaw_rate, 0.0, 14.0 * delta)      # (unless he turns this frame)
+	clown.turn_rate = _yaw_rate
 	match state:
 		State.HOLD:
 			_hold(delta)
@@ -109,6 +113,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _hold(delta: float) -> void:
+	_speed = move_toward(_speed, 0.0, delta * 6.0)
 	clown.walk_amount = move_toward(clown.walk_amount, 0.0, delta * 4.0)
 	clown.run_amount = move_toward(clown.run_amount, 0.0, delta * 4.0)
 	_t -= delta
@@ -203,7 +208,9 @@ func _move(delta: float, to: Vector3, speed: float) -> void:
 	clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 4.0)
 	_face(dir, delta, 7.0)
 	var facing := Vector3(clown.global_basis.z.x, 0, clown.global_basis.z.z).normalized()
-	var v := speed * smoothstep(0.1, 0.8, facing.dot(dir))
+	var want_v := minf(speed * smoothstep(0.1, 0.8, facing.dot(dir)), sqrt(2.0 * 5.0 * d) + 0.3)
+	_speed = move_toward(_speed, want_v, delta * (4.0 if want_v > _speed else 6.0))
+	var v := _speed
 	clown.global_position += dir * minf(v * delta, d)
 	clown.walk_amount = move_toward(clown.walk_amount, clampf(v / 2.5, 0.0, 1.0), delta * 4.0)
 	clown.run_amount = move_toward(clown.run_amount, 1.0 if speed > 3.0 else 0.0, delta * 3.0)
@@ -253,7 +260,12 @@ func _fire() -> void:
 func _face(dir: Vector3, delta: float, rate: float) -> void:
 	if Vector2(dir.x, dir.z).length() < 0.05:
 		return
-	clown.rotation.y = lerp_angle(clown.rotation.y, atan2(dir.x, dir.z), clampf(delta * rate, 0.0, 1.0))
+	# at a man's pace: limited, building up and easing off (as ClownBrain)
+	var diff := wrapf(atan2(dir.x, dir.z) - clown.rotation.y, -PI, PI)
+	var cap := (2.6 if _speed < 0.4 else (3.4 if _speed < 3.0 else 2.2)) * clampf(rate / 6.0, 0.5, 1.3)
+	_yaw_rate = move_toward(_yaw_rate, clampf(diff * 6.0, -cap, cap), 14.0 * delta)
+	clown.rotation.y = wrapf(clown.rotation.y + _yaw_rate * delta, -PI, PI)
+	clown.turn_rate = _yaw_rate
 
 
 func _ground(delta: float) -> void:

@@ -1893,6 +1893,41 @@ const POSED_BONES := ["Hips", "Spine", "Chest", "Neck", "LeftUpperLeg", "RightUp
 	"LeftFoot", "RightFoot", "LeftUpperArm", "RightUpperArm", "LeftLowerArm", "RightLowerArm", "LeftHand", "RightHand"]
 const FLINCH_BONES := [["Spine", 0.4], ["Chest", 0.45], ["Neck", 0.55]]
 
+# --- a soldier's body language (set by ClownBrain for the human soldiers) -----
+## How fast the body is turning (rad/s, + to the left): standing, the feet
+## shuffle round; the shoulders lead the turn a little.
+var turn_rate := 0.0
+## Leaning out round a corner to shoot: -1 left .. 1 right.
+var lean := 0.0
+var _lean_now := 0.0
+## Where the eyes are going (Vector3.INF: straight ahead) and how much.
+var look_point := Vector3.INF
+var look_weight_want := 0.0
+var _look_w := 0.0
+var _look_yaw := 0.0
+var _look_pitch := 0.0
+var _sway_t := randf() * 100.0
+var _shuffle := 0.0           # a little step to reset the feet, standing about
+var _shuffle_t := randf_range(6.0, 14.0)
+
+
+## Turn the head (and a little of the shoulders) toward `at`, weight 0..1.
+func look_at_point(at: Vector3, weight: float) -> void:
+	look_point = at
+	look_weight_want = weight if at != Vector3.INF else 0.0
+
+
+## A near miss: a sharp, small flinch away from the round and a dip.
+func flinch_away(away: Vector3, power: float) -> void:
+	if flinch_strength <= 0.0 or dead:
+		return
+	var inv := skeleton.global_transform.affine_inverse()
+	var d := (inv.basis * away).normalized()
+	var kick := Vector3(0, 1, 0).cross(d) * -1.0 + Vector3(-0.4, 0, 0)
+	_flinch_vel += (kick * 9.0 * power).limit_length(6.0)
+	_stagger_vel += Vector3(d.x, 0, d.z) * 0.5 * power
+	set_process(true)
+
 ## Set by the AI: how far through a stride (radians), how much it is walking
 ## (0..1), and how far the right arm is into a swing or raised to aim (0..1).
 var walk_phase := 0.0
@@ -1919,6 +1954,52 @@ var _flinch_vel := Vector3.ZERO
 var _stagger := Vector3.ZERO        # model offset, metres
 var _stagger_vel := Vector3.ZERO
 var stagger_time := 0.0             # seconds the AI should stay knocked off its stride
+
+
+## The human soldier's small movements on top of the stride and the aim:
+## shoulders leading a turn, a lean out round a corner, the slow shift of
+## weight standing about, and the head (then the shoulders) turning to look.
+## Returns the model's sideways shift for the lean.
+func _soldier_body_language(delta: float, gait: float) -> Vector3:
+	var still := 1.0 - clampf(gait * 2.5, 0.0, 1.0)
+	# the shoulders lead a turn
+	var tr := clampf(turn_rate, -3.0, 3.0)
+	_turn("Spine", Vector3.UP, tr * 0.05)
+	_turn("Chest", Vector3.UP, tr * 0.06)
+	# leaning out to shoot round a corner: the upper body tips over the outside foot
+	_lean_now = move_toward(_lean_now, lean, delta * 2.2)
+	if absf(_lean_now) > 0.01:
+		_turn("Spine", Vector3.BACK, deg_to_rad(-11.0) * _lean_now)
+		_turn("Chest", Vector3.BACK, deg_to_rad(-8.0) * _lean_now)
+	# standing about: the weight drifts from foot to foot, slowly
+	_sway_t += delta
+	if still > 0.01 and aim_amount < 0.6:
+		var w := sin(_sway_t * 0.9) * 0.7 + sin(_sway_t * 0.37 + 1.3) * 0.3
+		_turn("Hips", Vector3.BACK, deg_to_rad(2.2) * w * still)
+		_turn("Spine", Vector3.BACK, deg_to_rad(-2.6) * w * still)
+		_turn("Chest", Vector3.RIGHT, deg_to_rad(1.2) * sin(_sway_t * 0.53) * still)
+	# looking: the head first, the shoulders a share of it; not past what a neck does
+	_look_w = move_toward(_look_w, look_weight_want, delta * 1.8)
+	if look_point != Vector3.INF and _look_w > 0.01:
+		var inv := skeleton.global_transform.affine_inverse()
+		var lp := inv * look_point
+		var head := Vector3(0, 1.6 - 0.47 * crouch_amount, 0)
+		var rel := lp - head
+		var yaw := clampf(atan2(rel.x, rel.z), -1.25, 1.25)
+		var pitch := clampf(-atan2(rel.y, Vector2(rel.x, rel.z).length()), -0.5, 0.6)
+		_look_yaw = move_toward(_look_yaw, yaw, delta * 5.0)
+		_look_pitch = move_toward(_look_pitch, pitch, delta * 3.0)
+	else:
+		_look_yaw = move_toward(_look_yaw, 0.0, delta * 2.5)
+		_look_pitch = move_toward(_look_pitch, 0.0, delta * 2.0)
+	var lw := _look_w
+	if absf(_look_yaw) > 0.005 or absf(_look_pitch) > 0.005:
+		var aimed := clampf(aim_amount, 0.0, 1.0)        # aiming, the rifle sets the shoulders: the head only
+		_turn("Spine", Vector3.UP, _look_yaw * 0.12 * lw * (1.0 - aimed))
+		_turn("Chest", Vector3.UP, _look_yaw * 0.2 * lw * (1.0 - aimed))
+		_turn("Neck", Vector3.UP, _look_yaw * 0.6 * lw * (1.0 - 0.7 * aimed))
+		_turn("Neck", Vector3.RIGHT, _look_pitch * 0.6 * lw * (1.0 - 0.7 * aimed))
+	return Vector3(-0.12 * _lean_now, 0, 0)
 
 
 func _flinch_from(world_pos: Vector3, dir: Vector3, damage: float) -> void:
@@ -1965,6 +2046,10 @@ func _process(delta: float) -> void:
 	# sideways is a side-step.
 	var flat := Vector3(velocity.x, 0, velocity.z)
 	var speed := flat.length()
+	var human: bool = spec.get("soldier", false) and drive_phase
+	if human:
+		# no running stride at a walking pace (the body builds up to a run)
+		run_amount = minf(run_amount, smoothstep(2.3, 4.3, speed))
 	var fwd_amt := 1.0
 	var side_amt := 0.0
 	var back := 1.0
@@ -1976,9 +2061,17 @@ func _process(delta: float) -> void:
 		back = -1.0 if f < -0.25 else 1.0
 		# slower walking takes shorter steps rather than slower ones
 		var stride_len := lerpf(lerpf(0.85, 1.3, clampf(speed / 1.5, 0.0, 1.0)), 1.9, run_amount) * (0.55 if broken_leg != "" else 1.0)
+		if human:
+			# measured (test_motion "feet"): at a brisk walk the old stride let the
+			# planted foot skate forward at ~40% of the body's speed; ~0.8 of it
+			# brings that under 30% (the run was already right)
+			stride_len *= lerpf(0.8, 1.0, run_amount)
 		if back < 0.0 and spec.get("soldier", false):
 			stride_len *= 0.6               # stepping back: short, careful steps
 		walk_phase += speed * delta * TAU / stride_len * back
+	elif human and absf(turn_rate) > 0.6:
+		# turning on the spot: the feet step him round
+		walk_phase += delta * (3.0 + absf(turn_rate) * 1.6)
 	elif walk_amount > 0.01 and drive_phase:
 		walk_phase += delta * 4.0            # marking time
 	if speed > 0.05 and not drive_phase:
@@ -1991,6 +2084,18 @@ func _process(delta: float) -> void:
 	# How much the legs swing: any real movement gets a full step (the step
 	# rate already follows the speed), so a slow side-step still lifts its feet.
 	var gait := maxf(walk_amount, clampf(speed / 0.9, 0.0, 1.0)) if speed > 0.05 else walk_amount
+	if human and speed < 0.3:
+		# shuffling round on a turn, or the odd little step standing about
+		gait = maxf(gait, clampf((absf(turn_rate) - 0.4) * 0.35, 0.0, 0.45))
+		if _shuffle > 0.0:
+			_shuffle -= delta
+			walk_phase += delta * TAU / 0.9
+			gait = maxf(gait, 0.3 * sin(clampf(_shuffle / 0.9, 0.0, 1.0) * PI))
+		elif aim_amount < 0.3 and crouch_amount < 0.3:
+			_shuffle_t -= delta
+			if _shuffle_t <= 0.0:
+				_shuffle_t = randf_range(7.0, 16.0)
+				_shuffle = 0.9
 	if gait > 0.01:
 		var sw := sin(walk_phase)
 		var stride := (stride_override if stride_override > 0.0 else lerpf(27.0, 44.0 if has_rifle else 50.0, run_amount)) * clampf(fwd_amt + 0.3, 0.0, 1.0)
@@ -2064,7 +2169,10 @@ func _process(delta: float) -> void:
 	if _flinch.length() > 0.0005:
 		for b: Array in FLINCH_BONES:
 			_turn(b[0], _flinch.normalized(), _flinch.length() * b[1])
-	_model.position = _stagger + Vector3.DOWN * (bob + 0.47 * crouch_amount + 0.025 * _stance_w)
+	var lean_shift := Vector3.ZERO
+	if human:
+		lean_shift = _soldier_body_language(delta, gait)
+	_model.position = _stagger + lean_shift + Vector3.DOWN * (bob + 0.47 * crouch_amount + 0.025 * _stance_w)
 	if extra_pose.is_valid():
 		extra_pose.call()
 	if has_rifle and _rifle and is_instance_valid(_rifle):

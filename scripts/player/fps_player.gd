@@ -686,6 +686,7 @@ func shoot_ray(from: Vector3, dir: Vector3, w: Dictionary, shot_id: int, also_ig
 	ex.append_array(also_ignore)
 	q.exclude = ex
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	_near_misses(from, hit.position if not hit.is_empty() else from + dir * 130.0, hit.get("collider"))
 	if hit.is_empty():
 		return hit
 	var c: Object = hit.collider
@@ -699,6 +700,34 @@ func shoot_ray(from: Vector3, dir: Vector3, w: Dictionary, shot_id: int, also_ig
 		if pierce > 0:
 			_pierce(c.get_meta(&"clown"), hit.position, from, dir, w, shot_id, pierce, ex)
 	return hit
+
+
+## A round that goes close by a man he did not hit (within 1.3 m of his
+## chest, along the line it flew): he hears it crack past (the soldiers' brains
+## flinch, duck and keep their heads down; the men out in No Man's Land get down).
+func _near_misses(from: Vector3, to: Vector3, hit_collider: Object) -> void:
+	var hit_clown: Object = hit_collider.get_meta(&"clown") if hit_collider is PhysicalBone3D and (hit_collider as Object).has_meta(&"clown") else null
+	var seg := to - from
+	var len2 := seg.length_squared()
+	if len2 < 0.01:
+		return
+	for n in get_tree().get_nodes_in_group(&"clowns"):
+		var c := n as Clown
+		if c == null or c == hit_clown or c.dead:
+			continue
+		var chest := c.global_position + Vector3.UP * 1.25
+		var t := clampf((chest - from).dot(seg) / len2, 0.0, 1.0)
+		if t <= 0.0 or t >= 1.0:
+			continue                              # not past him (stopped short, or behind the gun)
+		var d := chest.distance_to(from + seg * t)
+		if d > 1.3:
+			continue
+		var b := c.get_node_or_null("Brain")
+		if b and b.has_method("near_miss"):
+			b.near_miss(from, d)
+		var f := c.get_node_or_null("Field")
+		if f and f.has_method("duck"):
+			f.duck(randf_range(0.8, 1.6))
 
 
 func _hit_clown(c: PhysicalBone3D, at: Vector3, from: Vector3, dist: float, dir: Vector3, w: Dictionary, shot_id: int, mult: float) -> void:

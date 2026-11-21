@@ -191,7 +191,7 @@ func _frontline(delta: float) -> void:
 		0:  # resting below the parapet, now and then a glance along the trench
 			clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 2.5)
 			if kind == Kind.TOP_RIFLE:
-				clown.crouch_amount = move_toward(clown.crouch_amount, 1.0, delta * 2.0)     # down behind his cover
+				brain.crouch_want = 1.0     # down behind his cover
 			var look := face
 			if fmod(_t, 7.0) < 1.6:
 				look = face.rotated(Vector3.UP, 0.9 * signf(sin(_t * 0.37 + post.x)))
@@ -204,7 +204,7 @@ func _frontline(delta: float) -> void:
 				_pick_target()
 		1, 2:  # up over the parapet, picking a target out there
 			brain.sight_half_angle = 32.0
-			clown.crouch_amount = move_toward(clown.crouch_amount, 0.0, delta * 3.0)
+			brain.crouch_want = 0.0
 			brain._face(_aim_at - clown.global_position, delta, 5.0)
 			clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 3.0)
 			clown.aim_point = _aim_at
@@ -277,7 +277,7 @@ func _marksman(delta: float) -> void:
 	if _spot > MARK_NOTICE:
 		# on him: the rifle up, tracking him
 		brain._face(to, delta, 4.0)
-		clown.crouch_amount = move_toward(clown.crouch_amount, 0.3, delta * 2.0)
+		brain.crouch_want = 0.3
 		clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 3.0)
 		clown.aim_point = head
 		if _t <= 0.0 and sees and clown.aim_amount > 0.9:
@@ -286,7 +286,7 @@ func _marksman(delta: float) -> void:
 	else:
 		# watching his ground: kneeling, the rifle half up, turning slowly
 		_t = maxf(_t, randf_range(1.0, 2.0))
-		clown.crouch_amount = move_toward(clown.crouch_amount, 0.6, delta * 1.5)
+		brain.crouch_want = 0.6
 		clown.aim_amount = move_toward(clown.aim_amount, 0.35, delta * 1.5)
 		_sweep += delta * 0.25
 		brain._face(face.rotated(Vector3.UP, sin(_sweep) * 0.6), delta, 1.2)
@@ -417,7 +417,7 @@ func _on_alerted(where: Vector3, firsthand: bool) -> void:
 	detour.clear()
 	for k: String in _senses:
 		brain.set(k, _senses[k])
-	clown.crouch_amount = 0.0
+	brain.crouch_want = 0.0
 	var hops := 0 if firsthand else told_hops
 	told_hops = 0
 	if hops >= 2:

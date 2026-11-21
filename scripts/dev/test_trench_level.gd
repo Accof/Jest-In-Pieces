@@ -256,10 +256,17 @@ func _geo() -> void:
 func _soldier_walk(c: Clown, b: ClownBrain, to: Vector3, budget: float, stat: Dictionary) -> bool:
 	var t := 0.0
 	var m: TrenchMaze = game.maze
+	var trail: Array = []
 	while t < budget:
 		await get_tree().physics_frame
 		t += 1.0 / 60.0
-		if b._go_to(to, 1.0 / 60.0, b.move_speed):
+		if int(t * 60.0) % 90 == 0:
+			trail.append("%s y%.2f yaw%.0f v%.2f" % [Vector2(c.global_position.x, c.global_position.z).snapped(Vector2(0.01, 0.01)), c.global_position.y, rad_to_deg(c.rotation.y), b._vel.length()])
+			if trail.size() > 30:
+				trail.pop_front()
+		var got := b._go_to(to, 1.0 / 60.0, b.move_speed)
+		b._after(1.0 / 60.0)              # (the brain's own frame is off: its turn, crouch, look)
+		if got:
 			return true
 		var br := m.bridge_at(c.global_position)
 		if not br.is_empty():
@@ -272,6 +279,7 @@ func _soldier_walk(c: Clown, b: ClownBrain, to: Vector3, budget: float, stat: Di
 			stat.edge = minf(stat.get("edge", 9.0), m._sample(m.sdf, c.global_position.x, c.global_position.z))
 		elif not m.on_top(c.global_position) and m.ramp_at(c.global_position).is_empty():
 			stat.wall = maxf(stat.get("wall", -9.0), m._sample(m.sdf, c.global_position.x, c.global_position.z))
+	print("          trail: ", trail)
 	return false
 
 

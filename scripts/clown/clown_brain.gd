@@ -134,6 +134,37 @@ var rounds_fired := 0                             ## tests: every round at the p
 var _lmg_t := 0.0                                 ## > 0 while a burst is going
 var _lmg_acc := 0.0
 var _backoff := -2.0              # > 0 while stepping back from a player too close; < 0 resting from it
+
+# --- weight (the human soldiers: WitzSoldats of both looks, the officer, the
+# gunner; not the clockwork men) ---------------------------------------------------
+## Moves like a man carrying his kit: builds up speed, slows before stopping,
+## cannot turn on the spot at any speed, reverses through a stop.
+var weighty := false
+const ACCEL_WALK := 3.2          ## m/s^2 picking up to a walk
+const ACCEL_RUN := 4.0           ## ... to a run
+const BRAKE := 6.0               ## m/s^2 slowing
+const TURN_IDLE := 2.6           ## rad/s, turning on the spot (feet shuffling round)
+const TURN_WALK := 3.4           ## rad/s at a walk
+const TURN_RUN := 2.2            ## rad/s flat out (wide arcs)
+const TURN_ACCEL := 14.0         ## rad/s^2: a turn starts and stops, it does not snap
+var _vel := Vector3.ZERO         ## the body's actual way on (eased)
+var _yaw_rate := 0.0
+var _yaw_want := INF             ## where _face asked it to turn this frame
+var _yaw_urgency := 1.0
+var yaw_rate_max := 0.0          ## tests: the fastest it has turned
+## How crouched it wants to be this frame (the states set it; applied once).
+var crouch_want := 0.0
+## Under fire: 0 calm .. 1.5 pinned down. Rises with near misses and hits,
+## falls off over a few seconds.
+var suppression := 0.0
+var near_misses := 0             ## tests
+var _near_t := 0.0
+var _duck_t := 0.0               ## a flinching duck under a near miss
+var _look_t := 0.0               ## idle glances
+var _peeks := 0                  ## shots from this cover so far
+var _peek_rise := false          ## this cover is low: rise up behind it to shoot
+var _linger := 0.0               ## after a shot from cover: hold the aim a moment
+var strafe_flips := 0            ## tests: changes of side-step direction
 var backing := false              # test hook: stepping back this frame
 
 
@@ -143,6 +174,7 @@ func _ready() -> void:
 	clown.set_process(true)
 	clown.hurt.connect(_on_hurt)
 	_wander_to = Vector3.INF          # taken on the first frame, once it has been put in place
+	weighty = clown.spec.get("soldier", false) and not axis_moves and clown.drive_phase
 	_wander_wait = randf_range(0.5, 5.0)
 
 
@@ -176,6 +208,10 @@ func hear(where: Vector3, extra_cells: int = 0) -> void:
 func _on_hurt(_c: Clown) -> void:
 	if player == null:
 		return
+	if weighty:
+		suppression = minf(suppression + 0.5, 1.5)
+		if _aim_t > 0.0:
+			_aim_t = minf(_aim_t, aim_time * 0.3)      # knocked off his aim
 	if not clown.dead:
 		alert(player.global_position, false)
 	for o in others:
@@ -302,6 +338,31 @@ func _physics_process(delta: float) -> void:
 	if clown.dead:
 		set_physics_process(false)
 		return
+	crouch_want = 1.0 if _cover_state == 2 else 0.0
+	_think(delta)
+	if clown.dead:
+		return
+	_after(delta)
+
+
+## Once a frame after the thinking: the crouch it settled on, the turn it
+## asked for (at a man's rate), where its eyes are, the fading of fright.
+func _after(delta: float) -> void:
+	suppression = maxf(suppression - delta * 0.18, 0.0)
+	_near_t = maxf(_near_t - delta, 0.0)
+	if _duck_t > 0.0:
+		_duck_t -= delta
+		crouch_want = maxf(crouch_want, 0.65)
+	if weighty and suppression > 0.6 and mind == Mind.HUNT and _cover_state != 3 and not backing:
+		crouch_want = maxf(crouch_want, 0.45)            # keeping his head down
+	if not hiding and not pinned:
+		clown.crouch_amount = move_toward(clown.crouch_amount, crouch_want, delta * (2.6 if crouch_want > clown.crouch_amount else 2.0))
+	if weighty:
+		_apply_turn(delta)
+		_look(delta)
+
+
+func _think(delta: float) -> void:
 	_cooldown -= delta
 	_arm_out_t = maxf(_arm_out_t - delta, 0.0)
 	_slow_t = maxf(_slow_t - delta, 0.0)
@@ -309,8 +370,6 @@ func _physics_process(delta: float) -> void:
 		_pinned(delta)
 		return
 	_cover_cooldown -= delta
-	if not hiding:
-		clown.crouch_amount = move_toward(clown.crouch_amount, 1.0 if _cover_state == 2 else 0.0, delta * 3.5)
 	if player == null or player.dead:
 		_settle(delta)
 		return
@@ -450,7 +509,7 @@ func _physics_process(delta: float) -> void:
 				_lmg_acc = 1.0 / fire_rate              # the first round goes at once
 				bursts += 1
 				_burst_step(0.0, dist)
-			elif _aim_t > aim_time and clown.aim_amount > 0.9:
+			elif _aim_t > aim_time * (1.0 + 0.5 * suppression) and clown.aim_amount > 0.9 and (not weighty or _muzzle_clear()):
 				var landed := _fire(dist)
 				_aim_t = -1.0
 				_cooldown = randf_range(shot_gap.x, shot_gap.y)
@@ -463,8 +522,19 @@ func _physics_process(delta: float) -> void:
 					_find_cover()
 		_strafe_left -= delta
 		if _strafe_left <= 0.0:
-			_strafe_left = randf_range(1.4, 3.0)
-			_strafe_dir = [-1.0, 1.0, 0.0, 0.0].pick_random()
+			var was := _strafe_dir
+			if weighty:
+				# a man holds his ground to shoot more often than he side-steps,
+				# and keeps to a step once he has taken it
+				_strafe_left = randf_range(2.5, 5.0)
+				_strafe_dir = [-1.0, 1.0, 0.0, 0.0, 0.0].pick_random()
+				if suppression > 0.3:
+					_strafe_dir = 0.0
+			else:
+				_strafe_left = randf_range(1.4, 3.0)
+				_strafe_dir = [-1.0, 1.0, 0.0, 0.0].pick_random()
+			if was != 0.0 and _strafe_dir == -was:
+				strafe_flips += 1
 		var toward := flat.normalized()
 		var side := Vector3(toward.z, 0, -toward.x) * _strafe_dir
 		var want := side
@@ -475,14 +545,21 @@ func _physics_process(delta: float) -> void:
 		elif dist > keep_distance * 1.6:
 			want = (side * 0.5 + toward).normalized()          # too far: close up
 		if want.length() > 0.05 and not _free(want):
-			_strafe_dir = -_strafe_dir                          # wall or ledge: go the other way
+			if weighty:
+				_strafe_dir = 0.0                               # wall or ledge: stops there, stands and shoots
+			else:
+				_strafe_dir = -_strafe_dir                      # wall or ledge: go the other way
+				strafe_flips += 1
 			want = Vector3.ZERO
 			if backing:
 				_backoff = 0.0                                  # backed into a wall: stand and fight
-		var gvel := want * move_speed * (0.27 if backing else 0.42)
-		_strafe_vel = _strafe_vel.move_toward(gvel, delta * 2.5)
-		gvel = _strafe_vel
-		_step(gvel, delta)
+		var gvel := want * move_speed * ((0.24 if backing else 0.27) if weighty else (0.27 if backing else 0.42))
+		if weighty:
+			_step(gvel, delta)                                  # (the weight eases it in and out)
+		else:
+			_strafe_vel = _strafe_vel.move_toward(gvel, delta * 2.5)
+			gvel = _strafe_vel
+			_step(gvel, delta)
 		clown.run_amount = move_toward(clown.run_amount, 0.0, delta * 3.0)
 		clown.walk_amount = move_toward(clown.walk_amount, clampf(gvel.length() / move_speed, 0.0, 1.0), delta * 5.0)
 		return
@@ -542,6 +619,15 @@ func _physics_process(delta: float) -> void:
 	if clown.spec.get("soldier", false) and move.length() > 0.05:
 		var facing := Vector3(clown.global_basis.z.x, 0, clown.global_basis.z.z).normalized()
 		speed *= lerpf(0.2, 1.0, smoothstep(-0.3, 0.6, facing.dot(move.normalized())))
+	if weighty:
+		# going to where he last heard or saw the player: the last few metres
+		# careful, low, at a walk; under fire, low and slower
+		if hunting_blind and Vector3(goal.x - clown.global_position.x, 0, goal.z - clown.global_position.z).length() < 6.0:
+			crouch_want = maxf(crouch_want, 0.45)
+			speed = minf(speed, move_speed * 0.5)
+		if suppression > 0.6:
+			crouch_want = maxf(crouch_want, 0.55)
+			speed = minf(speed, move_speed * 0.6)
 	var vel := move.limit_length(1.0) * speed
 	_step(vel, delta)
 	_face(vel, delta, 8.0)
@@ -564,23 +650,36 @@ func _cover_fight(delta: float, dist: float, seen: bool, flat: Vector3) -> bool:
 			if _go_to(_cover, delta, run_speed):
 				_cover_state = 2
 				_cover_t = 0.0
-				_hide_for = randf_range(1.4, 2.8)
+				_hide_for = randf_range(2.2, 4.5) * (1.0 + suppression) if weighty else randf_range(1.4, 2.8)
 				_aim_t = -1.0
 			clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 4.0)
 			return true
 		2:   # crouched behind it, working the bolt
 			_settle(delta)
 			_face(flat, delta, 4.0)
+			if weighty and suppression > 0.5:
+				_cover_t = minf(_cover_t, _hide_for - 0.5)   # pinned down: stays down
 			if _cover_t > _hide_for and _cooldown <= 0.0 and not clown.cycling():
+				if weighty and _peeks >= randi_range(3, 5):
+					_peeks = 0
+					_drop_cover()                           # been shooting from here long enough: move
+					_cover_cooldown = randf_range(1.0, 2.0)
+					return false
 				_cover_state = 3
 				_cover_t = 0.0
+				_linger = 0.0
 			return true
-		3:   # step out, aim, fire, step back
+		3:   # step out (or rise up behind low cover), aim, fire, hold a moment, back in
 			_face(flat, delta, 8.0)
 			clown.aim_point = player.global_position + Vector3.UP * 1.3
-			if not _go_to(_peek, delta, move_speed):
+			if weighty:
+				crouch_want = 0.0 if _peek_rise else 0.25
+				clown.lean = _lean_side() * 0.8 if not _peek_rise else 0.0
+			if not _peek_rise and not _go_to(_peek, delta, move_speed * (0.55 if weighty else 1.0)):
 				clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 3.0)
 				return true
+			if _peek_rise:
+				_settle(delta, false)
 			_face(flat, delta, 8.0)
 			clown.aim_point = player.global_position + Vector3.UP * 1.3
 			clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 5.0)
@@ -589,15 +688,32 @@ func _cover_fight(delta: float, dist: float, seen: bool, flat: Vector3) -> bool:
 					_drop_cover()                 # nothing to shoot at from here
 					return false
 				return true
+			if _linger > 0.0:
+				# the shot gone: holds the aim a moment, then ducks back
+				_linger -= delta
+				if _linger <= 0.0:
+					_cover_state = 1
+					_cover_t = 0.0
+					clown.lean = 0.0
+				return true
 			if _aim_t < 0.0:
 				_aim_t = 0.0
 			_aim_t += delta
-			if _aim_t > aim_time * 0.85 and clown.aim_amount > 0.9 and not clown.cycling():
+			if _aim_t > aim_time * 0.85 * (1.0 + 0.5 * suppression) and clown.aim_amount > 0.9 and not clown.cycling():
+				if not _muzzle_clear():
+					_aim_t = aim_time * 0.5               # the wall is in the way: edge out further / wait
+					if not _peek_rise:
+						_peek = _peek.lerp(_peek + (_peek - _cover).normalized() * 0.3, 0.5)
+					return true
 				_fire(dist)
+				_peeks += 1
 				_aim_t = -1.0
 				_cooldown = randf_range(shot_gap.x, shot_gap.y)
-				_cover_state = 1                  # back in
-				_cover_t = 0.0
+				if weighty:
+					_linger = randf_range(0.5, 1.1)
+				else:
+					_cover_state = 1                  # back in
+					_cover_t = 0.0
 			return true
 	return false
 
@@ -606,7 +722,30 @@ func _drop_cover() -> void:
 	_cover_state = 0
 	_cover = Vector3.INF
 	_peek = Vector3.INF
-	_cover_cooldown = randf_range(3.0, 6.0)
+	_peeks = 0
+	_peek_rise = false
+	clown.lean = 0.0
+	_cover_cooldown = randf_range(5.0, 9.0) if weighty else randf_range(3.0, 6.0)
+
+
+## Which way he leans out to shoot from cover: toward the side his peek step
+## takes him (round the corner), -1 left .. 1 right.
+func _lean_side() -> float:
+	if _peek == Vector3.INF or _cover == Vector3.INF or player == null:
+		return 0.0
+	var to_p := player.global_position - clown.global_position
+	var right := Vector3(to_p.z, 0, -to_p.x).normalized()
+	var out := _peek - _cover
+	out.y = 0.0
+	return clampf(out.normalized().dot(right) * -1.0, -1.0, 1.0)
+
+
+## The muzzle has a clear line to the player (no firing through the wall he is
+## leaning round).
+func _muzzle_clear() -> bool:
+	if player == null:
+		return false
+	return _clear(clown.muzzle_position(), player.global_position + Vector3.UP * 1.25)
 
 
 ## Look nearby (this cell and the next two along the corridors) for a spot
@@ -638,6 +777,16 @@ func _find_cover() -> void:
 				continue
 			if _clear(eye, p + Vector3.UP * 0.95):
 				continue                          # it would be seen crouching here
+			# low cover (sandbags, a parapet): crouched he is hidden, standing he
+			# can see over it: he rises up behind it to shoot
+			if weighty and _clear(eye, p + Vector3.UP * 1.55) and p.distance_to(player.global_position) > 5.0:
+				var score0 := clown.global_position.distance_to(p) + randf() * 0.5 - 0.6
+				if score0 < best:
+					best = score0
+					_cover = p
+					_peek = p
+					_peek_rise = true
+				continue
 			for st: Vector3 in steps:
 				var q := p + st * 1.0
 				q.y = maze.floor_height(q)
@@ -650,6 +799,7 @@ func _find_cover() -> void:
 					best = score
 					_cover = p
 					_peek = q
+					_peek_rise = false
 	if OS.is_debug_build() and debug_cover:
 		print("find_cover: %d cells, found=%s" % [cells.size(), best < INF])
 	if best < INF:
@@ -669,6 +819,7 @@ func _go_to(to: Vector3, delta: float, speed: float) -> bool:
 		if p.size() > 1 or not _clear(clown.global_position + Vector3.UP * 0.9, to + Vector3.UP * 0.9):
 			target = p[0] if not p.is_empty() else to
 	target = _through_opening(target)
+	target = _onto_bridge(target)
 	var move := Vector3(target.x - clown.global_position.x, 0, target.z - clown.global_position.z)
 	var dir := move.normalized()
 	var facing := Vector3(clown.global_basis.z.x, 0, clown.global_basis.z.z).normalized()
@@ -685,7 +836,22 @@ func _go_to(to: Vector3, delta: float, speed: float) -> bool:
 		# first, and only put on speed once it is facing that way
 		_face(dir, delta, 10.0)
 		var lined := smoothstep(0.2, 0.85, facing.dot(dir))
-		speed = lerpf(move_speed * 0.15, speed, lined)
+		if weighty:
+			# a man rounds a traverse walking, turning as he goes; he only
+			# all but stops for a real about-turn
+			lined = smoothstep(-0.3, 0.75, facing.dot(dir))
+			speed = lerpf(move_speed * 0.3, speed, lined)
+		else:
+			speed = lerpf(move_speed * 0.15, speed, lined)
+	if weighty:
+		# eases up as it comes in, so it stops on the spot instead of skidding in
+		speed = minf(speed, sqrt(2.0 * BRAKE * 0.7 * flat.length()) + 0.25)
+		if _cover_state == 1 and flat.length() < 5.0:
+			# eases off coming up to it (he can brake 6 m/s/s), then the last
+			# few metres crouched at a walk
+			speed = minf(speed, move_speed * 0.6 + maxf(flat.length() - 2.5, 0.0) * 1.6)
+			if flat.length() < 3.0:
+				crouch_want = maxf(crouch_want, 0.7)
 	var vel := dir * minf(speed, move.length() / maxf(delta, 0.001))
 	_step(vel, delta)
 	clown.run_amount = move_toward(clown.run_amount, 1.0 if speed > move_speed * 1.2 else 0.0, delta * 4.0)
@@ -739,6 +905,19 @@ func _keep_apart(want: Vector3, delta: float) -> Vector3:
 
 
 func _step(vel: Vector3, delta: float) -> void:
+	if weighty:
+		# the way on changes no faster than a man can change it: up to speed,
+		# down to a stop, through a stop to reverse
+		var want := Vector3(vel.x, 0, vel.z)
+		var rate := BRAKE
+		if want.length() > _vel.length() + 0.01:
+			rate = ACCEL_RUN if want.length() > move_speed * 1.15 else ACCEL_WALK
+		if want.length() > 0.05 and _vel.length() > 0.05 and want.normalized().dot(_vel.normalized()) < -0.2:
+			rate = BRAKE                              # doubling back: braking first
+		elif want.length() > 0.05 and _vel.length() > 0.05:
+			rate = maxf(rate, ACCEL_RUN)              # rounding a corner: the way on swings round
+		_vel = _vel.move_toward(want, rate * delta)
+		vel = _vel
 	intended_speed = Vector2(vel.x, vel.z).length()
 	if axis_moves and intended_speed > 0.01:
 		var along := vel.x if _axis_x else vel.z
@@ -774,15 +953,48 @@ func _step(vel: Vector3, delta: float) -> void:
 	# Never walk up a drop: ledges beside a staircase are a wall to a clown.
 	# (Unless it is being put back onto the stair: then it climbs on.)
 	if floor_y - clown.global_position.y > 0.45 and not lifted:
-		pos = clown.global_position
-		floor_y = clown.global_position.y
+		# a ledge across the way: slide along it (one axis or the other) if
+		# that is level, as it would along a wall, rather than stopping dead
+		var here := clown.global_position
+		pos = here
+		floor_y = here.y
 		vel = Vector3.ZERO
+		for along: Vector3 in [Vector3(move.x, 0, 0), Vector3(0, 0, move.z)]:
+			if along.length() < 0.002:
+				continue
+			var p2 := maze.keep_walkable(here + along)
+			var f2 := maze.floor_height(p2)
+			if f2 - here.y <= 0.45 and _collide(here, along).length() > along.length() * 0.8:
+				pos = p2
+				floor_y = f2
+				vel = Vector3(p2.x - here.x, 0, p2.z - here.z) / maxf(delta, 0.001)
+				break
 	var new_y := floor_y if lifted else move_toward(clown.global_position.y, floor_y, delta * 6.0)
 	clown.velocity = Vector3(vel.x, (new_y - clown.global_position.y) / maxf(delta, 0.001), vel.z)
 	clown.global_position = Vector3(pos.x, new_y, pos.z)
+	if weighty:
+		# held up by something (a wall, a post, another man): loses its way on as
+		# fast as it could brake, not all at once (sliding along a wall it keeps it)
+		var got := Vector3(vel.x, 0, vel.z)
+		# (never below a walking pace: a tiny first step can be swallowed by the
+		# sweep's margin, and a man pushing off from a standstill must still go)
+		if got.length() < _vel.length() * 0.5 and _vel.length() > 0.8:
+			_vel = _vel.move_toward(got, BRAKE * delta)
+			if _vel.length() < 0.8:
+				_vel = _vel.normalized() * 0.8
 
 
 func _settle(delta: float, drop_arm: bool = true) -> void:
+	if weighty and _vel.length() > 0.05:
+		# still carrying way: slows to a stop over a step or two
+		_step(Vector3.ZERO, delta)
+		clown.walk_amount = move_toward(clown.walk_amount, 0.0, delta * 3.0)
+		clown.run_amount = move_toward(clown.run_amount, 0.0, delta * 3.0)
+		if drop_arm:
+			clown.attack_amount = 0.0
+			clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 4.0)
+		return
+	_vel = Vector3.ZERO
 	intended_speed = 0.0
 	intended_dir = Vector3.ZERO
 	clown.walk_amount = move_toward(clown.walk_amount, 0.0, delta * 5.0)
@@ -802,7 +1014,79 @@ func _settle(delta: float, drop_arm: bool = true) -> void:
 func _face(dir: Vector3, delta: float, rate: float) -> void:
 	if Vector2(dir.x, dir.z).length() < 0.05:
 		return
+	if weighty:
+		# asked for; turned once a frame in _apply_turn, at a man's pace
+		_yaw_want = atan2(dir.x, dir.z)
+		_yaw_urgency = clampf(rate / 8.0, 0.5, 1.3)
+		return
 	clown.rotation.y = lerp_angle(clown.rotation.y, atan2(dir.x, dir.z), clampf(delta * rate, 0.0, 1.0))
+
+
+## The turn: no faster than he can turn at this speed (on the spot, the feet
+## shuffle him round; at a run he swings wide), building up and easing off.
+func _apply_turn(delta: float) -> void:
+	var want_rate := 0.0
+	if _yaw_want != INF:
+		var diff := wrapf(_yaw_want - clown.rotation.y, -PI, PI)
+		var sp := _vel.length()
+		var cap: float
+		if sp < 0.4:
+			cap = TURN_IDLE
+		elif sp < move_speed * 1.15:
+			cap = TURN_WALK
+		else:
+			cap = lerpf(TURN_WALK, TURN_RUN, clampf((sp - move_speed) / maxf(run_speed - move_speed, 0.1), 0.0, 1.0))
+		cap *= _yaw_urgency
+		want_rate = clampf(diff * 6.0, -cap, cap)
+	_yaw_rate = move_toward(_yaw_rate, want_rate, TURN_ACCEL * delta)
+	clown.rotation.y = wrapf(clown.rotation.y + _yaw_rate * delta, -PI, PI)
+	clown.turn_rate = _yaw_rate
+	yaw_rate_max = maxf(yaw_rate_max, absf(_yaw_rate))
+	_yaw_want = INF
+
+
+## Where his eyes are: on the player when he is fighting, on a sound he has
+## just heard (the head goes first; the body comes round after), and now and
+## then, standing about, a glance off at something.
+func _look(delta: float) -> void:
+	if mind == Mind.HUNT and player and _unseen < 1.0:
+		clown.look_at_point(player.global_position + Vector3.UP * 1.5, 1.0)
+	elif mind == Mind.HUNT or _react > 0.0:
+		clown.look_at_point(_last_known + Vector3.UP * 1.4, 1.0)
+	else:
+		_look_t -= delta
+		if _look_t <= 0.0:
+			if clown.look_weight_want > 0.0:
+				clown.look_at_point(Vector3.INF, 0.0)
+				_look_t = randf_range(3.0, 8.0)
+			else:
+				var a := clown.rotation.y + randf_range(-1.5, 1.5)
+				var at := clown.global_position + Vector3(sin(a), 0, cos(a)) * randf_range(6.0, 30.0) + Vector3.UP * randf_range(0.8, 2.4)
+				clown.look_at_point(at, 0.8)
+				_look_t = randf_range(1.2, 3.0)
+
+
+## A round went close by him (FpsPlayer tells every soldier near the line of a
+## shot): he flinches and ducks, his aim breaks, he looks for where it came
+## from, and enough of them keep his head down (suppression). Only close ones
+## count, and not more than about one a second.
+func near_miss(from: Vector3, closest: float) -> void:
+	if not weighty or clown.dead or _near_t > 0.0:
+		return
+	_near_t = randf_range(0.5, 0.9)
+	near_misses += 1
+	var power := clampf(1.2 - closest, 0.3, 1.0)
+	suppression = minf(suppression + 0.3 * power + 0.1, 1.5)
+	_duck_t = randf_range(0.35, 0.7) * (0.6 + power)
+	var away := (clown.global_position - from)
+	away.y = 0.0
+	clown.flinch_away(away.normalized(), 0.35 + 0.4 * power)
+	if _aim_t > 0.0:
+		_aim_t = minf(_aim_t, aim_time * 0.4)
+	if mind != Mind.HUNT and player:
+		alert(from, true, false)                 # he knows which way it came from, not where you are
+	elif use_cover and _cover_state == 0 and suppression > 0.7 and _cover_cooldown <= 0.0 and player and clown.global_position.distance_to(player.global_position) > 4.5:
+		_find_cover()
 
 
 func _sees_player() -> bool:
@@ -1122,6 +1406,34 @@ func _through_opening(target: Vector3) -> Vector3:
 		return target
 	# a point on the middle line, short of the doorway
 	return centre + dv * minf(ahead + 0.6 * k, maze.cell * 0.5 - 0.6 * k) + along * clampf(off, -0.3 * k, 0.3 * k)
+
+
+## Going over a footbridge from the parapet beside its end: lines up on the
+## deck first, then steps on, instead of cutting the corner at the trench lip
+## (and being held at the edge there). Old: it came at the bridge on the
+## diagonal; a man who swung wide at the corner stood at the lip for good.
+func _onto_bridge(target: Vector3) -> Vector3:
+	if not maze is TrenchMaze:
+		return target
+	var tm := maze as TrenchMaze
+	var pos := clown.global_position
+	if not tm.bridge_at(pos).is_empty():
+		return target                      # on the deck already
+	for br: Dictionary in tm.bridges:
+		for i in 2:
+			var e: Vector3 = br.a if i == 0 else br.b
+			var o: Vector3 = br.b if i == 0 else br.a
+			var into := Vector3(o.x - e.x, 0, o.z - e.z).normalized()
+			var rel := Vector3(pos.x - e.x, 0, pos.z - e.z)
+			if rel.length() > 2.5 or absf(pos.y - e.y) > 0.6 or rel.dot(into) > 0.7:
+				continue
+			if Vector3(target.x - e.x, 0, target.z - e.z).dot(into) < 0.5:
+				continue                   # not going over it
+			var side := Vector3(-into.z, 0, into.x)
+			if absf(rel.dot(side)) < 0.25:
+				return target              # lined up: straight on
+			return e - into * 0.6 + side * clampf(rel.dot(side), -0.15, 0.15)
+	return target
 
 
 ## A spot in a cell with room for a clown: the middle if it is clear, or
