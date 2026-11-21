@@ -57,7 +57,7 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var secs := ["layouts", "ground", "geo", "nav", "overhaul", "field", "fogbank", "top", "suspense", "battle", "falls", "perf", "game", "bodies", "ambience", "battleviews", "views", "floor", "normals", "relief", "walls", "parallax", "section", "cine"]
+	var secs := ["layouts", "ground", "geo", "nav", "overhaul", "field", "fogbank", "top", "suspense", "battle", "falls", "perf", "game", "bodies", "ambience", "battleviews", "views", "floor", "normals", "relief", "walls", "parallax", "section", "cine", "light"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -2659,3 +2659,103 @@ func _views() -> void:
 			await _frames(2)
 			await _shot("enemy")
 			break
+
+
+
+## How dark the trench is: the same views with the lighting as it is and as
+## lifted (render: /tmp/tr_light_<view>_<variant>.png). Variants are applied
+## to the live materials and environment, so nothing else changes.
+func _light() -> void:
+	if not render:
+		return
+	print("-- light")
+	await _new_game(3)
+	var m: TrenchMaze = game.maze
+	game.player.visible = false
+	for c: Clown in game.clowns:
+		c.queue_free()
+	game.clowns.clear()
+	var cam := Camera3D.new()
+	add_child(cam)
+	cam.make_current()
+	cam.fov = 75.0
+	cam.attributes = TrenchArt.make_camera_attributes()
+	var art: TrenchArt = m.get_node("Art")
+	var ground: Array[ShaderMaterial] = []
+	for mi in art.get_children():
+		if mi is MeshInstance3D and (mi as MeshInstance3D).material_override is ShaderMaterial:
+			var sm := (mi as MeshInstance3D).material_override as ShaderMaterial
+			if sm.shader.resource_path.ends_with("mud_terrain.gdshader") and not ground.has(sm):
+				ground.append(sm)
+	var props: Array[ShaderMaterial] = []
+	for mt: Material in art._mats.values():
+		if mt is ShaderMaterial and (mt as ShaderMaterial).shader.resource_path.ends_with("pbr_object.gdshader"):
+			props.append(mt)
+	var env: Environment = game._world_env.environment
+	for n in game.find_children("*", "CanvasLayer", true, false):
+		(n as CanvasLayer).visible = false
+	# the longest straight run of the route: looking along its floor, and down
+	# at the boards a couple of metres ahead (as a player walking it does)
+	var best := [0, 0]
+	for i in range(m.route.size() - 1):
+		var j := i
+		while j + 1 < m.route.size() and m.route[j + 1] - m.route[j] == m.route[i + 1] - m.route[i]:
+			j += 1
+		if j - i > best[1] - best[0]:
+			best = [i, j]
+	var a := m.cell_center(m.route[best[0]])
+	var b := m.cell_center(m.route[best[1]])
+	var fwd := (b - a)
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	var eye := a + Vector3.UP * (m.floor_height(a) + 1.65 - a.y)
+	var views := {
+		"along": [eye, eye + fwd * 8.0 + Vector3.DOWN * 1.6],
+		"down": [eye, eye + fwd * 2.4 + Vector3.DOWN * 1.65],
+		"feet": [eye, eye + fwd * 1.2 + Vector3.DOWN * 1.65],
+	}
+	var variants: Array = Array(OS.get_environment("LIGHT_VARIANTS").split(";")) if OS.has_environment("LIGHT_VARIANTS") else ["now"]
+	for v: String in variants:
+		# "now", or "fd=0.6,sf=0.22,amb=0.9,ae=0.3" (floor darkness, sky floor, ambient energy, auto exposure scale)
+		# (the settings in the game; "old" is how they were before the lift)
+		var fd := 0.75
+		var sf := 0.3
+		var amb := 1.05
+		var ae := 0.4
+		var occ := 0.6
+		var ex := 1.0
+		var ms := 260.0
+		if v == "old":
+			fd = 0.4
+			sf = 0.12
+			amb = 0.75
+			ae = 0.2
+			occ = 1.0
+			ms = 125.0
+		if v != "now" and v != "old":
+			for kv in v.split(","):
+				var p := kv.split("=")
+				match p[0]:
+					"fd": fd = float(p[1])
+					"sf": sf = float(p[1])
+					"amb": amb = float(p[1])
+					"ae": ae = float(p[1])
+					"occ": occ = float(p[1])
+					"exp": ex = float(p[1])
+					"ms": ms = float(p[1])
+		for sm in ground:
+			sm.set_shader_parameter("floor_darkness", fd)
+			sm.set_shader_parameter("sky_floor", sf)
+			sm.set_shader_parameter("sky_occlusion", occ)
+		env.tonemap_exposure = ex
+		for sm in props:
+			sm.set_shader_parameter("sky_floor", sf)
+			sm.set_shader_parameter("sky_occlusion", occ)
+		env.ambient_light_energy = amb
+		(cam.attributes as CameraAttributesPractical).auto_exposure_scale = ae
+		(cam.attributes as CameraAttributesPractical).auto_exposure_max_sensitivity = ms
+		for name_: String in views:
+			cam.global_position = views[name_][0]
+			cam.look_at(views[name_][1])
+			await _frames(40)
+			await _shot("light_%s_%s" % [name_, v.replace("=", "").replace(",", "_").replace(".", "")])

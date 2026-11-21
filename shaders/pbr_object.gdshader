@@ -47,7 +47,8 @@ uniform sampler2D sky_tex : filter_linear, repeat_disable;
 uniform bool sky_on = false;
 uniform vec2 sky_origin = vec2(0.0);
 uniform vec2 sky_size = vec2(1.0);
-uniform float sky_floor = 0.12;
+uniform float sky_floor = 0.3;
+uniform float sky_occlusion = 0.6;   // how much of the darkening down in the trench is taken (as the ground's)
 uniform bool vary = true;                     // each instance its own part of the texture (off for tests)
 uniform int debug_view = 0;                   // 1: show the shading normal (world, 0.5 + n/2)
 
@@ -165,6 +166,7 @@ void fragment() {
 		vec2 g = texture(sky_tex, (wpos.xz - sky_origin) / sky_size).rg;
 		float up = clamp((wpos.y - g.g) / max(-g.g + 0.2, 0.3), 0.0, 1.0);
 		vis = mix(max(g.r, sky_floor), 1.0, up);
+		vis = mix(1.0, vis, sky_occlusion);
 	}
 	vis = mix(vis, sky_floor * 0.6, under_cover);
 	ALBEDO = alb;

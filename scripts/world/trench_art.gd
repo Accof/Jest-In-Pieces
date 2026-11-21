@@ -101,7 +101,7 @@ static func make_environment() -> Environment:
 	# and the baked sky visibility takes it away lower down
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_sky_contribution = 1.0
-	env.ambient_light_energy = 0.75
+	env.ambient_light_energy = 1.05             # (was 0.75: lifted so the trench floor shows its detail)
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 1.0
@@ -187,10 +187,10 @@ static func make_camera_attributes() -> CameraAttributesPractical:
 	ca.auto_exposure_enabled = true
 	# only a little: the trench is meant to be darker than the sky, and a free
 	# auto exposure would lift it back to grey
-	ca.auto_exposure_scale = 0.2
+	ca.auto_exposure_scale = 0.4
 	ca.auto_exposure_speed = 0.5
 	ca.auto_exposure_min_sensitivity = 95.0
-	ca.auto_exposure_max_sensitivity = 125.0
+	ca.auto_exposure_max_sensitivity = 260.0      # looking down into the trench, the eye opens up more
 	return ca
 
 
