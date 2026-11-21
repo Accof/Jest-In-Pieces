@@ -44,7 +44,7 @@ const MARK_RANGE := 75.0
 const MARK_NOTICE := 1.6
 const MARK_GAP := Vector2(4.0, 7.0)
 const MARK_DAMAGE := 14.0
-const MARK_CHANCE := Vector3(0.42, 0.005, 0.1)
+const MARK_CHANCE := Vector3(0.3, 0.005, 0.06)
 
 var kind := Kind.GUARD
 ## Where he stands (FRONTLINE, GUARD) and which way he faces.
@@ -266,6 +266,9 @@ func _marksman(delta: float) -> void:
 	var d := to.length()
 	var in_cone := Vector3(face.x, 0, face.z).normalized().dot(Vector3(to.x, 0, to.z).normalized()) > cos(deg_to_rad(75.0))
 	var sees := d < MARK_RANGE and in_cone and brain._clear(eye, head)
+	var fog := get_tree().get_first_node_in_group(&"fog")
+	if sees and fog and fog.visibility(eye, head) < 0.3:
+		sees = false                              # lost in a fog bank
 	if sees and d < 14.0:
 		brain.alert(pl.global_position)          # close: he fights like the rest
 		return

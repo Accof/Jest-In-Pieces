@@ -17,6 +17,8 @@ var counts := {}
 var duties: Array[BattleDuty] = []
 ## The fight out in No Man's Land (TrenchField).
 var field: TrenchField
+## The mist's weather: fog banks rolling across, heavy spells (TrenchFog).
+var fog: TrenchFog
 ## Pacing: multiplies the gaps between the far side's fire, the field's
 ## shells and casualties (above 1 a lull, below 1 a flare-up).
 var calm := 1.0
@@ -47,6 +49,10 @@ func assign(m: TrenchMaze, clowns: Array, seed_: int, start: Vector3, keep_clear
 	var art := m.get_node_or_null("Art") as TrenchArt
 	if art:
 		field.setup(m, art, seed_ + 77, player, get_tree().get_first_node_in_group(&"game"))
+		fog = TrenchFog.new()
+		fog.name = "Fog"
+		add_child(fog)
+		fog.setup(m, art, self, seed_ + 131)
 	counts = {frontline = 0, guard = 0, runner = 0, patrol = 0, bridge_runs = 0}
 	var men: Array = []
 	for c in clowns:

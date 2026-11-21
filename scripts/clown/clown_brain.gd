@@ -72,6 +72,7 @@ var duty: BattleDuty = null
 ## hunting it looks every frame.
 var perceive_every := 0.0
 var _perceive_t := 0.0
+var _fog: Node = null           # TrenchFog on a trench floor (fog banks), else none
 var _seen_last := false
 
 var clown: Clown
@@ -196,6 +197,13 @@ func _can_see_player() -> bool:
 		var facing := clown.global_basis.z
 		var flat := Vector3(to.x, 0, to.z).normalized()
 		if Vector3(facing.x, 0, facing.z).normalized().dot(flat) < cos(deg_to_rad(sight_half_angle)):
+			return false
+	# a fog bank between them hides the player from him as it hides him from
+	# the player (only past a few metres: close by he can still make him out)
+	if dist > 6.0:
+		if _fog == null or not is_instance_valid(_fog):
+			_fog = get_tree().get_first_node_in_group(&"fog")
+		if _fog and _fog.visibility(clown.global_position + Vector3.UP * 1.5, player.global_position + Vector3.UP * 1.5) < 0.3:
 			return false
 	return _sees_player()
 

@@ -57,7 +57,7 @@ func _shot(name_: String) -> void:
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
-	var secs := ["layouts", "ground", "geo", "nav", "overhaul", "field", "top", "suspense", "battle", "falls", "perf", "game", "bodies", "ambience", "battleviews", "views", "floor", "normals", "relief", "walls", "parallax", "section", "cine"]
+	var secs := ["layouts", "ground", "geo", "nav", "overhaul", "field", "fogbank", "top", "suspense", "battle", "falls", "perf", "game", "bodies", "ambience", "battleviews", "views", "floor", "normals", "relief", "walls", "parallax", "section", "cine"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -650,7 +650,7 @@ func _top() -> void:
 	var pair_gap := 0.0
 	var pair_n := 0
 	var climb := [0, 0, 0]       # runners on climb routes, seen up top, seen in a trench
-	var mark := {placed = 0, hidden_shots = 0, open_shots = 0, open_hits = 0, killed = 0, dist = 0.0}
+	var mark := {hurt = 0, placed = 0, hidden_shots = 0, open_shots = 0, open_hits = 0, killed = 0, dist = 0.0}
 	var down := [0, 0]           # top men alerted with the player below, of them fired
 	for sd in [4242, 1001, 777]:
 		trench_seed = sd
@@ -741,6 +741,8 @@ func _top() -> void:
 				print("        rifle at the marksman %.0f m: hit %s at %s, health %.0f -> %.0f, mind %s" % [mark.dist, res.get("collider"), res.get("position"), hp, d.clown.health, d.brain.mind])
 				if d.clown.dead:
 					mark.killed += 1
+				if d.clown.health < hp:
+					mark.hurt += 1
 			pl.global_position = Vector3(-400, 0, -400)
 		# a man up top, the player in the trench below him in plain sight: he fires down
 		for d: BattleDuty in bt.duties:
@@ -781,7 +783,7 @@ func _top() -> void:
 	_check(pair_n == 0 or pair_gap < 4.0, "pairs keep together")
 	_check(mark.placed > 0 and mark.hidden_shots == 0, "the marksman never fires at a player he cannot see")
 	_check(mark.open_shots > 0, "but does once he can see the player's head")
-	_check(mark.placed == 0 or mark.killed > 0, "and the rifle kills him from where he was seen")
+	_check(mark.placed == 0 or mark.hurt > 0, "and the rifle hits him from where he was seen (%d of %d killed outright: his raised arms take some rounds)" % [mark.killed, mark.placed])
 	_check(down[0] > 0 and down[1] == down[0], "a man up top fires down into the trench")
 
 
@@ -1041,7 +1043,132 @@ func _battleviews() -> void:
 		break
 	RenderingServer.render_loop_enabled = true
 	get_viewport().disable_3d = false
+	# 6: a fog bank rolling in over No Man's Land toward the lines
+	if only.is_empty() or only.has("bank") or only.has("bank_trench"):
+		var fg: TrenchFog = bt.fog
+		var bk: TrenchFog.Bank = fg.roll_in(0)
+		bk.pos = Vector3(eye.x + 4.0, 0, eye.z - 24.0)
+		bk.vel = Vector3(0.1, 0, 1.2)
+		bk.age = 60.0
+		bk.density = bk.peak
+		await _frames(60 * 4)
+		await shoot.call("bank", eye + Vector3.UP * 0.4, Vector3(eye.x, eye.y - 1.0, eye.z - 25.0), 65.0, 24)
+		# 7: and from down in a trench as it pours in
+		var tc := Vector3.INF
+		for c: Vector2i in m.open_cells:
+			if m.top_cells.has(c) or m.bays.has(c) or m.kind.get(c, "") != "support":
+				continue
+			tc = m.cell_center(c)
+			break
+		if tc != Vector3.INF:
+			bk.pos = Vector3(tc.x + 3.0, 0, tc.z - 2.0)
+			bk.vel = Vector3(0.2, 0, 0.6)
+			await _frames(60 * 6)
+			var lk := tc + Vector3(6.0, 1.4, 0.0)
+			for dir in Maze.DIRS:
+				var n: Vector2i = m.cell_of(tc) + dir * 3
+				if m.is_open(n) and not m.top_cells.has(n):
+					lk = m.cell_center(n) + Vector3.UP * 1.3
+					break
+			await shoot.call("bank_trench", tc + Vector3.UP * 1.6, lk, 70.0, 24)
 	cam.queue_free()
+
+
+## Fog banks (TrenchFog): a cloud rolls in, its puffs pour down into the
+## trenches it crosses, it is gone again; while it is there it hides the
+## player from a soldier as it hides the soldier from him; the director sends
+## banks and heavy spells on its own.
+func _fogbank() -> void:
+	print("-- fogbank")
+	var res := {made = 0, spells = 0, sank = 0, puffs_over_trench = 0, passed = 0, seen_clear = 0, seen_fog = 0, pairs = 0, near_seen = 0}
+	for sd in [4242, 1001]:
+		trench_seed = sd
+		await _new_game(3)
+		trench_seed = 0
+		var m: TrenchMaze = game.maze
+		var bt: TrenchBattle = game.battle
+		var fg: TrenchFog = bt.fog
+		var pl: FpsPlayer = game.player
+		pl.set_physics_process(false)
+		pl.global_position = Vector3(-400, 0, -400)
+		# a bank rolling straight in; put it over the middle of the lines and let it drift
+		var b: TrenchFog.Bank = fg.roll_in(0)
+		b.pos = Vector3(m.w * m.cell * 0.5, 0, m.d * m.cell * 0.35)
+		b.vel = Vector3(0, 0, 0.3)
+		b.age = 40.0
+		b.density = b.peak
+		await _frames(60 * 6)
+		for pi in b.puffs.size():
+			var p: Array = b.puffs[pi]
+			var at: Vector3 = p[5]                       # where it is drawn
+			var c := m.cell_of(at)
+			if m.open_cells.has(c) and not m.top_cells.has(c) and m.floor_height(at) < -1.6:
+				res.puffs_over_trench += 1
+				# its bottom down on the trench floor (not riding over the top)
+				var size: float = p[1] * (0.8 + 0.2 * b.radius / 20.0)
+				if p[3] - size * 0.28 < m.floor_height(at) + 0.6:
+					res.sank += 1
+		# sight through it: a soldier and the player 12-20 m apart along a trench,
+		# in his cone, nothing in the way, both in the bank
+		for d: BattleDuty in bt.duties:
+			if not is_instance_valid(d.clown) or d.clown.dead or d.brain.mind != ClownBrain.Mind.IDLE:
+				continue
+			var eye := d.clown.global_position + Vector3.UP * 1.5
+			var fwd := Vector3(d.clown.global_basis.z.x, 0, d.clown.global_basis.z.z).normalized()
+			var spot := Vector3.INF
+			for k in range(12, 21):
+				var q := d.clown.global_position + fwd * k
+				q.y = m.floor_height(q)
+				if m.is_open(m.cell_of(q)) and d.brain._clear(eye, q + Vector3.UP * 1.5):
+					spot = q
+			if spot == Vector3.INF:
+				continue
+			pl.global_position = spot
+			# clear: the bank moved far off
+			var keep := b.pos
+			b.pos = Vector3(-500, 0, -500)
+			if not d.brain._can_see_player():
+				b.pos = keep
+				pl.global_position = Vector3(-400, 0, -400)
+				continue                        # (not in his sight even in the clear: no pair)
+			res.pairs += 1
+			res.seen_clear += 1
+			b.pos = (eye + spot) * 0.5
+			b.pos.y = 0.0
+			if d.brain._can_see_player():
+				res.seen_fog += 1
+			# close by he still makes him out
+			pl.global_position = d.clown.global_position + fwd * 4.0
+			if d.brain._can_see_player():
+				res.near_seen += 1
+			b.pos = keep
+			pl.global_position = Vector3(-400, 0, -400)
+			if res.pairs >= 3 * (sd % 2 + 1):
+				break
+		# it rolls on and is gone
+		b.vel = Vector3(0, 0, 6.0)
+		for i in 60 * 60:
+			await get_tree().physics_frame
+			if not fg.banks.has(b):
+				res.passed += 1
+				break
+		# left to itself for five minutes: banks and heavy spells come
+		var made0 := fg.banks_made
+		fg._t_bank = 5.0
+		fg._t_heavy = 5.0
+		await _frames(60 * 60 * 3)
+		res.made += fg.banks_made - made0
+		res.spells += fg.heavy_spells
+		print("        heaviness now %.2f, %d banks in the air" % [fg.heaviness, fg.banks.size()])
+		pl.set_physics_process(true)
+	print("      puffs over a trench: %d, of them sunk into it %d; banks gone after crossing %d of 2" % [res.puffs_over_trench, res.sank, res.passed])
+	print("      a soldier and the player 12-20 m apart: seen %d of %d in the clear, %d of %d in a bank; 4 m apart in the bank: %d seen" % [res.seen_clear, res.pairs, res.seen_fog, res.pairs, res.near_seen])
+	print("      left to itself (3 min x 2): %d banks rolled in, %d heavy spells" % [res.made, res.spells])
+	_check(res.puffs_over_trench > 0 and res.sank * 4 >= res.puffs_over_trench * 3, "a bank's cloud pours down into the trenches it crosses")
+	_check(res.passed == 2, "and rolls on and is gone")
+	_check(res.pairs > 0 and res.seen_clear == res.pairs and res.seen_fog == 0, "in a bank a soldier cannot see the player 12-20 m off (he can in the clear)")
+	_check(res.near_seen == res.pairs, "but close by he still makes him out")
+	_check(res.made > 0 and res.spells > 0, "banks and heavy spells come on their own")
 
 
 ## The battle round the player (TrenchBattle, BattleDuty): the soldiers at
