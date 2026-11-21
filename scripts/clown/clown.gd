@@ -1966,7 +1966,8 @@ var _kneel_t := 0.0
 var _recoil_clip_t := 99.0
 var _khit_t := 99.0
 var clip_weights := {}               # last frame's weights, for tests
-var _clip_legs_only := false         # this frame the clips have only the legs (no rifle)
+var _clip_legs_only := false
+var _clip_peek := false              # the corner lean comes from the clip         # this frame the clips have only the legs (no rifle)
 var cower := false                   ## curled up under heavy fire (the brain sets it)
 var _cower_t := 0.0
 var _cower_w := 0.0
@@ -2007,11 +2008,16 @@ func _soldier_body_language(delta: float, gait: float) -> Vector3:
 	var tr := clampf(turn_rate, -3.0, 3.0)
 	_turn("Spine", Vector3.UP, tr * 0.05)
 	_turn("Chest", Vector3.UP, tr * 0.06)
-	# leaning out to shoot round a corner: the upper body tips over the outside foot
+	# Leaning out to shoot round a corner (lean > 0: the opening is on his
+	# right). The upper body tips out over the outside foot and the hips give
+	# a little the other way. (Before, the hips went 12 cm toward the opening
+	# and the body tipped back the other way: the head barely moved.) A
+	# rifleman with the clips takes the lean from the captured look round a
+	# corner (in _clip_layer); otherwise it is done here.
 	_lean_now = move_toward(_lean_now, lean, delta * 2.2)
-	if absf(_lean_now) > 0.01:
-		_turn("Spine", Vector3.BACK, deg_to_rad(-11.0) * _lean_now)
-		_turn("Chest", Vector3.BACK, deg_to_rad(-8.0) * _lean_now)
+	if absf(_lean_now) > 0.01 and not _clip_peek:
+		_turn("Spine", Vector3.BACK, deg_to_rad(11.0) * _lean_now)
+		_turn("Chest", Vector3.BACK, deg_to_rad(8.0) * _lean_now)
 	# standing about: the weight drifts from foot to foot, slowly
 	_sway_t += delta
 	if still > 0.01 and aim_amount < 0.6:
@@ -2040,7 +2046,7 @@ func _soldier_body_language(delta: float, gait: float) -> Vector3:
 		_turn("Chest", Vector3.UP, _look_yaw * 0.2 * lw * (1.0 - aimed))
 		_turn("Neck", Vector3.UP, _look_yaw * 0.6 * lw * (1.0 - 0.7 * aimed))
 		_turn("Neck", Vector3.RIGHT, _look_pitch * 0.6 * lw * (1.0 - 0.7 * aimed))
-	return Vector3(-0.12 * _lean_now, 0, 0)
+	return Vector3(0.03 * _lean_now, 0, 0)
 
 
 func _flinch_from(world_pos: Vector3, dir: Vector3, damage: float) -> void:
@@ -2147,6 +2153,7 @@ func _process(delta: float) -> void:
 		back = -1.0 if f2 < -0.25 else 1.0
 	_model_sway = Vector3.ZERO
 	_clip_legs_only = false
+	_clip_peek = false
 	_clip_layer(delta, flat, speed, side_amt, back)
 	var bob := 0.0
 	# How much the legs swing: any real movement gets a full step (the step
@@ -2474,6 +2481,11 @@ func _clip_layer(delta: float, flat: Vector3, speed: float, side_amt: float, bac
 	_mix.apply(skeleton, _clip_rest_g, _clip_idx, SoldierClips.BONES if full else SoldierClips.LOWER)
 	_clip_share = minf(_mix.total, 1.0)
 	_clip_legs_only = not full
+	# the look round a corner: the captured lean, as far as he leans
+	_clip_peek = full
+	if full and absf(_lean_now) > 0.01:
+		var pk: SoldierClips.Clip = SoldierClips.clip("peek_right" if _lean_now > 0.0 else "peek_left")
+		SoldierClips.add_on(skeleton, pk, absf(_lean_now) * (pk.frames - 1), 1.0)
 	# the shot, absorbed through the body; a hit taken kneeling
 	_recoil_clip_t += delta
 	var rc: SoldierClips.Clip = SoldierClips.clip("recoil")

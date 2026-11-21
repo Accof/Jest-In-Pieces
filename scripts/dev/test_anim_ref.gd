@@ -84,7 +84,7 @@ func _record(secs: float, film: String = "") -> Array:
 			fr["world_" + foot] = [wp.x, wp.y, wp.z]
 		out.append(fr)
 		if film != "" and cam and k % 3 == 0:
-			var side_dir := s.global_basis.x if not (film.begins_with("strafe") or film == "crouch_strafe") else s.global_basis.z
+			var side_dir := s.global_basis.x if not (film.begins_with("strafe") or film in ["crouch_strafe", "peek"]) else s.global_basis.z
 			cam.global_position = s.global_position + side_dir * 3.4 + Vector3.UP * 1.0
 			cam.look_at(s.global_position + Vector3.UP * 0.8)
 			await get_tree().process_frame
@@ -143,6 +143,7 @@ func _run() -> void:
 		["turn_about", Vector3.ZERO, 0.0, 0.0, 0.0, 0.0, -2.4, 1.3],
 		["kneel_cycle", Vector3.ZERO, 0.0, 0.0, 0.0, 0.0, 0.0, 3.0],
 		["dodge_film", Vector3.ZERO, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0],
+		["peek", Vector3.ZERO, 0.0, 0.0, 0.0, 1.0, 0.0, 4.0],
 		["diag_br", Vector3(-1.0, 0, -1.0), 0.47, 0.0, 0.0, 0.0, 0.0, 2.0],
 		["run", Vector3(0, 0, 5.4), 1.0, 1.0, 0.0, 0.0, 0.0, 2.0],
 		["crouch_idle", Vector3.ZERO, 0.0, 0.0, 1.0, 0.0, 0.0, 3.0],
@@ -190,6 +191,15 @@ func _run() -> void:
 			tk.tween_property(s, "crouch_amount", 1.0, 0.8)
 			tk.tween_interval(0.9)
 			tk.tween_property(s, "crouch_amount", 0.0, 0.8)
+		if p[0] == "peek":
+			var tl := create_tween()
+			tl.set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
+			tl.tween_property(s, "lean", 1.0, 0.5)
+			tl.tween_interval(0.6)
+			tl.tween_property(s, "lean", 0.0, 0.4)
+			tl.tween_property(s, "lean", -1.0, 0.5)
+			tl.tween_interval(0.6)
+			tl.tween_property(s, "lean", 0.0, 0.4)
 		if p[0] == "dodge_film":
 			get_tree().create_timer(0.3).timeout.connect(func() -> void: s.dodge(1.0))
 		if p[0] in ["kneel_hit", "hit"]:
@@ -276,6 +286,26 @@ func _run() -> void:
 		_check(stopped and stop_seen > 0.9, "and pulling up the captured stop (%.2f)" % stop_seen)
 		s.velocity = Vector3.ZERO
 		await _frames(30)
+	# leaning round a corner: head and shoulders go out toward the opening
+	# (lean > 0: on his right), the feet stay put
+	if want.call("lean"):
+		s.crouch_amount = 0.0
+		s.aim_amount = 1.0
+		s.lean = 0.0
+		await _frames(40)
+		var sk := s.skeleton
+		var head0 := s.global_basis.inverse() * (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Head")).origin - s.global_position)
+		var foot0 := sk.global_transform * sk.get_bone_global_pose(sk.find_bone("RightFoot")).origin
+		for side: float in [1.0, -1.0]:
+			s.lean = side
+			await _frames(70)
+			var head := s.global_basis.inverse() * (sk.global_transform * sk.get_bone_global_pose(sk.find_bone("Head")).origin - s.global_position)
+			var foot := sk.global_transform * sk.get_bone_global_pose(sk.find_bone("RightFoot")).origin
+			var out: float = -(head.x - head0.x) * side   # toward the opening (his right is -x)
+			_check(out > 0.12 and foot.distance_to(foot0) < 0.06, "leaning %s: the head goes %.2f m out toward the opening, the feet stay (%.2f m)" % ["right" if side > 0 else "left", out, foot.distance_to(foot0)])
+		s.lean = 0.0
+		s.aim_amount = 0.0
+		await _frames(60)
 	# a near miss: a man standing still jinks away from it
 	if want.call("dodge"):
 		s.crouch_amount = 0.0

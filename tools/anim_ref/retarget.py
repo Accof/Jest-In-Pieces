@@ -142,7 +142,12 @@ def oneshot(name, start=0, end=None, keep_xz=False, additive=False):
     if additive:
         # relative to its own first frame, for the upper body: layered over whatever pose he is in
         base = {b: r[0] for b, r in c['deltas'].items()}
-        c['deltas'] = {b: r * base[b].inv() for b, r in c['deltas'].items() if b in UPPER}
+        full = {b: r * base[b].inv() for b, r in c['deltas'].items() if b in UPPER}
+        # Each bone's change is stored less its parent's: layered on bone by
+        # bone down the chain (SoldierClips.add_on), a child already carries
+        # its parent's turn, and would otherwise have it twice over.
+        PARENT = {'Spine': 'Hips', 'Chest': 'Spine', 'Neck': 'Chest', 'Head': 'Neck', 'LeftShoulder': 'Chest', 'RightShoulder': 'Chest'}
+        c['deltas'] = {b: (r * full[PARENT[b]].inv() if b in PARENT and PARENT[b] in full else r) for b, r in full.items()}
         c['off'] = c['off'] - c['off'][0]
     c['loop'] = False
     c['additive'] = additive
@@ -304,6 +309,35 @@ clips['stop_run'] = pack_t(transit('Rifle_Run_To_Stop.fbx', ['P_run_forward.fbx'
 for k in ['start_walk', 'start_run', 'stop_walk', 'stop_run']:
     dd = clips[k]['dist']; ph = clips[k]['phase']
     print(k, 'covers %.2f m' % dd[-1], 'phase at start %.2f end %.2f' % (ph[0], ph[-1]))
+
+# Peeking round a corner, facing the threat: the lean out of
+# Stand_Cover_To_Look (a back-to-the-wall look, the only cover clip there is),
+# its rising half, the body only (the head's look round is the look system's
+# job). It leans to his left; mirrored for the right. Played by how far he leans.
+def peek(mirror_it=False):
+    c = oneshot('Stand_Cover_To_Look.fbx', end=25, additive=True)
+    # aimed out to his side (with a little forward), not forward-and-side as
+    # a man at a wall looks out: the whole lean turned about the vertical so
+    # the head goes out at 15 degrees forward of straight to his left
+    raw = d['Stand_Cover_To_Look.fbx']['frames']
+    hd = np.array(raw[24][P + 'Head'][0:3]) - np.array(raw[0][P + 'Head'][0:3])
+    phi = np.arctan2(hd[2], hd[0])
+    sq = R.from_rotvec([0, phi - np.radians(15.0), 0])
+    # (the hips' share goes to the spine: turned at the hips, his legs and
+    # feet would swing with them; the waist takes it and the feet stay put)
+    dl = c['deltas']
+    dl['Spine'] = dl['Spine'] * dl['Hips']           # (stored less the hips: put them back)
+    c['deltas'] = {b: sq * r * sq.inv() for b, r in dl.items() if b in ['Spine', 'Chest', 'Neck']}
+    c['off'] = sq.apply(c['off'])
+    if mirror_it:
+        c = mirror(c)
+        c['loop'] = False
+        c['additive'] = True
+    return c
+
+
+clips['peek_left'] = pack(peek())
+clips['peek_right'] = pack(peek(True))
 
 json.dump(clips, open(OUT, 'w'), separators=(',', ':'))
 for k, v in clips.items():
