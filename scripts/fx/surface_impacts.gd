@@ -568,7 +568,7 @@ func _mat(kind: String) -> Material:
 			m = sm
 		"ripple":
 			var rm := ShaderMaterial.new()
-			rm.shader = load("res://shaders/ripple.gdshader")
+			rm.shader = load("res://shaders/impact_ripple.gdshader")
 			m = rm
 		_:
 			var sm := StandardMaterial3D.new()
