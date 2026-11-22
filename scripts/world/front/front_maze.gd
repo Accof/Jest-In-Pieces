@@ -629,7 +629,7 @@ func _carve() -> void:
 			var near := _nearest(x, z)
 			var sd: float = near.d
 			var h := g
-			var wetness := 0.35 + clampf(-g * 0.6, 0.0, 0.3)
+			var wetness := 0.5 + clampf(-g * 0.7, 0.0, 0.35)      # (M4: soaked, water in the low places)
 			if sd < 3.0:
 				var c: Vector2i = near.cell
 				var wt: String = near.wall

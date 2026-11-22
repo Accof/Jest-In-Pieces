@@ -10,8 +10,8 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 0 | Preservation and planning | **approved 22 Nov** | commits `a5376f1`, `4a5f5a1`; tag `legacy-drowned-trenches-baseline` (= `0772251`) | approved |
 | 1 | Objective separation (`ELIMINATION` / `SURVIVAL`) | **approved 22 Nov** (+ [E] door follow-up `b56bd54`) | commits `ccbbfe8`, `cbe2ac3`, `b56bd54` | approved |
 | 2 | New battlefield geometry (two networks, No Man's Land, H.Q. exit) | **done**; Andrew: "continue with the plan" (22 Nov) — his own playtest still to come | commits `663727e`, `4667339` | **user playtest** (pending) |
-| 3 | Terrain and functional cover (craters, wire, routes, enemy navigation) | **done, awaiting review** | commit `104a80e` | user review |
-| 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | not started | | **HARD VISUAL APPROVAL — STOP** |
+| 3 | Terrain and functional cover (craters, wire, routes, enemy navigation) | **done**; Andrew: "continue" (22 Nov) — his own playtest still to come | commit `104a80e`, `5d9baaa` | user review (pending) |
+| 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | **built; AT THE GATE** — four shots + a fifth presented 22 Nov, awaiting Andrew's word | commit `M4COMMIT` | **HARD VISUAL APPROVAL — STOP** |
 | 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | not started | | user review |
 | 6 | Core combat hazards (MG nests, suppression, artillery) | not started | | user playtest |
 | 7 | Director foundation (tension/alertness, event points, budgets, overlay) | not started | | user review |
@@ -26,9 +26,13 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 numbers are to be invented). When convenient: `godot --path . res://scenes/legacy_drowned_trenches.tscn
 -- perf=30 god`, play a minute, paste the `PERF` lines here.
 
-**Next action:** Andrew reviews Milestone 3 and plays the Front (`/Applications/Godot.app/Contents/MacOS/Godot
---path . res://scenes/play_front.tscn -- god`; M2's layout/scale/traversal judgement and M3's cover and
-wire are both still his to make); Milestone 4 (the reference atmosphere, the hard visual gate) only on his word.
+**Next action:** the **Milestone 4 visual gate**. Andrew compares the five gate shots
+(`docs/reference/front_m4/`) and, better, the live thing on the Mac
+(`/Applications/Godot.app/Contents/MacOS/Godot --path . res://scenes/play_front.tscn -- god seed=1916`)
+with the reference, and either approves or asks for changes. On approval: the settings, the shots
+and a git tag `drowned_front_approved_atmosphere` are recorded under `docs/reference/approved_atmosphere/`
+and M5 may be authorised. Until then **nothing past M4 is started.** His M2/M3 playtest judgement is
+still open too (No Man's Land's length is one number).
 
 ### Decisions taken by Andrew on 22 Nov (answers to Session Zero's questions)
 1. Performance: 60 fps at his normal development resolution; measure the real baseline on the Mac
@@ -402,4 +406,130 @@ still pending and nothing here forecloses it: No Man's Land's length is one numb
 - Fire-step bays under a bridge or at a sap keep their legacy behaviour; nothing in the trenches changed.
 - Mac performance still **PENDING**.
 
-(Milestones 4–13: scope as in the package; detailed when authorised.)
+## Milestone 4 — Reference atmosphere (22 Nov 2026) — AT THE VISUAL GATE
+
+Authorised by Andrew's "continue" after M3 (taken as M4 only). The package's rule for this milestone:
+stop after it, present real screenshots against the reference, measured settings, differences,
+limitations, and ask for explicit approval; nothing further until it is given.
+
+### What was built (D-16)
+- **`FrontAtmosphere`** (`scripts/world/front/front_atmosphere.gd`): the Front's own `Environment`,
+  camera attributes and sun; `Game._apply_floor_look()` uses them only when the floor is outdoor
+  and the maze is a `FrontMaze`. Not an overlay: sky + depth fog + ambient + a mild grade + materials.
+- **Ground**: the scanned mud materials, soaked and darkened (`FrontArt.ground_material()`); the
+  baseline wetness out on the field raised and water in the low places; crater water near-black.
+- **Smoke**: five low patches drift over No Man's Land on the wind, out of shell holes; the far
+  battle's columns thinned and paled; the ground mist in the haze's colour.
+- **One visibility model**: `FrontAtmosphere.visibility(a, b)` (group `fog`, which `ClownBrain`
+  already asks) — exp(−k·d) with 0.3 (the brains' "unseen") at **55 m**, plus the smoke patches.
+- The gate shots are a `test_front` section (`atmos render`): fixed cameras, seed 1916.
+
+### Measured settings (iteration 3; 1 was too uniformly green and bright in the mid-ground with the far smoke too loud, 2 greyed the fog and sky and darkened the ground, 3 pushed the mud brown and the sky neutral)
+| Part | Setting |
+|---|---|
+| Sky (`overcast_sky`) | mass (0.52, 0.53, 0.49), body (0.62, 0.63, 0.60), opening (0.80, 0.80, 0.76), warm (0.83, 0.80, 0.68), horizon (0.72, 0.73, 0.68), ground (0.26, 0.25, 0.22), energy 1.05, coverage 0.82, light dir (−0.3, 0.55, −0.78) |
+| Fog (depth) | colour (0.60, 0.62, 0.57), begin 6 m, end 140 m, density 0.9, curve 1.0, aerial perspective 0.6, sky affect 0.6; volumetric fog on at density 0 (the mist volume adds to it), albedo (0.70, 0.73, 0.64) |
+| Light | ambient from sky 0.55; sun energy 0.5, colour (0.86, 0.88, 0.80), angular 6°, specular 0.05, shadows opacity 0.65 blur 3, 70 m |
+| Exposure / tone | filmic, exposure 0.95, white 6; auto exposure scale 0.22, sensitivity 90–130 |
+| Grade | saturation 0.76, contrast 1.06, LUT: shadows ×(1.04, 0.99, 0.90) (brown), mids ×(0.98, 1.0, 0.96), lights ×(1.02, 1.0, 0.91); glow 0.28 |
+| SSR / SSAO / SSIL | on / 1.5 (radius 1.4) / 0.5 |
+| Ground | dry_ground 0.12, puddles 0.95, earth_darkness 0.3, floor_darkness 0.4, rock_darkness 0.55, brightness 0.82, wall_tint (0.60, 0.54, 0.47), floor_tint (0.78, 0.70, 0.62), water (0.26, 0.26, 0.22), puddle (0.07, 0.07, 0.06); field wetness 0.5 + up to 0.35 in the low ground; crater water colour (0.085, 0.08, 0.07) / deep (0.045, 0.043, 0.04) |
+| Mist volume | tint (0.64, 0.68, 0.58), density 0.08, ×2 over No Man's Land |
+| Drifting smoke | 5 patches, 7 m quads, 10 billows each, 18 s life, wind (0.55, 0, 0.18); each counts as a 7 m sphere of optical density 0.06 |
+| Far smoke columns | half the billows, scale ×0.75, colour ×1.25 / alpha ×0.7 of the legacy day's |
+| Visibility | k = −ln 0.3 / 55 m: **0.65 at 20 m, 0.30 at 55 m, 0.14 at 90 m** (test bounds: < 0.31 at 55, < 0.16 at 90) |
+
+### The gate shots (Forward+, software Vulkan in the container, 1280 × 720, seed 1916, floor 3)
+All in `docs/reference/front_m4/` (`gate_sheet.png` has the reference beside the five;
+`reference_vs_panorama.png`, `reference_vs_ground.png` full size). Cameras as `test_front -- atmos render` prints them:
+
+| Shot | Camera (x, y, z), fov | What it shows |
+|---|---|---|
+| (a) `gate_a_parapet.png` | (20.22, 0.52, 128.76) on a fire step, 75° | sandbags and the step at hand, our wire and the field beyond, the enemy line a band under the haze ~100 m off |
+| (b) `gate_b_panorama.png` | (20.0, 1.74, 94.0) standing on the lip of a hole, 75° | No Man's Land toward their line: holes, water, the far posts and stumps dissolving, their smoke and fires |
+| (c) `gate_c_ground.png` | (23.36, 0.77, 119.65) crouched beside a 2.8 m hole, 75° | the mud close to, water in the hole, wire and a post, a stump |
+| (d) `gate_d_silhouettes.png` | (24.0, 1.06, 110.0) low, 60° | three WitzSoldats standing at 14, 26 and 42 m |
+| (e) `gate_e_silhouettes_dense.png` | same | the same men with the fog ended at 75 m instead of 140 (density 1.0, begin 3 m) — the "thicker bank" case |
+
+### Against the reference (`docs/reference/no_mans_land_reference.png`)
+Mean colours, measured on the images (sRGB 0–255; the reference's top quarter and bottom
+third against the same bands of (b) and (c)):
+
+| | sky | foreground ground |
+|---|---|---|
+| reference | (120, 123, 112) — a **mid** grey with a sage tint, not pale | (47, 40, 36) — near-black **brown** (R > G > B) |
+| (b) panorama | (207, 205, 188) | (64, 64, 51) |
+| (c) ground | (205, 205, 191) | (52, 51, 41) |
+
+- **Colour.** Direction right (desaturated green-grey haze, restrained palette; the fires and
+  flashes read orange), but ours is **olive** where the reference is **brown**: our ground's red
+  and green channels are equal, the reference's red leads. The soaked scans + the green-tinted
+  mist volume over No Man's Land + the sage grade add up to olive. The mist tint and the fog
+  colour are the two levers left; I stopped at three passes to put the choice to you.
+- **Fog.** Ours begins at 6 m and is linear to 140 m: timber and wire sharp to hand, posts and
+  stumps shapes by 50 m, the far side a band. The reference's haze is thicker and *brighter*
+  behind the near trees (back-lit); ours is flatter — there is no bright core where the hidden
+  sun would be. Closer than the legacy day's 18 m start; still less enveloping than the image.
+- **Sky.** Ours is a pale dirty yellow-grey plate (the package's prose) at ~1.7× the brightness
+  of the image's sky, which is a darker, heavier grey. The two briefs disagree here; I went
+  with the prose and the image's hue. Easy to bring down if you want the image's weight.
+- **Contrast / exposure.** The reference is a dark image with a bright sky; ours is a mid image
+  with a brighter sky. Oppressive-but-readable holds in ours; the mud is not yet "near-black".
+- **Scale.** The field is 97 m fire trench to fire trench (D-12, yours to tune); the eye is
+  1.65 m up, 1.0 m crouched; a man is 60–110 px tall at 14 m on a 1280-wide frame.
+- **Silhouettes.** Men at 14 and 26 m read as men against the sky from a low eye; at 42 m he
+  is a mark; by 55 m (the brains' limit) a shape. From a standing eye on flat ground figures sit
+  on the dark ground band, not the sky, and read worse — the reference's low camera is doing
+  work there too. (e) vs (d): the thicker bank takes the 42 m man away and softens the far
+  line; the difference is modest at this density.
+- **Wetness.** Water lies in the holes and the low ground, near-black with the sky in it; the
+  mud is glossier than the legacy day's. The reference's foreground is wetter still — a mirror
+  puddle with reflections of posts — and strewn with debris (timber, wire tangles, a helmet,
+  stumps) that we do not have out there yet.
+
+### Limitations (honest list)
+- **Rendered on the container's software Vulkan (llvmpipe), not the Mac.** SSR, SSAO, SSIL,
+  the volumetric mist and the shadow blur all look different on a real GPU, and the Mac's
+  colour management (Display P3) will shift it again. **Please judge it live on the Mac**, not
+  only from these PNGs; the fixed cameras are reproducible there (`play_front -- god seed=1916`).
+- **No near-field debris.** Broken trees, stumps, timber, tangles of loose wire and litter in
+  No Man's Land are the thing the reference has most of and we have least of: the field is
+  heightfield + holes + the planned wire belts + a few posts. That is prop placement (the
+  package's "battlefield dressing"), not atmosphere; it would change the look materially, so I
+  flag it now rather than after approval.
+- **One profile, no regions yet.** Our trench, No Man's Land, their trench and the H.Q. share
+  the environment; the mist is thicker over No Man's Land, that is all. Region profiles,
+  transitions, wind-driven banks and flare light are director work (M7+). The visibility model
+  is one constant (55 m) today, by design.
+- **Fog is a depth curve + a mist volume**, so smoke patches thin sight for the brains but the
+  camera does not see them as fog proper; they are particles.
+- **Auto-exposure** is held to a narrow band; a dugout will not go as dark as the legacy day's.
+- **Enemies' own materials** are untouched; they take the light and the grade like everything else.
+- **Performance unmeasured** on the Mac (PENDING). The Front's environment adds the mist
+  volume (as the legacy day) and 5 small emitters; nothing else new is per-frame.
+- `test_zornhauptmann` flakiness on the Front (since M2) still to be looked at.
+
+### Acceptance (package F, row 4)
+- [x] Green-grey lighting, fog, smoke, wet surfaces, silhouettes built as separate profile.
+- [x] Four real in-game screenshots (five) at fixed cameras, compared with the supplied image.
+- [x] Atmosphere isolation: Front env ≠ bunker env; the bunker's returns on the next floor; the legacy scene keeps TrenchArt's (checked in `test_front atmos`).
+- [ ] **Andrew's visual approval — OPEN.**
+
+### Files
+- new `scripts/world/front/front_atmosphere.gd`; `scripts/world/front/front_art.gd` (`atmosphere`,
+  `ground_material`, `_drift_smoke`, `_mist` colour, far-smoke thinning in `build`, crater water);
+  `scripts/world/front/front_maze.gd` (field wetness baseline); `scripts/game/game.gd`
+  (`_front_env`, the Front branch of `_apply_floor_look`); `scripts/dev/test_front.gd` (`atmos`);
+  docs (D-16, architecture §7/§8a, master plan, README, this), `docs/reference/front_m4/`.
+
+### Tests (headless, container)
+| Scene | Result |
+|---|---|
+| **test_front** `atmos` | 0 failed (isolation ×3, visibility bounds) |
+| test_front `layouts geo cover wire crossing game` | 0 failed |
+| test_objective | 0 failed |
+| test_nav `front` / `trench`, test_trench, test_trench_level `game nav` | as M3 |
+| test_killcam `floor report`, test_game, test_events, test_base, test_curse | as baseline |
+| legacy scene | `TrenchMaze … ELIMINATION / ok`, TrenchArt environment |
+
+(Milestones 5–13: scope as in the package; detailed when authorised.)

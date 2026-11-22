@@ -23,6 +23,12 @@ extends Node3D
 ##             the trenches (two in three in theirs, none out in the open),
 ##             the H.Q. door at the exit; the player walks the whole way from
 ##             the start to the H.Q. by the maze's own path and goes in with [E]
+##   atmos     (M4, with "render", Forward+) the four pictures of the visual
+##             gate at fixed cameras on seed 1916: (a) our frontline parapet,
+##             (b) the No Man's Land panorama, (c) mud, shell hole and wire
+##             close to, (d) soldiers at 14, 26 and 42 m in the haze, (e) the same in a thicker bank;
+##             /tmp/front_gate_*.png. Also checks the environments are kept
+##             apart (bunker, legacy, Front) and the visibility model's range.
 ##   views     (with "render", Forward+): /tmp/front_*.png: the whole front from
 ##             above, our parapet looking across, the middle of No Man's Land,
 ##             their fire trench, the H.Q.
@@ -55,7 +61,7 @@ func _run() -> void:
 	for a in args:
 		if a.begins_with("seed="):
 			fixed_seed = int(a.substr(5))
-	var secs := ["layouts", "geo", "cover", "wire", "crossing", "game", "views"]
+	var secs := ["layouts", "geo", "cover", "wire", "crossing", "game", "views", "atmos"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -732,3 +738,116 @@ func _views() -> void:
 	cam.global_position = pos
 	cam.look_at(xf.origin + Vector3.UP * 1.2)
 	await _shot("hq")
+
+
+# --- atmos (M4) -------------------------------------------------------------------------------
+func _atmos() -> void:
+	print("-- atmos")
+	await _new_game(1916 if fixed_seed == 0 else fixed_seed)
+	var m := game.maze as FrontMaze
+	# the environments are kept apart
+	_check(game._world_env.environment == game._front_env and game._front_env != game._trench_env and game._front_env != game._bunker_env, "the Front has its own environment")
+	var atm: FrontAtmosphere = get_tree().get_first_node_in_group(&"fog")
+	_check(atm != null and atm.visibility(Vector3.ZERO, Vector3(0, 0, 20)) > 0.5 and atm.visibility(Vector3.ZERO, Vector3(0, 0, FrontAtmosphere.SIGHT_M)) < 0.31 and atm.visibility(Vector3.ZERO, Vector3(0, 0, 90)) < 0.16,
+		"one visibility model: clear at 20 m (%.2f), the brains' limit at %.0f m (%.2f), all but gone by 90 m (%.2f)" % [atm.visibility(Vector3.ZERO, Vector3(0, 0, 20)) if atm else -1.0, FrontAtmosphere.SIGHT_M, atm.visibility(Vector3.ZERO, Vector3(0, 0, FrontAtmosphere.SIGHT_M)) if atm else -1.0, atm.visibility(Vector3.ZERO, Vector3(0, 0, 90)) if atm else -1.0])
+	game.next_floor()
+	await _frames(2)
+	_check(not (game.maze is TrenchMaze) and game._world_env.environment == game._bunker_env, "the next floor, a bunker, has the bunker environment back")
+	game.survival_trenches = false
+	game.floor_number = 5
+	game.next_floor()
+	await _frames(2)
+	_check(game.maze is TrenchMaze and not (game.maze is FrontMaze) and game._world_env.environment == game._trench_env, "the legacy trench keeps TrenchArt's environment")
+	game.survival_trenches = true
+	if not render:
+		return
+	await _new_game(1916 if fixed_seed == 0 else fixed_seed)
+	m = game.maze as FrontMaze
+	game.player.visible = false
+	for c: Clown in game.clowns:
+		c.queue_free()
+	game.clowns.clear()
+	await _frames(2)
+	var cam := Camera3D.new()
+	add_child(cam)
+	cam.make_current()
+	cam.far = 600.0
+	cam.fov = 75.0
+	await _frames(40)
+	var z_theirs := (m.their_row0 + TrenchMaze.GRID_D) * m.cell
+	var mid_x := m.w * m.cell * 0.5
+	# (a) our frontline parapet: eye height on a fire step, looking out
+	var bay := Vector2i(-1, -1)
+	for c: Vector2i in m.bays:
+		if m.ours.has(c) and absi(c.x - 16) < 6 and (bay == Vector2i(-1, -1) or absi(c.x - 16) < absi(bay.x - 16)):
+			bay = c
+	var r := m._rect(bay)
+	var on_step := Vector3(r.get_center().x, 0, r.position.y + 0.3)
+	on_step.y = m.floor_height(on_step) + 1.65
+	cam.global_position = on_step
+	cam.look_at(Vector3(on_step.x + 2.0, on_step.y - 0.25, z_theirs))
+	print("      (a) parapet camera %s" % on_step.snapped(Vector3.ONE * 0.01))
+	await _shot("gate_a_parapet")
+	# (b) the panorama: from the lip of a shell hole a third of the way across
+	var pan := Vector3(mid_x - 4.0, 0, m.our_row0 * m.cell - 26.0)
+	pan.y = m.floor_height(pan) + 1.65
+	cam.global_position = pan
+	cam.look_at(Vector3(mid_x + 6.0, pan.y - 0.9, z_theirs - 10.0))
+	print("      (b) panorama camera %s" % pan.snapped(Vector3.ONE * 0.01))
+	await _shot("gate_b_panorama")
+	# (c) the ground close to: mud, a water-filled hole, the wire, from a crouch
+	var hole := Vector4.ZERO
+	var wz: float = m.wire_belts[0].z
+	for cr: Vector4 in m.crater_list:
+		if cr.z > 2.4 and cr.w > 0.6 and cr.y < wz - 4.0 and cr.y > wz - 22.0 and (hole == Vector4.ZERO or absf(cr.x - mid_x) < absf(hole.x - mid_x)):
+			hole = cr
+	var low := Vector3(hole.x - hole.z * 1.5, 0, hole.y + hole.z * 1.6)
+	low.y = m.floor_height(low) + 0.75
+	cam.global_position = low
+	cam.look_at(Vector3(hole.x + 2.0, low.y - 0.6, wz - 2.0))
+	print("      (c) ground camera %s, hole %s" % [low.snapped(Vector3.ONE * 0.01), hole])
+	await _shot("gate_c_ground")
+	# (d) silhouettes: three soldiers out in the haze at 25, 40 and 60 m
+	# the eye is low, a man crouched at a hole's lip, so the figures stand
+	# against the sky and not the dark ground band
+	var eye := Vector3(mid_x, 0, m.our_row0 * m.cell - 10.0)
+	eye.y = m.floor_height(eye) + 1.0
+	var men: Array[Clown] = []
+	for d: float in [14.0, 26.0, 42.0]:
+		var c := Clown.new()
+		c.body = "witzsoldat"
+		game._world.add_child(c)
+		# on open ground, not down a shell hole: slide sideways until the
+		# floor is within 0.3 m of the field level
+		var at := Vector3(mid_x + (d - 26.0) * 0.3, 0, eye.z - d)
+		for k in 12:
+			at.y = m.floor_height(at)
+			if at.y > -0.3:
+				break
+			at.x += 1.5 if k % 2 == 0 else -1.5 * (k + 1)
+		c.global_position = at
+		c.rotation.y = PI + 0.2
+		c.give_rifle()
+		c.always_pose = true
+		c.set_process(true)
+		men.append(c)
+	await _frames(6)
+	cam.global_position = eye
+	cam.fov = 60.0
+	cam.look_at(Vector3(mid_x, eye.y + 0.2, eye.z - 26.0))
+	print("      (d) silhouette camera %s; men at 14, 26, 42 m" % eye.snapped(Vector3.ONE * 0.01))
+	await _shot("gate_d_silhouettes")
+	# (e) the same men in a thicker bank: sight ~30 m instead of 55
+	var env: Environment = game._front_env
+	var keep: Array[float] = [env.fog_density, env.fog_depth_end, env.fog_depth_begin]
+	env.fog_density = 1.0
+	env.fog_depth_begin = 3.0
+	env.fog_depth_end = 75.0
+	await _frames(6)
+	print("      (e) the same, fog end %.0f m" % env.fog_depth_end)
+	await _shot("gate_e_silhouettes_dense")
+	env.fog_density = keep[0]
+	env.fog_depth_end = keep[1]
+	env.fog_depth_begin = keep[2]
+	for c in men:
+		c.queue_free()

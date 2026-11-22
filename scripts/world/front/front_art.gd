@@ -13,11 +13,109 @@ extends TrenchArt
 ## reference atmosphere is Milestone 4, functional cover and wire Milestone 3.
 
 var front: FrontMaze
+## The Front's weather and the one visibility model (M4).
+var atmosphere: FrontAtmosphere
 
 
 func build(m: TrenchMaze) -> void:
 	front = m as FrontMaze
 	super.build(m)
+	if front:
+		atmosphere = FrontAtmosphere.new()
+		atmosphere.name = "Atmosphere"
+		add_child(atmosphere)
+		_drift_smoke()
+		# (M4) the far battle's smoke columns: half as many billows, paler, so
+		# they are shapes in the haze and not the picture
+		for c in get_children():
+			if c is CPUParticles3D and c.position.distance_to(Vector3(maze.w * maze.cell * 0.5, 0, maze.d * maze.cell * 0.5)) > 100.0:
+				var cp := c as CPUParticles3D
+				cp.amount = maxi(int(cp.amount * 0.5), 4)
+				cp.scale_amount_max *= 0.75
+				if cp.color_ramp:
+					var g := cp.color_ramp.duplicate() as Gradient
+					for i in g.get_point_count():
+						var col := g.get_color(i)
+						g.set_color(i, Color(col.r * 1.25, col.g * 1.25, col.b * 1.2, col.a * 0.7))
+					cp.color_ramp = g
+
+
+## The ground, wetter and darker than the legacy's day-after-rain: soaked,
+## near-black in the foreground, water lying in every flat low place (M4,
+## after the reference). The legacy level keeps TrenchArt's values.
+func ground_material() -> ShaderMaterial:
+	var had := _ground_mat != null
+	var mat := super.ground_material()
+	if front and not had:
+		mat.set_shader_parameter("dry_ground", 0.12)
+		mat.set_shader_parameter("puddles", 0.95)
+		mat.set_shader_parameter("earth_darkness", 0.3)
+		mat.set_shader_parameter("wall_tint", Color(0.6, 0.54, 0.47))        # brown, not olive
+		mat.set_shader_parameter("floor_tint", Color(0.78, 0.7, 0.62))
+		mat.set_shader_parameter("floor_darkness", 0.4)
+		mat.set_shader_parameter("rock_darkness", 0.55)
+		mat.set_shader_parameter("brightness", 0.82)
+		mat.set_shader_parameter("water_col", Color(0.26, 0.26, 0.22))
+		mat.set_shader_parameter("puddle_col", Color(0.07, 0.07, 0.06))
+	return mat
+
+
+## Low smoke drifting over No Man's Land on the wind: a few patches, each a
+## slow emitter of wide soft billows that creep and thin out; the atmosphere
+## counts them against sight. (The tall columns of the far battle are
+## TrenchArt._smoke's, as before.)
+func _drift_smoke() -> void:
+	var mat := smoke_material().duplicate() as StandardMaterial3D
+	mat.albedo_color = Color(0.58, 0.6, 0.55, 0.42)
+	var z_near := (front.their_row0 + TrenchMaze.GRID_D) * maze.cell + 6.0
+	var z_far := front.our_row0 * maze.cell - 6.0
+	var wind := Vector3(0.55, 0.0, 0.18)
+	for i in 5:
+		var at := Vector3(rng.randf_range(2.0, maze.w * maze.cell - 2.0), 0, rng.randf_range(z_near, z_far))
+		# from a shell hole where there is one near
+		var best := Vector4.ZERO
+		for cr: Vector4 in maze.crater_list:
+			if Vector2(cr.x, cr.y).distance_to(Vector2(at.x, at.z)) < 9.0 and cr.z > 2.0:
+				best = cr
+		if best != Vector4.ZERO:
+			at = Vector3(best.x, 0, best.y)
+		at.y = height_at(at.x, at.z) - 0.3
+		var p := CPUParticles3D.new()
+		var q := QuadMesh.new()
+		q.size = Vector2.ONE * 7.0
+		q.material = mat
+		p.mesh = q
+		p.amount = 10
+		p.lifetime = 18.0
+		p.preprocess = 10.0
+		p.direction = Vector3(wind.x, 0.12, wind.z).normalized()
+		p.spread = 18.0
+		p.initial_velocity_min = 0.5
+		p.initial_velocity_max = 0.9
+		p.gravity = wind * 0.35
+		p.damping_min = 0.01
+		p.damping_max = 0.03
+		p.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+		p.emission_sphere_radius = 2.0
+		p.scale_amount_min = 0.7
+		p.scale_amount_max = 1.3
+		var curve := Curve.new()
+		curve.add_point(Vector2(0, 0.5))
+		curve.add_point(Vector2(1, 2.0))
+		p.scale_amount_curve = curve
+		var grad := Gradient.new()
+		grad.set_color(0, Color(0.6, 0.62, 0.56, 0.0))
+		grad.add_point(0.15, Color(0.58, 0.6, 0.55, 0.5))
+		grad.add_point(0.6, Color(0.6, 0.62, 0.57, 0.3))
+		grad.set_color(grad.get_point_count() - 1, Color(0.65, 0.66, 0.62, 0.0))
+		p.color_ramp = grad
+		p.angle_min = -180.0
+		p.angle_max = 180.0
+		p.position = at
+		p.visibility_aabb = AABB(Vector3(-30, -5, -30), Vector3(60, 20, 60))
+		p.emitting = true
+		add_child(p)
+		atmosphere.smoke_patches.append({pos = at + wind * 6.0 + Vector3.UP * 1.5, radius = 7.0, density = 0.06})
 
 
 func _fdir(c: Vector2i) -> Vector2i:
@@ -249,6 +347,8 @@ func _no_mans_land() -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/water_mud.gdshader")
 	mat.set_shader_parameter("noise_tex", tex("noise"))
+	mat.set_shader_parameter("colour", Color(0.085, 0.08, 0.07))      # (M4) dark water: it shows the sky by reflection
+	mat.set_shader_parameter("deep", Color(0.045, 0.043, 0.04))
 	for cr: Vector4 in maze.crater_list:
 		if cr.w < 0.55:
 			continue
@@ -282,5 +382,9 @@ func _mist() -> void:
 	fm.shader = load("res://shaders/ground_mist.gdshader")
 	fm.set_shader_parameter("noise_tex", tex("noise"))
 	fm.set_shader_parameter("nml_z", (front.our_row0 + TrenchMaze.FIRE_ROW) * maze.cell - 2.5)
+	# (M4) the mist in the reference's colour, a little thicker
+	fm.set_shader_parameter("tint", Color(0.64, 0.68, 0.58))
+	fm.set_shader_parameter("density", 0.08)
+	fm.set_shader_parameter("nml_boost", 2.0)
 	mist.material = fm
 	add_child(mist)

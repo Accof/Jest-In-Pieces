@@ -95,12 +95,13 @@ ask for approval; iterate; record the approved settings and screenshots under
 
 ## 6. File impact list (expected; updated as milestones land)
 
-**New (M1–M2 done):** `scripts/world/exit_door.gd`, `scripts/world/front/front_maze.gd`,
-`scripts/world/front/front_art.gd`, `scenes/play_front.tscn`, `scenes/test_front.tscn`,
-`scenes/test_objective.tscn`, `scripts/dev/frame_probe.gd`. **New (to come):** the rest of
+**New (M1–M4 done):** `scripts/world/exit_door.gd`, `scripts/world/front/front_maze.gd`,
+`scripts/world/front/front_art.gd`, `scripts/world/front/front_atmosphere.gd` (M4),
+`scenes/play_front.tscn`, `scenes/test_front.tscn`, `scenes/test_objective.tscn`,
+`scripts/dev/frame_probe.gd`. **New (to come):** the rest of
 `scripts/world/front/*` (above), `scripts/fx/surface_impacts.gd`, `scripts/ui/front_debug.gd`,
 `scenes/test_impacts.tscn`, `scenes/look_impacts.tscn` (material range),
-`shaders/front_sky.gdshader` (if the overcast sky cannot be re-parametered to the green-grey look),
+(`shaders/front_sky.gdshader` was not needed: the overcast sky re-parametered, M4),
 possibly `shaders/mud_terrain` **copies** for the front (not edits).
 
 **Modified (additive, each hunk recorded in the tracker):** `scripts/game/game.gd` (objective, floor

@@ -177,3 +177,35 @@ Add a record whenever a choice closes a door.
   crouching behind a rim really hides him from an MG and a rifleman alike.
 - **Enemy cover in holes** (ducking into a crater under fire, crater-to-crater dashes) is the
   director's (M7–M9), on the field soldier's pattern; M3 only guarantees they can cross.
+
+### D-16 · One atmosphere profile for the Front, and one visibility model — proposed (M4, awaiting the visual gate)
+- **A separate profile, not a tint.** `FrontAtmosphere` (`scripts/world/front/front_atmosphere.gd`)
+  owns the Front's `Environment`, `CameraAttributes` and sun; `Game._apply_floor_look()` picks it
+  only when the floor is outdoor **and** the maze is a `FrontMaze`. `_bunker_env`, the base, the
+  menu and the legacy level's `TrenchArt.make_environment()` are untouched (test: the Front's
+  environment is a distinct object, the bunker's is returned on the next floor, the legacy scene
+  keeps TrenchArt's). No full-screen overlay: the look is sky + fog + ambient + grade + materials.
+- **The reference, by parts.** Sky: the `overcast_sky` shader re-parametered to a pale dirty
+  yellow-grey (mass/body/opening/horizon colours in the file), coverage 0.82, the light hidden
+  behind cloud. Haze: depth fog `(0.60, 0.62, 0.55)`, begin **6 m**, end 140 m, density 0.9,
+  linear curve, aerial perspective 0.6 — so timber and wire are sharp to hand and the far trees are
+  shapes. Light: a weak soft directional (0.5, 6° disc, shadows at 0.65) from high behind the
+  cloud, ambient from the sky at 0.55, filmic tonemap at 0.95; auto-exposure held in a narrow band
+  (90–130) so the mud stays dark under the bright sky. Grade: saturation 0.76, contrast 1.06 and a
+  3D LUT that pulls shadows to wet olive-brown, mids to sage, lights to yellow-grey — mild, so
+  flashes and flares still read orange and red. Ground (`FrontArt.ground_material`): the scanned
+  mud materials unchanged in texture and UV scale, but soaked (`dry_ground 0.12`, `puddles 0.95`,
+  baseline wetness 0.5 rising in the low ground), darker (`earth_darkness 0.38`, `floor_darkness
+  0.42`, `brightness 0.95`), crater water near-black so it shows the sky by reflection. Smoke: five
+  low patches drift over No Man's Land on the wind from shell holes; the far battle's columns are
+  half as dense and paler than the legacy day's.
+- **Sight is one number everyone uses.** `FrontAtmosphere.visibility(a, b)` = exp(−k·d) × the
+  drifting smoke's optical depth along the line, with k set so **55 m reads 0.3** — the brains'
+  existing threshold for "unseen" (`_can_see_player` already asks the `fog` group). Measured:
+  0.65 at 20 m, 0.30 at 55 m, 0.14 at 90 m. So the initial recognition distance is ~55 m, in the
+  package's 30–60 m band, and it is a constant (`SIGHT_M`) to move after the comparison. The
+  legacy level's `TrenchFog` is not used on the Front; the Front's node joins the same group.
+- **Not in M4:** region profiles (our trench / No Man's Land / theirs / H.Q.) and transitions
+  between them, wind-driven fog banks, flare lighting, the per-region visibility variation the
+  package wants — those come with the director (M7+), on this one model. The Mac has not rendered
+  it: all screenshots are Forward+ on the container's software Vulkan.

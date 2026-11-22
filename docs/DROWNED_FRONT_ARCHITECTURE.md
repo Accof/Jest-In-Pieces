@@ -159,6 +159,12 @@ darkens ground and props (`sky_occlusion`, `floor_darkness 0.52`), not enemies. 
 isolated per floor type**; the new front needs its own `make_environment` variant (green-grey,
 fog begin near 0 with a 30–60 m recognition distance) and must leave `_bunker_env` alone.
 
+**(M4, as built — pending the visual gate):** `FrontAtmosphere.make_environment()` is that variant
+(settings in D-16); `Game._apply_floor_look()` takes it when `maze is FrontMaze`, else the legacy
+`TrenchArt` one, else `_bunker_env`. The brains' `fog` group query is answered on the Front by the
+`FrontAtmosphere` node (exp(−k·d), 0.3 at 55 m, smoke patches added), on the legacy level by
+`TrenchFog` as before.
+
 User history on lighting (Nov 2026): SDFGI was tried and rejected (too bright, "sunny", hitches);
 brighter overall "lost its grittiness". The reference image is darker and greener than the current
 storm-sky look, with much nearer fog.
@@ -178,6 +184,8 @@ filtering: none beyond distance attenuation and `AudioStreamPlayer3D` defaults.
 | `scripts/world/front/front_art.gd` | `FrontArt extends TrenchArt` | `build()` → `super.build()`; overrides `_parapets`, `_fire_steps`, `_wire` (+ `_wire_belt`), `_no_mans_land`, `_mist`. |
 | (M3) `FrontMaze.wire_belts` / `wire_at()` / `wire_cells` | | the wire plan; cells under it leave the top layer in the `_top_layer` override; `FrontArt._wire_body` (`LAYER_RAMP`) stops the player. Shell holes: cosine bowl + lip in the `_carve` copy, deeper-wins merge. |
 | (M3) `FpsPlayer.crouch`, `eye_height()`, `chest_height()` | | Ctrl/C crouch; the brains do not read the heights yet (M6). |
+| (M4) `scripts/world/front/front_atmosphere.gd` | `FrontAtmosphere extends Node` | the Front's `make_environment()` / `make_camera_attributes()` / `setup_sun()` (static; `Game._apply_floor_look` uses them, cached in `_front_env`), and the node `FrontArt` adds under the art as "Atmosphere": group `fog`, `visibility(a, b)`, `sight_range()`, `smoke_patches` (D-16). |
+| (M4) `FrontArt.ground_material()`, `_drift_smoke()`, `_mist()` | | the soaked dark ground parameters, the low drifting smoke, the green-grey mist volume; the far smoke columns thinned in `build()`. |
 | `scripts/world/exit_door.gd` | `ExitDoor` | the [E] door on SURVIVAL floors (M1 follow-up). |
 | `scripts/game/game.gd` | | `next_floor()`: `FrontMaze` when outdoor and SURVIVAL, `TrenchMaze` when outdoor and the legacy rule, `Maze` otherwise; no `TrenchBattle` on a `FrontMaze`; a `Drowned Front: …` build line printed. |
 | `scenes/play_front.tscn` (`scripts/dev/play_front.gd`) | | straight into the Front (`seed=`, `floor=`, `god`, `perf=`). |

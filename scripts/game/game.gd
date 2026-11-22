@@ -96,6 +96,7 @@ var _exit: Node3D
 var _world_env: WorldEnvironment
 var _bunker_env: Environment
 var _trench_env: Environment
+var _front_env: Environment
 var _sun: DirectionalLight3D
 var _exit_light: OmniLight3D
 var _ui: CanvasLayer
@@ -833,7 +834,14 @@ func is_trench_floor(n: int) -> bool:
 func _apply_floor_look(outdoor: bool) -> void:
 	if _world_env == null:
 		return
-	if outdoor:
+	if outdoor and maze is FrontMaze:
+		# the Front's weather (FrontAtmosphere): the green-grey haze
+		if _front_env == null:
+			_front_env = FrontAtmosphere.make_environment()
+		_world_env.environment = _front_env
+		_world_env.camera_attributes = FrontAtmosphere.make_camera_attributes()
+		FrontAtmosphere.setup_sun(_sun)
+	elif outdoor:
 		if _trench_env == null:
 			_trench_env = TrenchArt.make_environment()
 		_world_env.environment = _trench_env
