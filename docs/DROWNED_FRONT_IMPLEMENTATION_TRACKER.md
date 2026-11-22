@@ -9,7 +9,7 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 |---|---|---|---|---|
 | 0 | Preservation and planning | **approved 22 Nov** | commits `a5376f1`, `4a5f5a1`; tag `legacy-drowned-trenches-baseline` (= `0772251`) | approved |
 | 1 | Objective separation (`ELIMINATION` / `SURVIVAL`) | **approved 22 Nov** (+ [E] door follow-up `b56bd54`) | commits `ccbbfe8`, `cbe2ac3`, `b56bd54` | approved |
-| 2 | New battlefield geometry (two networks, No Man's Land, H.Q. exit) | **done, awaiting playtest** | commit (see M2 below) | **user playtest** |
+| 2 | New battlefield geometry (two networks, No Man's Land, H.Q. exit) | **done, awaiting playtest** | commit `663727e` | **user playtest** |
 | 3 | Terrain and functional cover (craters, wire, routes, enemy navigation) | not started | | user review |
 | 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | not started | | **HARD VISUAL APPROVAL — STOP** |
 | 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | not started | | user review |
