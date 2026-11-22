@@ -22,9 +22,11 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 12 | Performance and polish | not started | | user review |
 | 13 | Final integration | not started | | final approval |
 
-**Next action:** user reviews Milestone 1 (below), runs the Mac performance baseline
-(`godot --path . res://scenes/legacy_drowned_trenches.tscn -- perf=30`, play for a minute, paste the
-`PERF` lines), and authorises Milestone 2.
+**Performance baseline on the Mac: PENDING** (Andrew, 22 Nov: deferred; not a blocker for M2; no
+numbers are to be invented). When convenient: `godot --path . res://scenes/legacy_drowned_trenches.tscn
+-- perf=30 god`, play a minute, paste the `PERF` lines here.
+
+**Next action:** Milestone 2 in progress (authorised 22 Nov after M1 review).
 
 ### Decisions taken by Andrew on 22 Nov (answers to Session Zero's questions)
 1. Performance: 60 fps at his normal development resolution; measure the real baseline on the Mac
@@ -208,14 +210,25 @@ navigation over open ground (D-05).
 | test_nav -- trench | first run: 15,876 "stuck" frames (the test hops the player onto random route cells, the open H.Q. door paused the floor in the upgrade state); the test now shuts the exit for its 30 s runs → `stuck >3s 0`, in a wall 0, same as baseline | fixture fixed, same |
 | legacy scene smoke | `floor 3, TrenchMaze, 15 enemies, seed 1916, objective ELIMINATION / ok (trench)` | — |
 
+### M1 follow-up (22 Nov, approved by Andrew): the H.Q. door takes [E]
+On a SURVIVAL floor the upgrade screen used to come up the moment the player was within 1.3 m of
+the open H.Q. door (the ELIMINATION rule), so brushing past it mid-fight would end the floor, and
+two test fixtures that drive the player over the route tripped it. Now a SURVIVAL floor's exit
+carries an `ExitDoor` (`scripts/world/exit_door.gd`, a `StaticBody3D` on `LAYER_WORLD` with
+`prompt()`/`use()`, the same mechanism as event-room doors and mounted guns): look at it within
+2.4 m and the prompt `[E] ENTER THE H.Q.` shows; [E] offers the upgrades. `Game._process`'s
+proximity trigger now runs only on ELIMINATION floors, which are unchanged (no door node is added
+there). The HUD on SURVIVAL says `… the green door, [E] to go in`. The two fixture hacks were
+reverted (`test_trench_level.gd` is byte-identical to the archive again; `test_nav.gd` as before):
+`test_nav -- trench` → `stuck >3s 608` of 181,901 frames (baseline 125; the pause-induced 15,876 is
+gone; this count varies run to run with the chase), `test_trench_level game` → route walked 46/46,
+0 failed. `test_objective` grew to 69 checks (proximity does nothing on SURVIVAL, the prompt text,
+[E] works with enemies alive and with every enemy dead, no door on ELIMINATION or legacy floors):
+0 failed. `test_killcam floor report event` 0 failed; `test_game` at exit → upgrades as before.
+
 ### Known and noted
-- On a SURVIVAL floor the upgrade screen comes up the moment the player is within 1.3 m of the H.Q.
-  door, as it always did once an exit was open. With the door open from the start a player could
-  trigger it by brushing past. On the legacy layout the door is at the far end of the fire trench,
-  so this is unlikely; on the new front the H.Q. will be the destination. Revisit the trigger
-  (an [E] prompt, or a "go in?" step) when Milestone 2 places the exit.
 - The HUD on SURVIVAL shows the run's kill total, not a per-floor count.
-- Mac performance baseline: **not yet measured** (needs Andrew to run the probe); nothing claimed.
+- Mac performance baseline: **PENDING** (deferred by Andrew on 22 Nov); nothing claimed.
 
 ### Recoverability of the scanned art (Andrew's added requirement)
 `git archive legacy-drowned-trenches-baseline art/trench art/level/fx_*.png art/level/wall_conc.png`

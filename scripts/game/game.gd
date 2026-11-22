@@ -587,7 +587,8 @@ func _process(_delta: float) -> void:
 	if _slow_until > 0 and Time.get_ticks_msec() >= _slow_until and not (kill_cam and kill_cam.active):
 		_slow_until = 0
 		Engine.time_scale = 1.0
-	if state == State.PLAYING and is_instance_valid(_exit) and is_instance_valid(player):
+	if state == State.PLAYING and is_instance_valid(_exit) and is_instance_valid(player) and objective == Objective.ELIMINATION:
+		# (SURVIVAL: the ExitDoor takes [E] instead)
 		if exit_open and player.global_position.distance_to(_exit.global_position) < 1.3:
 			_offer_upgrades()
 
@@ -867,6 +868,24 @@ func _build_exit() -> void:
 		_exit_light.omni_range = 3.5            # by day it only needs to mark the door
 		_exit_light.light_energy = 0.8
 	_exit.add_child(_exit_light)
+	if objective == Objective.SURVIVAL:
+		# a door you go through on purpose ([E] looking at it), not one that
+		# takes you the moment you brush past: on a SURVIVAL floor it is open
+		# from the start and you may well pass it while the fight is on
+		var hq := ExitDoor.new()
+		hq.name = "ExitDoor"
+		hq.collision_layer = Maze.LAYER_WORLD
+		hq.collision_mask = 0
+		var cs := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = Vector3(1.3, 2.2, 0.3)
+		cs.shape = shape
+		cs.position.y = 1.1
+		hq.add_child(cs)
+		hq.on_use = func(_p: Node) -> void:
+			if state == State.PLAYING and exit_open:
+				_offer_upgrades()
+		_exit.add_child(hq)
 
 
 # --- interface ------------------------------------------------------------------
@@ -978,7 +997,7 @@ func _refresh_hud() -> void:
 	var way_out: String
 	if objective == Objective.SURVIVAL:
 		goal = "Kills: %d" % kills
-		way_out = "     REACH THE ENEMY H.Q. - the green door"
+		way_out = "     REACH THE ENEMY H.Q. - the green door, [E] to go in"
 	else:
 		goal = "Clowns left: %d" % maxi(remaining, 0)
 		way_out = "     EXIT OPEN - find the green door" if exit_open else ""

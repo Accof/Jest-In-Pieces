@@ -1515,10 +1515,6 @@ func _walk(m: TrenchMaze) -> void:
 	game.clowns.clear()
 	await _frames(2)
 	p.global_position = m.cell_center(m.route[0]) + Vector3.UP * 0.2
-	# (a SURVIVAL floor's exit is open from the start: walking onto it would
-	# bring up the upgrades and stop him; this walks the ground, not the loop)
-	var exit_was_open: bool = game.exit_open
-	game.exit_open = false
 	var stuck := 0
 	var nudges := 0
 	var worst_off := 0.0
@@ -1563,7 +1559,6 @@ func _walk(m: TrenchMaze) -> void:
 		else:
 			reached += 1
 	_key(KEY_W, false)
-	game.exit_open = exit_was_open
 	print("      walked the route: %d of %d cells reached, %d stuck (%d side-steps round something), worst height off the walked surface %.2f m" % [reached, m.route.size() - 1, stuck, nudges, worst_off])
 	_check(stuck == 0, "the player walks the whole route, start to exit")
 	_check(worst_off < 0.5, "and stays on the ground (%.2f m)" % worst_off)

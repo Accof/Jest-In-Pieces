@@ -94,6 +94,32 @@ func _at_exit() -> void:
 	await _frames(4)
 
 
+## Stand in front of the SURVIVAL door, look at it: what the [E] ray finds.
+func _face_exit() -> Object:
+	var p: FpsPlayer = game.player
+	for side in [1.0, -1.0]:
+		var at: Vector3 = game._exit.global_position + game._exit.global_basis.z * 1.2 * side
+		p.global_position = at + Vector3.UP * 0.1
+		p.velocity = Vector3.ZERO
+		p.look_at(Vector3(game._exit.global_position.x, p.global_position.y, game._exit.global_position.z))
+		p.rotation.x = 0.0
+		p.rotation.z = 0.0
+		p.camera.rotation.x = 0.0
+		await _frames(2)
+		var u: Object = p._usable()
+		if u != null:
+			return u
+	return null
+
+
+## Go through the SURVIVAL door: [E] looking at it.
+func _use_exit() -> void:
+	var u := await _face_exit()
+	if u:
+		game.player._use()
+	await _frames(4)
+
+
 func _away_from_exit() -> void:
 	game.player.global_position = game.maze.cell_center(game.maze.start_cell) + Vector3.UP * 0.1
 	await _frames(2)
@@ -167,6 +193,7 @@ func _bunker() -> void:
 	_check(game.exit_open and _light_green(), "the exit is open, the light green")
 	_check(game.kills == kills0 + 1 and game.remaining == 0, "kills %d, remaining 0" % game.kills)
 	_check("EXIT OPEN" in game._hud.text, "the HUD says EXIT OPEN")
+	_check(game._exit.get_node_or_null("ExitDoor") == null, "no [E] door on an ELIMINATION floor: it takes you by proximity, as always")
 	await _at_exit()
 	_check(game.state == game.State.UPGRADE and game._offer.size() == 3, "at the exit: three upgrades offered (state %d)" % game.state)
 	game._pick_upgrade(0)
@@ -208,10 +235,15 @@ func _survival() -> void:
 	_check(not game._floor_finale and not game.kill_cam.active, "no finale, no camera")
 	var ran := await _settle_killcam(90)
 	_check(not ran, "no camera in the seconds after either")
-	# the exit works with the rest alive
+	# the exit works with the rest alive, but only on purpose: [E] at the door
 	_check(_living().size() == n - 1, "%d still alive" % _living().size())
 	await _at_exit()
-	_check(game.state == game.State.UPGRADE and game._offer.size() == 3, "at the H.Q. with enemies alive: three upgrades offered (state %d)" % game.state)
+	_check(game.state == game.State.PLAYING, "standing at the open H.Q. door takes you nowhere by itself (state %d)" % game.state)
+	var door := await _face_exit()
+	_check(door is ExitDoor and door.prompt().begins_with("[E]"), "looking at the door from 1.2 m: the prompt '%s'" % (door.prompt() if door else "(nothing)"))
+	_check("[E]" in game._hud.text, "the HUD says [E] to go in")
+	await _use_exit()
+	_check(game.state == game.State.UPGRADE and game._offer.size() == 3, "[E] at the H.Q. with enemies alive: three upgrades offered (state %d)" % game.state)
 	game._pick_upgrade(1)
 	await _frames(3)
 	_check(game.floor_number == 4 and not (game.maze is TrenchMaze) and game.objective == ELIMINATION, "floor 4: a bunker, ELIMINATION")
@@ -237,7 +269,9 @@ func _survival_clear() -> void:
 	_check(game.exit_open and _light_green(), "the exit is open (as it was)")
 	_check(not ("EXIT OPEN" in game._hud.text), "no EXIT OPEN on the HUD (it was never shut)")
 	await _at_exit()
-	_check(game.state == game.State.UPGRADE, "the exit still works (state %d)" % game.state)
+	_check(game.state == game.State.PLAYING, "standing at the door still takes you nowhere by itself")
+	await _use_exit()
+	_check(game.state == game.State.UPGRADE, "[E] at the door still works (state %d)" % game.state)
 
 
 # --- legacy: the old rule on request ----------------------------------------------------------
@@ -247,6 +281,7 @@ func _legacy() -> void:
 	await _go_to_floor(3)
 	_check(game.maze is TrenchMaze, "a trench floor")
 	_check(game.objective == ELIMINATION, "survival_trenches off: ELIMINATION")
+	_check(game._exit.get_node_or_null("ExitDoor") == null, "no [E] door: the old proximity exit")
 	_check(not game.exit_open and not _light_green(), "the exit is shut")
 	_check("Clowns left" in game._hud.text, "the HUD counts clowns left")
 	await _at_exit()
@@ -260,8 +295,8 @@ func _save() -> void:
 	var keys0: Array = _keys(game.save)
 	var floors0 := int((game.save.get("stats", {}) as Dictionary).get("floors", 0))
 	await _go_to_floor(3)
-	await _at_exit()
-	_check(game.state == game.State.UPGRADE, "the H.Q. offers upgrades")
+	await _use_exit()
+	_check(game.state == game.State.UPGRADE, "[E] at the H.Q. offers upgrades")
 	var keys1: Array = _keys(game.save)
 	_check(keys1 == keys0, "the save's keys are unchanged by a SURVIVAL floor (%s)" % str(keys1))
 	_check(int((game.save.get("stats", {}) as Dictionary).get("floors", 0)) == floors0 + 1, "the floor is counted as cleared")
