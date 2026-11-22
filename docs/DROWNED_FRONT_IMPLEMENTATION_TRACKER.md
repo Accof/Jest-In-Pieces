@@ -8,8 +8,8 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | # | Milestone | Status | Checkpoint | Approval |
 |---|---|---|---|---|
 | 0 | Preservation and planning | **approved 22 Nov** | commits `a5376f1`, `4a5f5a1`; tag `legacy-drowned-trenches-baseline` (= `0772251`) | approved |
-| 1 | Objective separation (`ELIMINATION` / `SURVIVAL`) | **done, awaiting review** | commit `ccbbfe8` | user review |
-| 2 | New battlefield geometry (two networks, No Man's Land, H.Q. exit) | not started | | **user playtest** |
+| 1 | Objective separation (`ELIMINATION` / `SURVIVAL`) | **approved 22 Nov** (+ [E] door follow-up `b56bd54`) | commits `ccbbfe8`, `cbe2ac3`, `b56bd54` | approved |
+| 2 | New battlefield geometry (two networks, No Man's Land, H.Q. exit) | **done, awaiting playtest** | commit (see M2 below) | **user playtest** |
 | 3 | Terrain and functional cover (craters, wire, routes, enemy navigation) | not started | | user review |
 | 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | not started | | **HARD VISUAL APPROVAL — STOP** |
 | 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | not started | | user review |
@@ -26,7 +26,7 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 numbers are to be invented). When convenient: `godot --path . res://scenes/legacy_drowned_trenches.tscn
 -- perf=30 god`, play a minute, paste the `PERF` lines here.
 
-**Next action:** Milestone 2 in progress (authorised 22 Nov after M1 review).
+**Next action:** Andrew plays the Front (`godot --path . res://scenes/play_front.tscn -- god`, or a normal run to floor 3) and judges layout, scale and traversal; Milestone 3 only on his word.
 
 ### Decisions taken by Andrew on 22 Nov (answers to Session Zero's questions)
 1. Performance: 60 fps at his normal development resolution; measure the real baseline on the Mac
@@ -236,9 +236,101 @@ extracted 139 MB into a scratch directory; all 57 art files hashed identical to 
 `git fsck` clean; `origin/main` on GitHub was at `0772251` (the baseline commit), so the bytes are
 also off-machine. The tag itself was not on GitHub yet: `git push origin main --tags`.
 
-## Milestone 2 — New battlefield geometry (not started)
-**Scope:** `FrontMaze` + builders (D-02, D-04): two networks, No Man's Land strip, H.Q. exit in the
-enemy network; seeded connectivity test over many seeds; a route the player can walk end to end
-(the route-walker from `test_trench_level game` extended). **Gate:** user playtest on the Mac.
+## Milestone 2 — New battlefield geometry (22 Nov 2026)
+
+### What was built
+`FrontMaze` (`scripts/world/front/front_maze.gd`) and `FrontArt` (`front_art.gd`): two trench
+networks, each laid out by the legacy `TrenchMaze._layout()` in a scratch instance, copied into one
+32 × 108-cell grid (ours at the rear edge as it always was; theirs turned 180° so its fire trench
+faces ours and its rear ends at the world's front edge), 52 rows (78 m) of open No Man's Land
+between the blocks — **fire trenches 97 m apart, wire belts about 85 m** — on one carved
+heightfield (336k samples at 0.2 m), with up to three *assault ramps* a side cut through the
+parapet, two wire belts with gaps at the saps and the ramps, 90–150 shell holes thickest in the
+middle, dead trees and two wrecked limbers out there, and the H.Q. portal (legacy dressing, [E]
+door) at the far end of **their** rear communication trench. Pathfinding is the legacy top layer
+(every clear earth cell is a top cell), so `Maze.path` carries the player's route and the brains
+across No Man's Land with no new navigation code (D-05 → option (a)). Full design: D-02 (resolved),
+D-14. `game.next_floor()` uses `FrontMaze` on SURVIVAL trench floors and `TrenchMaze` when
+`survival_trenches` is off (the legacy scene); the legacy `TrenchBattle`/`TrenchField`/`TrenchFog`
+are **not** run on the Front (they assume the legacy's single front; the director replaces them in
+M6–M9); the ambience does run.
+
+### Acceptance (package F, row 2)
+- [x] A generated level contains starting trenches, No Man's Land, enemy trenches and the H.Q. exit.
+- [x] The player can walk the complete route: `test_front game` drives the player along the maze's
+      own path from the start to the H.Q.: **140 of 140 points reached, 0 stuck**, down at −2.3 m
+      in the trenches and up at +0.6 m on the ground, then [E] at the door → upgrades.
+- [x] Seeded connectivity: 40 seeds, **0 failed**: every trench cell of each network reachable
+      within it, no trench in No Man's Land, a route up out of ours and down into theirs, every
+      assault ramp joined to both the start and the exit.
+- [x] Enemies spawn on trench cells only (15 + officer on floor 3, 9 of them in the enemy lines),
+      none in the open; the crowd navigation test on Front floors 3/6/9: in a wall 0, sunk 0,
+      stuck > 3 s 122 of 181,901 frames (the legacy trench: 0–608 run to run).
+- [x] Legacy untouched: `check.sh --live` reports only `scripts/game/game.gd`; the legacy scene
+      still builds `TrenchMaze … objective ELIMINATION`; `test_trench` 0 failed;
+      `test_trench_level game battle nav field` 0 failed (its fixture now sets
+      `survival_trenches = false`, as it tests the legacy level; `test_nav` has `trench` = legacy
+      and a new `front` mode).
+- [ ] **User playtest** — layout, scale, traversal (this gate).
+
+### Files
+- New: `scripts/world/front/front_maze.gd` (560 lines; 110 of them the copied carve, 60 the copied
+  world build, marked), `scripts/world/front/front_art.gd` (250 lines; the wire belt and No Man's
+  Land dressing are adapted copies), `scenes/play_front.tscn` + `scripts/dev/play_front.gd`,
+  `scenes/test_front.tscn` + `scripts/dev/test_front.gd`, `docs/reference/front_m2/m2_*.png`.
+- Modified: `scripts/game/game.gd` (maze choice, no battle on the Front, a build print),
+  `scripts/dev/test_objective.gd` (the SURVIVAL floor is the Front now), `scripts/dev/test_nav.gd`
+  (`front` mode; `trench` pinned to the legacy), `scripts/dev/test_trench_level.gd` (two fixtures
+  pinned to the legacy level — this is a legacy-test file in the archive; the change is the one
+  line `game.survival_trenches = false` in each of its two game set-ups, so `check.sh --live` will
+  now report it as well as `game.gd`), docs, README.
+- Not touched: `trench_maze.gd`, `trench_art.gd`, `trench_battle.gd`, `trench_field.gd`,
+  `trench_fog.gd`, `trench_ambience.gd`, `battle_duty.gd`, shaders, art, weapons, enemies, gore.
+
+### Tests (headless, container)
+| Scene | Result |
+|---|---|
+| **test_front** `layouts geo game` | **0 failed** (40 seeds; parapets/fire steps/ramps/wire on each side's own front; the full walk; [E]) — 174 s |
+| test_front `views render` (Forward+) | 6 frames in 567 s: `docs/reference/front_m2/` |
+| test_objective | 0 failed (69 checks; survival sections on the Front) |
+| test_trench, test_trench_level `game battle nav field`, test_nav `trench` | 0 failed (legacy) |
+| test_nav `front` | in a wall 0, sunk 0, stuck 122 frames |
+| test_game, test_events, test_cover, test_motion, test_anim_ref | as baseline |
+| test_killcam | 1 failed (`low_side`, as baseline) |
+| test_curse | 2 failed (neck angle as baseline; `beside a wall … 0.08 m` is a physics-flaky check seen before) |
+| test_zornhauptmann | flaky: 3, 4, 5, 7 and 11 failed across runs. Its `_floor()` builds floor 3, so the officer is now tested on the Front. The extra failures are one pre-existing pattern — the officer sees the player, has the pistol up, and never fires — which also occurred on the legacy level (0–1 shots in 1 of 4 runs on 22 Nov) but seems more frequent here (2 of 7 runs). Not a geometry fault; **to be looked at in Milestone 3** with the rest of enemy behaviour on the Front. |
+
+Build time headless in the container: 3.8 s a floor average, 4.3 s worst (carve 2.5 s).
+
+### Known limitations (for the playtest)
+- **Scale and flatness.** No Man's Land is 78 m of gently rolling ground with shell holes; from our
+  parapet the enemy line is a dark band under the haze (fog begins at 18 m and the far side is ~100 m
+  off). Whether 90 m feels right is exactly what the playtest is for (D-12).
+- **Craters are holes, not yet cover.** The legacy crater profile is used (0.35–1.7 m deep, rims
+  up to ~40°). Crouch cover, enterable slopes and wire that shapes routes are Milestone 3.
+- **Flank routes.** The fire trenches stop two cells short of the grid's sides, so a player (or
+  soldier) can go up a ramp behind the fire trench and round its end along the edge of the world
+  instead of over the top. 13 of 80 main routes in the seed test did. Kept as a second route for
+  now; M3 decides (wire across the flanks, or make them a feature).
+- **The enemy network reads as a mirror of ours** (same generator, same dressing, signs and all).
+  Distinctness is M3/M10.
+- **No battle, no director yet:** the soldiers stand their posts only in the sense that
+  `ClownBrain` idles, wanders and hunts; nothing fires across No Man's Land, no fog banks, no field
+  soldiers. The far side's horizon smoke and fires sit beyond the enemy lines.
+- **Atmosphere is the legacy storm day** (Milestone 4).
+- **Build time on the Mac unmeasured** (D-10 pending); 3.8 s headless here.
+- The `test_zornhauptmann` flakiness above.
+
+### How to play it
+```
+cd ~/ClownShooter
+godot --path . res://scenes/play_front.tscn -- god            # straight onto the Front, god mode
+godot --path . res://scenes/play_front.tscn -- seed=1916      # the layout in the M2 renders
+godot --path . res://scenes/play_front.tscn -- perf=30        # with the frame-time probe (D-10)
+```
+Or a normal run: floor 3. You start at our rear; the fire trench is forward (the HUD says REACH
+THE ENEMY H.Q.); climb one of the ramps cut through the parapet (gaps in the wire mark them),
+cross, drop down a ramp into their fire trench, work back through their communication trenches to
+the H.Q. portal at the far edge, [E] to go in.
 
 (Milestones 3–13: scope as in the package; detailed when authorised.)

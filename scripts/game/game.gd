@@ -243,7 +243,12 @@ func next_floor() -> void:
 	add_child(_world)
 	var outdoor := is_trench_floor(floor_number)
 	objective = Objective.SURVIVAL if outdoor and survival_trenches else Objective.ELIMINATION
-	maze = TrenchMaze.new() if outdoor else Maze.new()
+	# outdoors: the Drowned Front (two trench systems across No Man's Land, a
+	# SURVIVAL crossing), or the legacy Drowned Trenches when that is off
+	if outdoor:
+		maze = FrontMaze.new() if objective == Objective.SURVIVAL else TrenchMaze.new()
+	else:
+		maze = Maze.new()
 	_world.add_child(maze)
 	var size := mini(5 + floor_number / 2, 9)
 	maze.generate(size + 2, size, rng.randi())     # a little wider than deep: room for a long route
@@ -309,8 +314,10 @@ func next_floor() -> void:
 		var zc: Vector2i = cells[rng.randi() % cells.size()]
 		z.global_position = maze.cell_center(zc)
 	battle = null
-	if outdoor:
-		# the battle going on round you: the soldiers at their posts, the enemy over there
+	if outdoor and not (maze is FrontMaze):
+		# the battle going on round you: the soldiers at their posts, the enemy
+		# over there. (The Front gets its battlefield director in Milestones
+		# 6-9; until then its soldiers keep their own counsel.)
 		battle = TrenchBattle.new()
 		battle.name = "Battle"
 		_world.add_child(battle)
@@ -331,6 +338,8 @@ func next_floor() -> void:
 	if objective == Objective.SURVIVAL:
 		banner += "  -  REACH THE ENEMY H.Q."
 	_flash(banner)
+	if maze is FrontMaze:
+		print("Drowned Front: %d x %d cells, %d m of No Man's Land between the fire trenches, route %d cells, built in %s ms" % [maze.w, maze.d, int((maze.our_row0 + TrenchMaze.FIRE_ROW - (maze.their_row0 + TrenchMaze.GRID_D - 1 - TrenchMaze.FIRE_ROW)) * maze.cell), maze.route.size(), str(maze.timing)])
 
 
 func _spawn_clown(soldier: bool, gun: bool) -> Clown:

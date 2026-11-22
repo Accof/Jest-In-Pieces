@@ -170,6 +170,20 @@ screams, calls); `TrenchAmbience` and `TrenchBattle` schedule the battlefield la
 slot and "replaceable by a .wav" per the README; there are no recorded assets. Occlusion/interior
 filtering: none beyond distance attenuation and `AudioStreamPlayer3D` defaults.
 
+## 8a. The Front (Milestone 2, as built)
+
+| File | Class | Role |
+|---|---|---|
+| `scripts/world/front/front_maze.gd` | `FrontMaze extends TrenchMaze` | `generate()`: two scratch `TrenchMaze._layout()`s merged (`_merge`, theirs through a 180° turn), `facing{}`, `ours{}`/`theirs{}`, assault ramps (`_assault_candidates`, `_assault_ramps`), `_finish_front()` (graph, ramps, bridges, depths, carve, top layer, **then** the route), `timing{}`. Facing-aware overrides listed in D-02. `cells_far_from` walks the A* graph (ramps and the top included). |
+| `scripts/world/front/front_art.gd` | `FrontArt extends TrenchArt` | `build()` → `super.build()`; overrides `_parapets`, `_fire_steps`, `_wire` (+ `_wire_belt`), `_no_mans_land`, `_mist`. |
+| `scripts/world/exit_door.gd` | `ExitDoor` | the [E] door on SURVIVAL floors (M1 follow-up). |
+| `scripts/game/game.gd` | | `next_floor()`: `FrontMaze` when outdoor and SURVIVAL, `TrenchMaze` when outdoor and the legacy rule, `Maze` otherwise; no `TrenchBattle` on a `FrontMaze`; a `Drowned Front: …` build line printed. |
+| `scenes/play_front.tscn` (`scripts/dev/play_front.gd`) | | straight into the Front (`seed=`, `floor=`, `god`, `perf=`). |
+| `scenes/test_front.tscn` (`scripts/dev/test_front.gd`) | | sections `layouts`, `geo`, `game`, `views` (render). |
+
+Build cost headless in the container: ~3.8 s a floor (carve ~2.5 s of it) for 336k heightfield
+samples; the legacy floor was ~4.2 s with its battle. The Mac is unmeasured (D-10 pending).
+
 ## 9. Integration risks found in the code
 
 1. **`TrenchArt` is welded to `TrenchMaze`** (`build(self)`, reads `kind`, `bays`, `vis_h`, `sdf`,

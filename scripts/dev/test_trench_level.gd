@@ -523,6 +523,7 @@ func _new_game(floor_: int) -> void:
 	if game == null:
 		Engine.set_meta(&"test_save", true)
 		game = load("res://scenes/game.tscn").instantiate()
+		game.survival_trenches = false         # this test checks the legacy Drowned Trenches (the Front has test_front)
 		add_child(game)
 		await _frames(2)
 		FpsPlayer.god_mode = true
@@ -2184,6 +2185,7 @@ func _cine() -> void:
 	if game == null:
 		Engine.set_meta(&"test_save", true)
 		game = load("res://scenes/game.tscn").instantiate()
+		game.survival_trenches = false
 		add_child(game)
 		await _frames(2)
 		FpsPlayer.god_mode = true

@@ -39,10 +39,15 @@ Add a record whenever a choice closes a door.
   of duplication).
 - **Why.** The package's first pillar. Reuse by composition (static helpers, sub-dressers) is tried
   first; duplication is accepted where composition would mean editing the legacy class.
-- **Open sub-question (Milestone 2):** whether `FrontMaze` extends `TrenchMaze` (keeps every
-  `maze is TrenchMaze` check in `TrenchBattle`, `BattleDuty`, `ClownBrain` working for free) or
-  `Maze` (cleaner, but those checks need an interface). Leaning: extend `TrenchMaze`, override
-  `generate()` and `_carve()`.
+- **Resolved in Milestone 2:** `FrontMaze extends TrenchMaze` and `FrontArt extends TrenchArt`.
+  Each network is laid out by `TrenchMaze._layout()` in a scratch instance and copied into the
+  front's grid; the enemy's is turned 180°. Everything that assumed "the front is toward -z" is
+  overridden with a per-cell `facing`: in the maze `_rect`, `_floor_at`, `_ease_fire_steps`,
+  `_widen_want`, `_craters`, `exit_transform`, `cells_far_from`, `_build_trench_world`, and
+  `_carve` (a 110-line copy with a two-line change); in the art `_parapets`, `_fire_steps`,
+  `_wire`, `_no_mans_land`, `_mist`. No legacy file was edited; `check.sh --live` reports only
+  `game.gd`. Overrides that are copies are marked as such so a later fix to the legacy routine
+  is known to need mirroring.
 
 ### D-03 · Objective modes on `Game` — decided, confirmed by Andrew 22 Nov (Milestone 1)
 - **Decision.** `enum Objective { ELIMINATION, SURVIVAL }`, `var objective` set in `next_floor()`
@@ -123,3 +128,29 @@ Add a record whenever a choice closes a door.
 - `TrenchField`'s men remain background dressing (never fight, not on the kill list). The director
   introduces **separate** real, combat-capable soldiers using the existing `Clown`/`ClownBrain`/
   `BattleDuty` AI. The two populations are never the same actor.
+
+### D-14 · Front layout: ours at the rear edge, theirs at the front edge, one heightfield — decided (M2)
+- The grid is 32 × (28 + nml_rows + 28) cells of 1.5 m: their network (rows 0–27, turned about so
+  its fire trench faces us, its rear communication trench ending at the world's front edge, z ≈ 0),
+  No Man's Land (`nml_rows` = 52 → 78 m of open ground between the blocks; fire trenches 97 m
+  apart, wire belts ~85 m), our network (rows 80–107, the legacy layout as it was, the start at
+  its rear end). One carved heightfield (336k samples at 0.2 m) is mesh and collision, as before.
+- **The way over the top:** up to three *assault ramps* a side, cut through the parapet from a
+  plain fire bay (the ordinary `_cut_ramps`, a little wider; the bay loses its fire step; the wire
+  has a gap in front of it). They are also the way *down* into their fire trench.
+- **The H.Q.** is at the far end of *their* rear communication trench: the player drops into their
+  fire trench and works back through their lines to it. Legacy portal dressing, [E] door (M1).
+- **Pathfinding** is the legacy top layer: every clear earth cell is a top cell, linked; No Man's
+  Land is all top cells, so `Maze.path`/`path_cells` carry the player's route and the brains across
+  it unchanged (D-05 resolved: option (a), the cell grid, at zero new code; its cost is one plain
+  A* over ~2,900 nodes).
+- **Flank routes exist.** The fire trench spans x = 2…29 of 32, so the two edge columns join the
+  ground behind it to No Man's Land: a route can go up an ordinary ramp behind the fire trench and
+  round its end instead of over the top (13 of 80 ways in the 40-seed test). Kept for now as a
+  second route; Milestone 3 decides whether wire closes the flanks or shapes them.
+- **The legacy battle is not run on the Front** (`TrenchBattle`, `TrenchField`, `TrenchFog`, its
+  pace and encounters): they place the enemy, the field and the fog by the legacy's single front.
+  The Front's soldiers keep their own `ClownBrain` behaviour until the director (M6–M9). The
+  ambience (`TrenchAmbience`: wind, far guns, shells, drips) comes with the art and does run.
+- **Enemy placement:** `FrontMaze.cells_far_from` returns trench cells only (never the open
+  ground), two in three in the enemy network. Counts are the legacy's (15 + officer on floor 3).

@@ -22,8 +22,9 @@ func _run() -> void:
 	for fl in floors:
 		game.start_run()
 		game.floor_number = 3 + fl * 2          # bigger floors, more stairs
-		if OS.get_cmdline_user_args().has("trench"):
-			game.floor_number = 2 + fl * 3        # next_floor makes it 3, 6, 9: the Drowned Trenches
+		if OS.get_cmdline_user_args().has("trench") or OS.get_cmdline_user_args().has("front"):
+			game.floor_number = 2 + fl * 3        # next_floor makes it 3, 6, 9: the Drowned Trenches (legacy) or the Front
+			game.survival_trenches = OS.get_cmdline_user_args().has("front")
 		game.next_floor()
 		await get_tree().physics_frame
 		var m: Maze = game.maze
