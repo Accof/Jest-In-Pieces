@@ -51,6 +51,7 @@ uniform float floor_water = 0.36;           // height below which hollows hold w
 uniform vec3 floor_water_col : source_color = vec3(0.13, 0.12, 0.11);
 
 uniform float mud_tile = 2.2;        // metres per tile, firm ground
+uniform vec3 firm_tint : source_color = vec3(1.0, 1.0, 1.0);   // the firm ground's colour cast (the Front browns it; default: the scan as it is)
 uniform float wall_tile = 2.5;       // metres per tile, the brown mud on walls and up top
 uniform float rock_tile = 2.0;       // metres per tile, rocks
 uniform vec3 wall_tint : source_color = vec3(0.8, 0.77, 0.74);   // toward charcoal
@@ -147,7 +148,7 @@ void fragment() {
 	vec4 eard = mix(texture(wall_ard, euv), texture(wall_ard, euv2), pick);
 	vec3 en = normalize(mix(top_n(wall_n, euv), top_n(wall_n, euv2), pick));
 	ea *= wall_tint * earth_darkness;
-	vec3 fa = texture(firm_a, uv * 0.8 + 0.71).rgb;
+	vec3 fa = texture(firm_a, uv * 0.8 + 0.71).rgb * firm_tint;
 	float fr = texture(firm_r, uv * 0.8 + 0.71).r;
 	vec3 fn = top_n(firm_n, uv * 0.8 + 0.71);
 	float firm = smoothstep(2.5, 7.0, sd + (nz.r - 0.5) * 6.0) * (1.0 - on_floor);

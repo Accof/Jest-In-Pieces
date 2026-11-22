@@ -55,12 +55,13 @@ func ground_material() -> ShaderMaterial:
 	if front and not had:
 		mat.set_shader_parameter("dry_ground", 0.12)
 		mat.set_shader_parameter("puddles", 0.95)
-		mat.set_shader_parameter("earth_darkness", 0.3)
-		mat.set_shader_parameter("wall_tint", Color(0.6, 0.54, 0.47))        # brown, not olive
-		mat.set_shader_parameter("floor_tint", Color(0.78, 0.7, 0.62))
+		mat.set_shader_parameter("earth_darkness", 0.28)
+		mat.set_shader_parameter("wall_tint", Color(0.6, 0.5, 0.42))         # brown, not olive
+		mat.set_shader_parameter("firm_tint", Color(0.8, 0.66, 0.54))        # the field's firm ground browned (reference mud: R > G > B)
+		mat.set_shader_parameter("floor_tint", Color(0.78, 0.68, 0.58))
 		mat.set_shader_parameter("floor_darkness", 0.4)
-		mat.set_shader_parameter("rock_darkness", 0.55)
-		mat.set_shader_parameter("brightness", 0.82)
+		mat.set_shader_parameter("rock_darkness", 0.5)
+		mat.set_shader_parameter("brightness", 0.76)
 		mat.set_shader_parameter("water_col", Color(0.26, 0.26, 0.22))
 		mat.set_shader_parameter("puddle_col", Color(0.07, 0.07, 0.06))
 	return mat
@@ -646,10 +647,10 @@ func _mist() -> void:
 	fm.set_shader_parameter("noise_tex", tex("noise"))
 	fm.set_shader_parameter("nml_z", (front.our_row0 + TrenchMaze.FIRE_ROW) * maze.cell - 2.5)
 	# (M4) the mist in the reference's colour, a little thicker
-	fm.set_shader_parameter("tint", Color(0.66, 0.70, 0.61))
+	fm.set_shader_parameter("tint", Color(0.66, 0.67, 0.61))
 	fm.set_shader_parameter("density", 0.12)
 	fm.set_shader_parameter("height", 1.4)
 	fm.set_shader_parameter("nml_boost", 2.6)
-	fm.set_shader_parameter("bank_tint", Color(0.78, 0.80, 0.72))
+	fm.set_shader_parameter("bank_tint", Color(0.80, 0.80, 0.75))
 	mist.material = fm
 	add_child(mist)

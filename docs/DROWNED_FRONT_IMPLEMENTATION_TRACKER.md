@@ -424,17 +424,17 @@ limitations, and ask for explicit approval; nothing further until it is given.
   already asks) — exp(−k·d) with 0.3 (the brains' "unseen") at **55 m**, plus the smoke patches.
 - The gate shots are a `test_front` section (`atmos render`): fixed cameras, seed 1916.
 
-### Measured settings (iteration 3; 1 was too uniformly green and bright in the mid-ground with the far smoke too loud, 2 greyed the fog and sky and darkened the ground, 3 pushed the mud brown and the sky neutral)
+### Measured settings (iteration 5 — "match the reference as closely as possible", 22 Nov; 1 was too uniformly green and bright, 2 greyed the fog and sky, 3 pushed the mud brown, 4 fixed the sky coverage and the glint and added the banks and the litter, 5 took the green out and the sky down to the image's weight)
 | Part | Setting |
 |---|---|
-| Sky (`overcast_sky`) | mass (0.40, 0.42, 0.39), body (0.55, 0.57, 0.53), opening (0.80, 0.80, 0.76), warm (0.83, 0.80, 0.68), horizon (0.72, 0.73, 0.68), ground (0.26, 0.25, 0.22), energy 1.05, **coverage 0.56** (passes 1–3 had 0.82 — see gate feedback), light dir (−0.3, 0.55, −0.78) |
-| Fog (depth) | colour (0.60, 0.62, 0.57), begin 6 m, end 140 m, density 0.9, curve 1.0, aerial perspective 0.6, sky affect 0.6; volumetric fog on at density 0 (the mist volume adds to it), albedo (0.70, 0.73, 0.64) |
-| Light | ambient from sky 0.55; sun energy 0.5, colour (0.86, 0.88, 0.80), angular 6°, **specular 0** (was 0.05: its glint in the trench-floor puddles blinded — Andrew, 22 Nov live on the Mac), shadows opacity 0.65 blur 3, 70 m |
-| Exposure / tone | filmic, exposure 0.95, white 6; auto exposure scale 0.22, sensitivity 90–130 |
-| Grade | saturation 0.76, contrast 1.06, LUT: shadows ×(1.04, 0.99, 0.90) (brown), mids ×(0.98, 1.0, 0.96), lights ×(1.02, 1.0, 0.91); glow 0.28, HDR threshold 1.1 |
+| Sky (`overcast_sky`) | mass (0.33, 0.34, 0.32), body (0.45, 0.46, 0.44), opening (0.66, 0.66, 0.62), warm (0.94, 0.90, 0.80) — the glow where the sun hides, horizon (0.62, 0.62, 0.575), ground (0.26, 0.25, 0.22), energy 0.9, coverage 0.5 (passes 1–3 had 0.82 — see gate feedback), light dir **(−0.3, 0.36, −0.88)**: low, behind the trees on their side |
+| Fog (depth) | colour (0.58, 0.585, 0.545), sun scatter 0.3, begin 6 m, end 140 m, density 0.9, curve 1.0, aerial perspective 0.6, sky affect 0.6; volumetric fog on at density 0 (the mist volume adds to it), albedo (0.70, 0.705, 0.65) |
+| Light | ambient from sky 0.5; sun energy 0.55, colour (0.86, 0.88, 0.80), angular 6°, **specular 0** (was 0.05: its glint in the trench-floor puddles blinded — Andrew, 22 Nov live on the Mac), shadows opacity 0.65 blur 3, 70 m |
+| Exposure / tone | filmic, exposure 0.9, white 6; auto exposure scale 0.22, sensitivity 90–130 |
+| Grade | saturation 0.7, contrast 1.06, LUT: shadows ×(1.06, 0.98, 0.88) (brown), mids ×(1.0, 0.995, 0.965), lights ×(1.02, 1.0, 0.93); glow 0.28, HDR threshold 1.1 |
 | SSR / SSAO / SSIL | on / 1.5 (radius 1.4) / 0.5 |
-| Ground | dry_ground 0.12, puddles 0.95, earth_darkness 0.3, floor_darkness 0.4, rock_darkness 0.55, brightness 0.82, wall_tint (0.60, 0.54, 0.47), floor_tint (0.78, 0.70, 0.62), water (0.26, 0.26, 0.22), puddle (0.07, 0.07, 0.06); field wetness 0.5 + up to 0.35 in the low ground; crater water colour (0.085, 0.08, 0.07) / deep (0.045, 0.043, 0.04) |
-| Mist volume | tint (0.66, 0.70, 0.61), density 0.12, e-fold 1.4 m, ×2.6 over No Man's Land; bank tint (0.78, 0.80, 0.72) |
+| Ground | dry_ground 0.12, puddles 0.95, earth_darkness 0.28, floor_darkness 0.4, rock_darkness 0.5, brightness 0.76, wall_tint (0.60, 0.50, 0.42), **firm_tint (0.80, 0.66, 0.54)** (new uniform in `mud_terrain.gdshader`, default (1, 1, 1): the legacy level renders as before), floor_tint (0.78, 0.68, 0.58), water (0.26, 0.26, 0.22), puddle (0.07, 0.07, 0.06); field wetness 0.5 + up to 0.35 in the low ground; crater water colour (0.085, 0.08, 0.07) / deep (0.045, 0.043, 0.04) |
+| Mist volume | tint (0.66, 0.67, 0.61), density 0.12, e-fold 1.4 m, ×2.6 over No Man's Land; bank tint (0.80, 0.80, 0.75) |
 | Drifting smoke | 8 patches, 8 m quads, 16 billows each, 22 s life, wind (0.55, 0, 0.18); each counts as an 8 m sphere of optical density 0.06 |
 | Fog banks (`FrontFog`) | radius 15–24 m, 3.5–6 m high, peak density 0.45–0.75, ≤3 at once, every 28–60 s, 1.0–1.6 m/s at our lines; puffs (0.72, 0.75, 0.66) |
 | Far smoke columns | half the billows, scale ×0.75, colour ×1.25 / alpha ×0.7 of the legacy day's |
@@ -459,21 +459,24 @@ third against the same bands of (b) and (c)):
 | | sky | foreground ground |
 |---|---|---|
 | reference | (120, 123, 112) — a **mid** grey with a sage tint, not pale | (47, 40, 36) — near-black **brown** (R > G > B) |
-| (b) panorama | (207, 205, 188) | (64, 64, 51) |
-| (c) ground | (205, 205, 191) | (52, 51, 41) |
+| (b) panorama, pass 3 → **pass 5** | (207, 205, 188) → **(146, 146, 134)** | (64, 64, 51) → **(64, 63, 52)** (a fog bank was crossing: lit) |
+| (c) ground, pass 3 → **pass 5** | (205, 205, 191) → **(161, 161, 151)** | (52, 51, 41) → **(20, 18, 13)** |
+| (d) silhouettes, pass 5 | (146, 146, 136) | (38, 37, 29) |
 
-- **Colour.** Direction right (desaturated green-grey haze, restrained palette; the fires and
-  flashes read orange), but ours is **olive** where the reference is **brown**: our ground's red
-  and green channels are equal, the reference's red leads. The soaked scans + the green-tinted
-  mist volume over No Man's Land + the sage grade add up to olive. The mist tint and the fog
-  colour are the two levers left; I stopped at three passes to put the choice to you.
-- **Fog.** Ours begins at 6 m and is linear to 140 m: timber and wire sharp to hand, posts and
-  stumps shapes by 50 m, the far side a band. The reference's haze is thicker and *brighter*
-  behind the near trees (back-lit); ours is flatter — there is no bright core where the hidden
-  sun would be. Closer than the legacy day's 18 m start; still less enveloping than the image.
-- **Sky.** Ours is a pale dirty yellow-grey plate (the package's prose) at ~1.7× the brightness
-  of the image's sky, which is a darker, heavier grey. The two briefs disagree here; I went
-  with the prose and the image's hue. Easy to bring down if you want the image's weight.
+- **Colour (pass 5).** Brown-grey now, red leading as in the image; the olive of passes 1–3 is
+  gone (mist, fog, volumetric albedo and grade all taken to near-neutral, the firm ground tinted
+  brown). The near mud in (c) runs darker than the reference's (20 vs 47) and flatter: the
+  reference's foreground is lumpy wet relief catching the sky; ours is the scan's relief at the
+  Front's low light. A touch more ground brightness or a steeper light are the levers if you want
+  it lifted; I kept it on the dark side of the image rather than the light.
+- **Fog.** Begins at 6 m, linear to 140 m: timber and wire sharp to hand, posts and stumps shapes
+  by 50 m, the far side a band; the banks (pass 4) roll through it and take everything. Pass 5
+  turned the haze's sun-scatter on and put the light low behind their trees, so the fog is now
+  brighter toward that core as the image's is behind its near trees.
+- **Sky (pass 5).** Taken down to the image's weight: layered grey masses, a warm glow only low
+  over their side where the sun hides, 146 vs the image's 120 mean (the rest of the gap is the
+  near-horizon core, which the image's framing also has). The package's "pale" is gone in favour
+  of the picture, per "match the reference as closely as possible".
 - **Contrast / exposure.** The reference is a dark image with a bright sky; ours is a mid image
   with a brighter sky. Oppressive-but-readable holds in ours; the mud is not yet "near-black".
 - **Scale.** The field is 97 m fire trench to fire trench (D-12, yours to tune); the eye is
@@ -560,7 +563,11 @@ third against the same bands of (b) and (c)):
 - [ ] **Andrew's visual approval — OPEN.**
 
 ### Files
-- new `scripts/world/front/front_atmosphere.gd`; `scripts/world/front/front_art.gd` (`atmosphere`,
+- **`shaders/mud_terrain.gdshader` (shared with the legacy level): one new uniform `firm_tint`,
+  default (1, 1, 1) — identity, so the legacy day renders as before (`test_trench` 0 failed; one
+  flaky run of it failed then passed, as it has before). `archive/.../check.sh --live` will list
+  the shader as changed from the baseline: this is why.**
+- new `scripts/world/front/front_atmosphere.gd`, `front_fog.gd`; `scripts/world/front/front_art.gd` (`atmosphere`,
   `ground_material`, `_drift_smoke`, `_mist` colour, far-smoke thinning in `build`, crater water);
   `scripts/world/front/front_maze.gd` (field wetness baseline); `scripts/game/game.gd`
   (`_front_env`, the Front branch of `_apply_floor_look`); `scripts/dev/test_front.gd` (`atmos`);

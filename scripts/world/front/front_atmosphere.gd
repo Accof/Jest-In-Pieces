@@ -19,12 +19,12 @@ extends Node3D
 
 ## Where the sickly light comes from: high and behind the cloud, over No
 ## Man's Land (the sky shader's glow; the sun shines along -LIGHT_DIR).
-const LIGHT_DIR := Vector3(-0.3, 0.55, -0.78)
+const LIGHT_DIR := Vector3(-0.3, 0.36, -0.88)   # low, behind the trees across the field, as in the reference
 ## How far a man can make another out through the haze (m): visibility()
 ## falls to the brains' threshold here. The reference reads as 30-60 m.
 const SIGHT_M := 55.0
 ## The haze: physically coherent depth fog, not an overlay.
-const FOG_COLOR := Color(0.60, 0.62, 0.57)
+const FOG_COLOR := Color(0.58, 0.585, 0.545)
 const FOG_BEGIN := 6.0
 const FOG_END := 140.0
 const FOG_DENSITY := 0.9           # what is left of the far trees: shapes
@@ -38,14 +38,14 @@ static func make_environment() -> Environment:
 	sky_mat.set_shader_parameter("noise_tex", TrenchArt.tex("noise"))
 	sky_mat.set_shader_parameter("light_dir", LIGHT_DIR)
 	# a flat pale overcast, faintly yellow-green, hardly any cloud structure
-	sky_mat.set_shader_parameter("mass", Color(0.40, 0.42, 0.39))
-	sky_mat.set_shader_parameter("body", Color(0.55, 0.57, 0.53))
-	sky_mat.set_shader_parameter("opening", Color(0.80, 0.80, 0.76))
-	sky_mat.set_shader_parameter("warm", Color(0.83, 0.80, 0.68))
-	sky_mat.set_shader_parameter("horizon", Color(0.72, 0.73, 0.68))
+	sky_mat.set_shader_parameter("mass", Color(0.33, 0.34, 0.32))
+	sky_mat.set_shader_parameter("body", Color(0.45, 0.46, 0.44))
+	sky_mat.set_shader_parameter("opening", Color(0.66, 0.66, 0.62))
+	sky_mat.set_shader_parameter("warm", Color(0.94, 0.90, 0.80))   # the glow where the sun hides, low over their side
+	sky_mat.set_shader_parameter("horizon", Color(0.62, 0.62, 0.575))
 	sky_mat.set_shader_parameter("ground", Color(0.26, 0.25, 0.22))
-	sky_mat.set_shader_parameter("energy", 1.05)
-	sky_mat.set_shader_parameter("coverage", 0.56)   # in this shader more coverage = fewer openings, and past ~0.7 the whole sky is one pale plate (M4 pass 1-3 had 0.82: bland, no cloud); 0.56 gives the legacy day's layered masses in this palette
+	sky_mat.set_shader_parameter("energy", 0.9)
+	sky_mat.set_shader_parameter("coverage", 0.5)   # in this shader more coverage = fewer openings, and past ~0.7 the whole sky is one pale plate (M4 pass 1-3 had 0.82: bland, no cloud); 0.56 gives the legacy day's layered masses in this palette
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	sky.radiance_size = Sky.RADIANCE_SIZE_128
@@ -55,10 +55,10 @@ static func make_environment() -> Environment:
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_sky_contribution = 1.0
-	env.ambient_light_energy = 0.55
+	env.ambient_light_energy = 0.5
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 0.95
+	env.tonemap_exposure = 0.9
 	env.tonemap_white = 6.0
 	env.ssr_enabled = true
 	env.ssr_max_steps = 48
@@ -79,7 +79,7 @@ static func make_environment() -> Environment:
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_light_color = FOG_COLOR
 	env.fog_light_energy = 1.0
-	env.fog_sun_scatter = 0.0
+	env.fog_sun_scatter = 0.3           # the haze lit from behind, toward the hidden sun
 	env.fog_density = FOG_DENSITY
 	env.fog_depth_begin = FOG_BEGIN
 	env.fog_depth_end = FOG_END
@@ -89,7 +89,7 @@ static func make_environment() -> Environment:
 	# the ground mist's volume (FrontArt._mist) still needs the volumetric fog
 	env.volumetric_fog_enabled = true
 	env.volumetric_fog_density = 0.0
-	env.volumetric_fog_albedo = Color(0.70, 0.73, 0.64)
+	env.volumetric_fog_albedo = Color(0.70, 0.705, 0.65)
 	env.volumetric_fog_ambient_inject = 0.9
 	env.volumetric_fog_anisotropy = 0.4
 	env.volumetric_fog_length = 90.0
@@ -101,7 +101,7 @@ static func make_environment() -> Environment:
 	env.glow_bloom = 0.04
 	env.glow_hdr_threshold = 1.1
 	env.adjustment_enabled = true
-	env.adjustment_saturation = 0.76
+	env.adjustment_saturation = 0.7
 	env.adjustment_contrast = 1.06
 	env.adjustment_color_correction = make_grade()
 	return env
@@ -126,9 +126,9 @@ static func make_grade() -> ImageTexture3D:
 				var high := smoothstep(0.55, 1.0, lum)
 				var out := c
 				out = out.lerp(Vector3.ONE * lum, 0.3 * shadow)
-				out *= Vector3.ONE.lerp(Vector3(1.04, 0.99, 0.90), shadow * 0.9)
-				out *= Vector3.ONE.lerp(Vector3(0.98, 1.0, 0.96), mid * 0.7)
-				out *= Vector3.ONE.lerp(Vector3(1.02, 1.0, 0.91), high * 0.7)
+				out *= Vector3.ONE.lerp(Vector3(1.06, 0.98, 0.88), shadow * 0.9)
+				out *= Vector3.ONE.lerp(Vector3(1.0, 0.995, 0.965), mid * 0.7)
+				out *= Vector3.ONE.lerp(Vector3(1.02, 1.0, 0.93), high * 0.7)
 				img.set_pixel(r, g, Color(clampf(out.x, 0.0, 1.0), clampf(out.y, 0.0, 1.0), clampf(out.z, 0.0, 1.0)))
 		images.append(img)
 	var t := ImageTexture3D.new()
@@ -153,7 +153,7 @@ static func make_camera_attributes() -> CameraAttributesPractical:
 ## only enough to give the ground its relief and the parapets a face.
 static func setup_sun(sun: DirectionalLight3D) -> void:
 	sun.light_color = Color(0.86, 0.88, 0.80)
-	sun.light_energy = 0.5
+	sun.light_energy = 0.55
 	sun.light_specular = 0.0             # hidden behind cloud: no glint on the water (its reflection sat right where you look down into a trench and blinded)
 	sun.light_angular_distance = 6.0
 	sun.light_volumetric_fog_energy = 0.25
