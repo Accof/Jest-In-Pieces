@@ -429,9 +429,9 @@ limitations, and ask for explicit approval; nothing further until it is given.
 |---|---|
 | Sky (`overcast_sky`) | mass (0.52, 0.53, 0.49), body (0.62, 0.63, 0.60), opening (0.80, 0.80, 0.76), warm (0.83, 0.80, 0.68), horizon (0.72, 0.73, 0.68), ground (0.26, 0.25, 0.22), energy 1.05, coverage 0.82, light dir (−0.3, 0.55, −0.78) |
 | Fog (depth) | colour (0.60, 0.62, 0.57), begin 6 m, end 140 m, density 0.9, curve 1.0, aerial perspective 0.6, sky affect 0.6; volumetric fog on at density 0 (the mist volume adds to it), albedo (0.70, 0.73, 0.64) |
-| Light | ambient from sky 0.55; sun energy 0.5, colour (0.86, 0.88, 0.80), angular 6°, specular 0.05, shadows opacity 0.65 blur 3, 70 m |
+| Light | ambient from sky 0.55; sun energy 0.5, colour (0.86, 0.88, 0.80), angular 6°, **specular 0** (was 0.05: its glint in the trench-floor puddles blinded — Andrew, 22 Nov live on the Mac), shadows opacity 0.65 blur 3, 70 m |
 | Exposure / tone | filmic, exposure 0.95, white 6; auto exposure scale 0.22, sensitivity 90–130 |
-| Grade | saturation 0.76, contrast 1.06, LUT: shadows ×(1.04, 0.99, 0.90) (brown), mids ×(0.98, 1.0, 0.96), lights ×(1.02, 1.0, 0.91); glow 0.28 |
+| Grade | saturation 0.76, contrast 1.06, LUT: shadows ×(1.04, 0.99, 0.90) (brown), mids ×(0.98, 1.0, 0.96), lights ×(1.02, 1.0, 0.91); glow 0.28, HDR threshold 1.1 |
 | SSR / SSAO / SSIL | on / 1.5 (radius 1.4) / 0.5 |
 | Ground | dry_ground 0.12, puddles 0.95, earth_darkness 0.3, floor_darkness 0.4, rock_darkness 0.55, brightness 0.82, wall_tint (0.60, 0.54, 0.47), floor_tint (0.78, 0.70, 0.62), water (0.26, 0.26, 0.22), puddle (0.07, 0.07, 0.06); field wetness 0.5 + up to 0.35 in the low ground; crater water colour (0.085, 0.08, 0.07) / deep (0.045, 0.043, 0.04) |
 | Mist volume | tint (0.64, 0.68, 0.58), density 0.08, ×2 over No Man's Land |
@@ -508,6 +508,13 @@ third against the same bands of (b) and (c)):
 - **Performance unmeasured** on the Mac (PENDING). The Front's environment adds the mist
   volume (as the legacy day) and 5 small emitters; nothing else new is per-frame.
 - `test_zornhauptmann` flakiness on the Front (since M2) still to be looked at.
+
+### Gate feedback so far
+- **22 Nov, live on the Mac:** "the water puddles in the trenches are way too bright. Blindingly so."
+  Cause: the Front's light is higher (33° up vs the legacy day's 19°), so its specular glint in the
+  near-mirror floor puddles lands where you look when you glance down into a trench, and blooms.
+  Fix: sun `light_specular` 0.05 → **0** (overcast, light behind cloud: no glint), glow HDR
+  threshold 0.95 → 1.1. The sheen from the sky's reflection stays. Legacy sun untouched.
 
 ### Acceptance (package F, row 4)
 - [x] Green-grey lighting, fog, smoke, wet surfaces, silhouettes built as separate profile.

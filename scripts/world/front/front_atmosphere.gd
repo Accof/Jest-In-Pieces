@@ -99,7 +99,7 @@ static func make_environment() -> Environment:
 	env.glow_enabled = true
 	env.glow_intensity = 0.28
 	env.glow_bloom = 0.04
-	env.glow_hdr_threshold = 0.95
+	env.glow_hdr_threshold = 1.1
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 0.76
 	env.adjustment_contrast = 1.06
@@ -154,7 +154,7 @@ static func make_camera_attributes() -> CameraAttributesPractical:
 static func setup_sun(sun: DirectionalLight3D) -> void:
 	sun.light_color = Color(0.86, 0.88, 0.80)
 	sun.light_energy = 0.5
-	sun.light_specular = 0.05
+	sun.light_specular = 0.0             # hidden behind cloud: no glint on the water (its reflection sat right where you look down into a trench and blinded)
 	sun.light_angular_distance = 6.0
 	sun.light_volumetric_fog_energy = 0.25
 	sun.shadow_enabled = true
