@@ -11,7 +11,7 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 1 | Objective separation (`ELIMINATION` / `SURVIVAL`) | **approved 22 Nov** (+ [E] door follow-up `b56bd54`) | commits `ccbbfe8`, `cbe2ac3`, `b56bd54` | approved |
 | 2 | New battlefield geometry (two networks, No Man's Land, H.Q. exit) | **done**; Andrew: "continue with the plan" (22 Nov) — his own playtest still to come | commits `663727e`, `4667339` | **user playtest** (pending) |
 | 3 | Terrain and functional cover (craters, wire, routes, enemy navigation) | **done**; Andrew: "continue" (22 Nov) — his own playtest still to come | commit `104a80e`, `5d9baaa` | user review (pending) |
-| 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | **built; AT THE GATE** — four shots + a fifth presented 22 Nov, awaiting Andrew's word | commit `M4COMMIT` | **HARD VISUAL APPROVAL — STOP** |
+| 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | **built; AT THE GATE** — four shots + a fifth presented 22 Nov, awaiting Andrew's word | commit `f13e92c` | **HARD VISUAL APPROVAL — STOP** |
 | 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | not started | | user review |
 | 6 | Core combat hazards (MG nests, suppression, artillery) | not started | | user playtest |
 | 7 | Director foundation (tension/alertness, event points, budgets, overlay) | not started | | user review |
