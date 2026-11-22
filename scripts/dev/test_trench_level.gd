@@ -2718,13 +2718,13 @@ func _light() -> void:
 	for v: String in variants:
 		# "now", or "fd=0.6,sf=0.22,amb=0.9,ae=0.3" (floor darkness, sky floor, ambient energy, auto exposure scale)
 		# (the settings in the game; "old" is how they were before the lift)
-		var fd := 0.75
-		var sf := 0.3
-		var amb := 1.05
-		var ae := 0.4
-		var occ := 0.6
+		var fd := 0.62
+		var sf := 0.2
+		var amb := 0.85
+		var ae := 0.3
+		var occ := 0.8
 		var ex := 1.0
-		var ms := 260.0
+		var ms := 180.0
 		var gi := 1.0 if TrenchArt.bounce_light else 0.0
 		var ge := 1.5
 		var sun := 1.2 if TrenchArt.bounce_light else 0.85
@@ -2732,10 +2732,11 @@ func _light() -> void:
 			amb = 1.0
 			occ = 0.0
 			ms = 280.0
-		if v == "old" or v == "fill":
-			gi = 0.0
-			sun = 0.85
+		if v == "lifted":                 # the first lift (faba74d), for comparison
+			fd = 0.75
+			sf = 0.3
 			amb = 1.05
+			ae = 0.4
 			occ = 0.6
 			ms = 260.0
 		if v == "old":

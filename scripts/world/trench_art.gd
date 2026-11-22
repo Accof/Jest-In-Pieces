@@ -81,7 +81,7 @@ static func tex(name_: String) -> Texture2D:
 ## With it on the baked "deeper is darker" sky visibility is left off (the GI
 ## does that occlusion itself). Costs GPU time: switch off here (or NO_GI=1)
 ## if frame rate suffers; the even fill is then used as before.
-static var bounce_light := not OS.has_environment("NO_GI")
+static var bounce_light := OS.has_environment("GI")   # off: it read as a sunny day and stalled the frame for seconds as it rebuilt (user, 22 Nov)
 
 
 ## Where the light comes from: low, behind the storm cloud, over No Man's
@@ -110,7 +110,7 @@ static func make_environment() -> Environment:
 	# and the baked sky visibility takes it away lower down
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_sky_contribution = 1.0
-	env.ambient_light_energy = 1.0 if bounce_light else 1.05   # (was 0.75: lifted so the trench floor shows its detail)
+	env.ambient_light_energy = 1.0 if bounce_light else 0.85   # (0.75 hid the floor; 1.05 took the gloom away)
 	if bounce_light:
 		env.sdfgi_enabled = true
 		env.sdfgi_use_occlusion = true
@@ -204,10 +204,10 @@ static func make_camera_attributes() -> CameraAttributesPractical:
 	ca.auto_exposure_enabled = true
 	# only a little: the trench is meant to be darker than the sky, and a free
 	# auto exposure would lift it back to grey
-	ca.auto_exposure_scale = 0.4
+	ca.auto_exposure_scale = 0.3
 	ca.auto_exposure_speed = 0.5
 	ca.auto_exposure_min_sensitivity = 95.0
-	ca.auto_exposure_max_sensitivity = 280.0 if bounce_light else 260.0   # looking down into the trench, the eye opens up more
+	ca.auto_exposure_max_sensitivity = 280.0 if bounce_light else 180.0   # looking down into the trench, the eye opens up a little
 	return ca
 
 
