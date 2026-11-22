@@ -427,7 +427,7 @@ limitations, and ask for explicit approval; nothing further until it is given.
 ### Measured settings (iteration 3; 1 was too uniformly green and bright in the mid-ground with the far smoke too loud, 2 greyed the fog and sky and darkened the ground, 3 pushed the mud brown and the sky neutral)
 | Part | Setting |
 |---|---|
-| Sky (`overcast_sky`) | mass (0.52, 0.53, 0.49), body (0.62, 0.63, 0.60), opening (0.80, 0.80, 0.76), warm (0.83, 0.80, 0.68), horizon (0.72, 0.73, 0.68), ground (0.26, 0.25, 0.22), energy 1.05, coverage 0.82, light dir (−0.3, 0.55, −0.78) |
+| Sky (`overcast_sky`) | mass (0.40, 0.42, 0.39), body (0.55, 0.57, 0.53), opening (0.80, 0.80, 0.76), warm (0.83, 0.80, 0.68), horizon (0.72, 0.73, 0.68), ground (0.26, 0.25, 0.22), energy 1.05, **coverage 0.56** (passes 1–3 had 0.82 — see gate feedback), light dir (−0.3, 0.55, −0.78) |
 | Fog (depth) | colour (0.60, 0.62, 0.57), begin 6 m, end 140 m, density 0.9, curve 1.0, aerial perspective 0.6, sky affect 0.6; volumetric fog on at density 0 (the mist volume adds to it), albedo (0.70, 0.73, 0.64) |
 | Light | ambient from sky 0.55; sun energy 0.5, colour (0.86, 0.88, 0.80), angular 6°, **specular 0** (was 0.05: its glint in the trench-floor puddles blinded — Andrew, 22 Nov live on the Mac), shadows opacity 0.65 blur 3, 70 m |
 | Exposure / tone | filmic, exposure 0.95, white 6; auto exposure scale 0.22, sensitivity 90–130 |
@@ -515,6 +515,19 @@ third against the same bands of (b) and (c)):
   near-mirror floor puddles lands where you look when you glance down into a trench, and blooms.
   Fix: sun `light_specular` 0.05 → **0** (overcast, light behind cloud: no glint), glow HDR
   threshold 0.95 → 1.1. The sheen from the sky's reflection stays. Legacy sun untouched.
+
+- **22 Nov, Andrew:** "The sky is very bland and shows no clouds or variation (the original version
+  of the scene had great clouds)." Cause: my misreading of the sky shader's `coverage` — higher =
+  *fewer* openings, and past ~0.7 the dome is one pale plate; passes 1–3 ran 0.82 (legacy day: 0.5).
+  That is also why the sky measured 1.7× brighter than the reference. Fix: coverage **0.56**, masses
+  darkened to (0.40, 0.42, 0.39) / (0.55, 0.57, 0.53); the layered cloud is back (re-shot (b) in
+  `docs/reference/front_m4/`). `test_front -- atmos render only=<letters>` now re-shoots a subset.
+- **22 Nov, Andrew:** "No Man's Land is very bare — unless that's coming in the next milestones?"
+  Honest answer: it is not scheduled later, it is owed from M2/M3 (package §C "No Man's Land": broken
+  trees, pickets, abandoned equipment, wreckage, gun pits, bodies, ruined timber, landmarks). Today
+  the field has holes + water, the wire belts, 9 dead trees, 2 wrecked limbers, smoke. Proposed as
+  the next gate iteration: near-field dressing at the reference's density, then re-shoot. Awaiting
+  his word.
 
 ### Acceptance (package F, row 4)
 - [x] Green-grey lighting, fog, smoke, wet surfaces, silhouettes built as separate profile.

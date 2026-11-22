@@ -38,14 +38,14 @@ static func make_environment() -> Environment:
 	sky_mat.set_shader_parameter("noise_tex", TrenchArt.tex("noise"))
 	sky_mat.set_shader_parameter("light_dir", LIGHT_DIR)
 	# a flat pale overcast, faintly yellow-green, hardly any cloud structure
-	sky_mat.set_shader_parameter("mass", Color(0.52, 0.53, 0.49))
-	sky_mat.set_shader_parameter("body", Color(0.62, 0.63, 0.60))
+	sky_mat.set_shader_parameter("mass", Color(0.40, 0.42, 0.39))
+	sky_mat.set_shader_parameter("body", Color(0.55, 0.57, 0.53))
 	sky_mat.set_shader_parameter("opening", Color(0.80, 0.80, 0.76))
 	sky_mat.set_shader_parameter("warm", Color(0.83, 0.80, 0.68))
 	sky_mat.set_shader_parameter("horizon", Color(0.72, 0.73, 0.68))
 	sky_mat.set_shader_parameter("ground", Color(0.26, 0.25, 0.22))
 	sky_mat.set_shader_parameter("energy", 1.05)
-	sky_mat.set_shader_parameter("coverage", 0.82)
+	sky_mat.set_shader_parameter("coverage", 0.56)   # in this shader more coverage = fewer openings, and past ~0.7 the whole sky is one pale plate (M4 pass 1-3 had 0.82: bland, no cloud); 0.56 gives the legacy day's layered masses in this palette
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	sky.radiance_size = Sky.RADIANCE_SIZE_128

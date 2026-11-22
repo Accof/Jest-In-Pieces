@@ -648,6 +648,14 @@ func _game() -> void:
 
 
 # --- views (render) ---------------------------------------------------------------------
+## `only=bd` (with `atmos render`): take only the named gate shots
+func _want(letter: String) -> bool:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("only="):
+			return letter in a.substr(5)
+	return true
+
+
 func _shot(name_: String) -> void:
 	await _frames(3)
 	get_viewport().get_texture().get_image().save_png("/tmp/front_%s.png" % name_)
@@ -787,14 +795,16 @@ func _atmos() -> void:
 	cam.global_position = on_step
 	cam.look_at(Vector3(on_step.x + 2.0, on_step.y - 0.25, z_theirs))
 	print("      (a) parapet camera %s" % on_step.snapped(Vector3.ONE * 0.01))
-	await _shot("gate_a_parapet")
+	if _want("a"):
+		await _shot("gate_a_parapet")
 	# (b) the panorama: from the lip of a shell hole a third of the way across
 	var pan := Vector3(mid_x - 4.0, 0, m.our_row0 * m.cell - 26.0)
 	pan.y = m.floor_height(pan) + 1.65
 	cam.global_position = pan
 	cam.look_at(Vector3(mid_x + 6.0, pan.y - 0.9, z_theirs - 10.0))
 	print("      (b) panorama camera %s" % pan.snapped(Vector3.ONE * 0.01))
-	await _shot("gate_b_panorama")
+	if _want("b"):
+		await _shot("gate_b_panorama")
 	# (c) the ground close to: mud, a water-filled hole, the wire, from a crouch
 	var hole := Vector4.ZERO
 	var wz: float = m.wire_belts[0].z
@@ -806,7 +816,8 @@ func _atmos() -> void:
 	cam.global_position = low
 	cam.look_at(Vector3(hole.x + 2.0, low.y - 0.6, wz - 2.0))
 	print("      (c) ground camera %s, hole %s" % [low.snapped(Vector3.ONE * 0.01), hole])
-	await _shot("gate_c_ground")
+	if _want("c"):
+		await _shot("gate_c_ground")
 	# (d) silhouettes: three soldiers out in the haze at 25, 40 and 60 m
 	# the eye is low, a man crouched at a hole's lip, so the figures stand
 	# against the sky and not the dark ground band
@@ -836,7 +847,8 @@ func _atmos() -> void:
 	cam.fov = 60.0
 	cam.look_at(Vector3(mid_x, eye.y + 0.2, eye.z - 26.0))
 	print("      (d) silhouette camera %s; men at 14, 26, 42 m" % eye.snapped(Vector3.ONE * 0.01))
-	await _shot("gate_d_silhouettes")
+	if _want("d"):
+		await _shot("gate_d_silhouettes")
 	# (e) the same men in a thicker bank: sight ~30 m instead of 55
 	var env: Environment = game._front_env
 	var keep: Array[float] = [env.fog_density, env.fog_depth_end, env.fog_depth_begin]
@@ -845,7 +857,8 @@ func _atmos() -> void:
 	env.fog_depth_end = 75.0
 	await _frames(6)
 	print("      (e) the same, fog end %.0f m" % env.fog_depth_end)
-	await _shot("gate_e_silhouettes_dense")
+	if _want("e"):
+		await _shot("gate_e_silhouettes_dense")
 	env.fog_density = keep[0]
 	env.fog_depth_end = keep[1]
 	env.fog_depth_begin = keep[2]
