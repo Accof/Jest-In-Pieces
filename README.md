@@ -13,6 +13,7 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 |---|---|
 | WASD, mouse | Move, look |
 | Shift | Sprint |
+| Ctrl or C (hold) | Crouch (half pace; in a shell hole your head is under the rim) |
 | Left click (hold) | Fire |
 | R | Reload |
 | 1 / 2 / 3 / 4 | Pistol / shotgun / submachine gun / stake gun |
@@ -170,6 +171,9 @@ be played on its own: `godot --path . res://scenes/legacy_drowned_trenches.tscn 
 network turned to face ours, assault ramps cut through the parapets, wire in front of each line, and
 the H.Q. at the far end of the enemy's rear communication trench. `godot --path . res://scenes/play_front.tscn -- [seed=N] [god] [perf=30]`
 goes straight to it; `scenes/test_front.tscn` checks it (40 seeds, geometry, the whole walk, renders).
+Milestone 3: the shell holes out there are chest-deep cover with walkable walls, the wire stops you (the
+gaps are in front of the saps and the ramps) and the soldiers path through the gaps, and you can **crouch
+(Ctrl or C)**.
 
 Floors now have an objective (`Game.Objective`): bunker floors are **ELIMINATION** (every enemy must die
 before the exit opens; the last kill runs the final-kill camera), trench floors are **SURVIVAL** (the

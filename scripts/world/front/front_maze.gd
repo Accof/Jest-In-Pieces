@@ -41,6 +41,20 @@ var their_row0 := 0
 var assault_ramps: Array = []
 ## Milliseconds the last generate() took, by stage (tests, the tracker).
 var timing := {}
+## The wire (Milestone 3): belts the player cannot walk through (collision
+## for him only, so sight and rounds pass) and the brains path round (their
+## cells are taken out of the top layer). A belt in front of each line, with
+## gaps where the saps go out and the assault ramps come up; and a few short
+## broken belts out in No Man's Land that shape the way across.
+##   {z: the picket row nearest its trench, f: which way "out" is (+1/-1),
+##    x0, x1: its run, rows: picket rows (2 for a front belt, 1 for a short
+##    one), coil: bool, gaps: Array[float] (x of each gap)}
+var wire_belts: Array = []
+const WIRE_GAP := 2.4            ## half-width of a gap in a belt (m)
+const WIRE_ROW := 1.6            ## between picket rows (m)
+const WIRE_COIL := 1.4           ## the coils this far beyond the last row (m)
+## Top cells taken out for the wire (tests).
+var wire_cells := {}
 
 
 func generate(_width: int, _depth: int, seed_value: int) -> void:
@@ -216,6 +230,102 @@ func _assault_ramps() -> void:
 			bays.erase(c)                        # the ramp leaves from the floor: no fire step here
 
 
+## The belts: see wire_belts. A front belt runs the whole width (the flanks
+## too: the way past the end of a fire trench is through the wire or not at
+## all), gaps at every sap's observation post and every assault ramp. Out in
+## the middle, three to five short belts of a single row and a coil, 8-18 m
+## long, at least 6 m apart, none within 6 m of a gap's line.
+func _plan_wire() -> void:
+	wire_belts.clear()
+	for f in [-1, 1]:
+		var gaps: Array[float] = []
+		for l: Dictionary in landmarks:
+			if l.kind == "op" and facing.get(l.cell, 0) == f:
+				gaps.append((l.cell.x + 0.5) * cell)
+		for r: Dictionary in assault_ramps:
+			if r.dir.y == f:
+				gaps.append((r.cell.x + 0.5) * cell)
+		var z0 := our_row0 * cell if f == -1 else (their_row0 + GRID_D) * cell
+		wire_belts.append({z = z0 - f * 0.4, f = f, x0 = -MARGIN - 1.0, x1 = w * cell + MARGIN + 1.0, rows = 2, coil = true, gaps = gaps})
+	var z_near := (their_row0 + GRID_D) * cell + 12.0
+	var z_far := our_row0 * cell - 12.0
+	var want := rng.randi_range(3, 5)
+	var tries := 0
+	var mids: Array = []
+	while mids.size() < want and tries < 60:
+		tries += 1
+		var length := rng.randf_range(8.0, 18.0)
+		var x0 := rng.randf_range(-4.0, w * cell + 4.0 - length)
+		var z := rng.randf_range(z_near, z_far)
+		var f := -1 if rng.randf() < 0.5 else 1
+		var ok := true
+		for b: Dictionary in mids:
+			# apart from one another: not within 6 m in z while overlapping in x
+			if absf(b.z - z) < 6.0 and x0 < b.x1 + 6.0 and x0 + length > b.x0 - 6.0:
+				ok = false
+		if ok:
+			var belt := {z = z, f = f, x0 = x0, x1 = x0 + length, rows = 1, coil = true, gaps = [] as Array[float]}
+			mids.append(belt)
+	wire_belts.append_array(mids)
+
+
+## The band a belt covers, from the picket row nearest its trench out to the coil.
+func belt_band(b: Dictionary) -> Vector2:
+	var depth_: float = WIRE_ROW * (int(b.rows) - 1) + (WIRE_COIL if b.coil else 0.0)
+	var za: float = b.z
+	var zb: float = b.z + b.f * depth_
+	return Vector2(minf(za, zb) - 0.35, maxf(za, zb) + 0.35)
+
+
+## Is (x, z) in the wire (a belt's band, not in one of its gaps)?
+func wire_at(x: float, z: float) -> bool:
+	for b: Dictionary in wire_belts:
+		if x < b.x0 or x > b.x1:
+			continue
+		var band := belt_band(b)
+		if z < band.x or z > band.y:
+			continue
+		var in_gap := false
+		for gx: float in b.gaps:
+			if absf(x - gx) < WIRE_GAP:
+				in_gap = true
+		if not in_gap:
+			return true
+	return false
+
+
+## The top layer, less the cells under the wire (their links and pathfinding
+## points go too), so the brains cross at the gaps like the player.
+func _top_layer() -> void:
+	super._top_layer()
+	wire_cells.clear()
+	if wire_belts.is_empty():
+		return
+	var keep := {}
+	for r: Dictionary in ramps:
+		keep[r.top] = true
+	for b: Dictionary in bridges:
+		keep[b.ends[0]] = true
+		keep[b.ends[1]] = true
+	for c: Vector2i in top_cells.keys():
+		if keep.has(c):
+			continue
+		var cx := (c.x + 0.5) * cell
+		var cz := (c.y + 0.5) * cell
+		var blocked := false
+		for off: Vector2 in [Vector2(0, 0), Vector2(0.5, 0), Vector2(-0.5, 0), Vector2(0, 0.5), Vector2(0, -0.5)]:
+			if wire_at(cx + off.x * cell * 0.9, cz + off.y * cell * 0.9):
+				blocked = true
+		if blocked:
+			wire_cells[c] = true
+	for c: Vector2i in wire_cells:
+		top_cells.erase(c)
+		if _astar.has_point(idx(c)):
+			_astar.remove_point(idx(c))
+		for dir in DIRS:
+			links.erase(_key(c, c + dir))
+
+
 func _finish_front() -> bool:
 	var t0 := Time.get_ticks_msec()
 	_astar.clear()
@@ -228,6 +338,7 @@ func _finish_front() -> bool:
 	_pick_ramps()
 	_assault_ramps()
 	_pick_bridges()
+	_plan_wire()
 	_depths()
 	timing.layout = Time.get_ticks_msec() - t0
 	t0 = Time.get_ticks_msec()
@@ -392,22 +503,30 @@ func _craters() -> Array[Vector4]:
 	var out: Array[Vector4] = []
 	var z_near := (their_row0 + GRID_D) * cell          # the front of their block
 	var z_far := our_row0 * cell                         # the front of ours
-	for i in 150:
+	for i in 190:
 		var x := rng.randf_range(-MARGIN * 0.5, w * cell + MARGIN * 0.5)
 		var z: float
-		if i < 110:
+		var r: float
+		var depth_: float
+		if i < 150:
+			# No Man's Land: holes a man can get down into: 2.2-4.5 m across the
+			# rim, 0.9-1.7 m deep (chest-deep and more; the raised rim adds to
+			# it), the walls no steeper than he can walk
 			z = rng.randf_range(z_near - 2.0, z_far + 2.0)
-		elif i < 130:
-			z = rng.randf_range(z_far, d * cell + MARGIN)
+			r = rng.randf_range(2.2, 4.5) if rng.randf() < 0.7 else rng.randf_range(1.2, 2.2)
+			depth_ = clampf(0.42 * r, 0.9, 1.7) if r >= 2.2 else rng.randf_range(0.3, 0.6)
 		else:
-			z = rng.randf_range(-MARGIN, z_near)
-		var r := rng.randf_range(1.2, 3.8)
+			# a few behind each line, the old small kind
+			z = rng.randf_range(z_far, d * cell + MARGIN) if i < 170 else rng.randf_range(-MARGIN, z_near)
+			r = rng.randf_range(1.2, 3.0)
+			depth_ = rng.randf_range(0.35, 1.0) * r / 2.4
 		var near := _nearest(x, z)
 		if near.d < r + 1.2:
 			continue
-		if out.any(func(o: Vector4) -> bool: return Vector2(o.x, o.y).distance_to(Vector2(x, z)) < (o.z + r) * 0.7):
+		# holes may run into one another a little (linked holes), never sit inside each other
+		if out.any(func(o: Vector4) -> bool: return Vector2(o.x, o.y).distance_to(Vector2(x, z)) < (o.z + r) * 0.6):
 			continue
-		out.append(Vector4(x, z, r, rng.randf_range(0.35, 1.1) * r / 2.4))
+		out.append(Vector4(x, z, r, depth_))
 	return out
 
 
@@ -466,13 +585,24 @@ func _carve() -> void:
 	_build_near_cache()
 	var holes := PackedFloat32Array()
 	holes.resize(n)
+	var lips := PackedFloat32Array()
+	lips.resize(n)
+	# (the Front's shell hole: a cosine bowl, so the wall is never steeper
+	# than about 33 degrees however deep the hole, and a low wide lip; where
+	# holes run into one another the deeper bowl wins rather than the two
+	# adding up into a wall. The legacy's parabola with its sharp lip, summed,
+	# stood a man in a 1.5 m hole at the foot of a 50-degree wall.)
 	for cr: Vector4 in craters:
-		var reach := cr.z * 1.35
+		var reach := cr.z * 1.6
 		for iz in range(maxi(int((cr.y - reach - origin.y) / RES), 0), mini(int((cr.y + reach - origin.y) / RES) + 2, hz)):
 			for ix in range(maxi(int((cr.x - reach - origin.x) / RES), 0), mini(int((cr.x + reach - origin.x) / RES) + 2, hx)):
 				var dd := Vector2(origin.x + ix * RES - cr.x, origin.y + iz * RES - cr.y).length() / cr.z
-				if dd < 1.35:
-					holes[ix + iz * hx] += -cr.w * maxf(0.0, 1.0 - dd * dd) + cr.w * 0.35 * exp(-pow((dd - 1.0) * 4.0, 2.0))
+				if dd < 1.6:
+					var i := ix + iz * hx
+					holes[i] = minf(holes[i], -cr.w * 0.5 * (1.0 + cos(PI * minf(dd, 1.0))))
+					lips[i] = maxf(lips[i], cr.w * 0.12 * exp(-pow((dd - 1.2) * 2.0, 2.0)))
+	for i in n:
+		holes[i] += lips[i]
 	crater_list = craters
 	var ground := FastNoiseLite.new()
 	ground.seed = rng.randi()

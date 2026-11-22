@@ -9,8 +9,8 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 |---|---|---|---|---|
 | 0 | Preservation and planning | **approved 22 Nov** | commits `a5376f1`, `4a5f5a1`; tag `legacy-drowned-trenches-baseline` (= `0772251`) | approved |
 | 1 | Objective separation (`ELIMINATION` / `SURVIVAL`) | **approved 22 Nov** (+ [E] door follow-up `b56bd54`) | commits `ccbbfe8`, `cbe2ac3`, `b56bd54` | approved |
-| 2 | New battlefield geometry (two networks, No Man's Land, H.Q. exit) | **done, awaiting playtest** | commit `663727e` | **user playtest** |
-| 3 | Terrain and functional cover (craters, wire, routes, enemy navigation) | not started | | user review |
+| 2 | New battlefield geometry (two networks, No Man's Land, H.Q. exit) | **done**; Andrew: "continue with the plan" (22 Nov) — his own playtest still to come | commits `663727e`, `4667339` | **user playtest** (pending) |
+| 3 | Terrain and functional cover (craters, wire, routes, enemy navigation) | **done, awaiting review** | commit (see M3 below) | user review |
 | 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | not started | | **HARD VISUAL APPROVAL — STOP** |
 | 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | not started | | user review |
 | 6 | Core combat hazards (MG nests, suppression, artillery) | not started | | user playtest |
@@ -26,7 +26,9 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 numbers are to be invented). When convenient: `godot --path . res://scenes/legacy_drowned_trenches.tscn
 -- perf=30 god`, play a minute, paste the `PERF` lines here.
 
-**Next action:** Andrew plays the Front (`godot --path . res://scenes/play_front.tscn -- god`, or a normal run to floor 3) and judges layout, scale and traversal; Milestone 3 only on his word.
+**Next action:** Andrew reviews Milestone 3 and plays the Front (`/Applications/Godot.app/Contents/MacOS/Godot
+--path . res://scenes/play_front.tscn -- god`; M2's layout/scale/traversal judgement and M3's cover and
+wire are both still his to make); Milestone 4 (the reference atmosphere, the hard visual gate) only on his word.
 
 ### Decisions taken by Andrew on 22 Nov (answers to Session Zero's questions)
 1. Performance: 60 fps at his normal development resolution; measure the real baseline on the Mac
@@ -333,4 +335,71 @@ THE ENEMY H.Q.); climb one of the ramps cut through the parapet (gaps in the wir
 cross, drop down a ramp into their fire trench, work back through their communication trenches to
 the H.Q. portal at the far edge, [E] to go in.
 
-(Milestones 3–13: scope as in the package; detailed when authorised.)
+## Milestone 3 — Terrain and functional cover (22 Nov 2026)
+
+Authorised by Andrew's "just continue with the plan" after M2 (taken as M3 only; his M2 playtest is
+still pending and nothing here forecloses it: No Man's Land's length is one number).
+
+### What was built (D-15)
+- **Shell holes that are cover:** No Man's Land's holes are 2.2–4.5 m across and 0.9–1.7 m deep,
+  a cosine bowl with a low lip (walls ≤ ~38°, floors chest-deep, a crouched head under the rim),
+  deeper holes winning where they overlap. 150 attempts a floor, ~55–60 holes of 2.2 m+ placed.
+- **Wire that shapes the way:** the belt plan lives in `FrontMaze.wire_belts`; the cells under it
+  leave the top layer (brains path through the gaps); the player is stopped by collision on
+  `LAYER_RAMP` (sight and rounds pass). Gaps at every sap and assault ramp; 3–5 short belts in the
+  middle. The M2 flank routes are closed by this.
+- **Crouch** (Ctrl or C): capsule and eye drop, pace halves, stands only with headroom;
+  `eye_height()`/`chest_height()` ready for the brains (M6).
+- **Enemy navigation across open ground:** nothing new was needed beyond the wire cells; a
+  rifleman alerted in their fire trench comes over the top, across and up to rifle range.
+- **Spawn validation:** `cells_far_from` walks the real graph (ramps, top, wire gaps), so every
+  spawn cell has a path to the start and the exit; the test checks none is on the open ground.
+
+### Acceptance (package F, row 3)
+- [x] Craters give crouch cover and are enterable: 57 holes on the test seed, 45 chest-deep, 46
+      hide a crouched head, **all 57 walkable** (no wall over 45° over a stride; steepest 43°).
+- [x] Wire shapes but does not break routes: 40 seeds, 0 failed, with the wire cells removed;
+      the main route used an assault ramp 69 of 80 times, a sap's gap otherwise; the player is held
+      at a belt (2.6 m on in 4 s against the wire 2.7–6.3 m away) and walks through a gap (11.9 m).
+- [x] Enemies path across: a rifleman from their fire trench, 95 m off, crosses the open ground
+      (8,574 of 9,000 frames up top, 0 in the wire) and closes to 16 m, where riflemen stop to fire.
+- [x] No blocked seeds; spawns only on trench cells with a path.
+- [x] The full walk still clean: 140 of 140 points, 0 stuck, 0 side-steps, 0.11 m worst off the ground.
+
+### Files
+- `scripts/world/front/front_maze.gd`: `wire_belts`, `_plan_wire`, `belt_band`, `wire_at`,
+  `_top_layer` override, `wire_cells`; cover-sized `_craters`; the bowl/lip stamping in `_carve`.
+- `scripts/world/front/front_art.gd`: `_wire` from the plan, `_wire_belt`, `_wire_block`,
+  `_wire_body` (LAYER_RAMP).
+- `scripts/player/fps_player.gd`: crouch (`_tick_crouch`, `_headroom`, `eye_height`,
+  `chest_height`, `crouch`, the capsule refs). The one protected-system file touched: additive,
+  movement otherwise unchanged (test_motion, test_stairs_walk, test_nav as before).
+- `scripts/dev/test_front.gd`: sections `cover`, `wire`, `crossing`; `views` adds `shell_hole`,
+  `shell_hole_standing`, `wire`.
+- Docs: D-15, this tracker, architecture §8a, README.
+
+### Tests (headless, container)
+| Scene | Result |
+|---|---|
+| **test_front** (all sections) | **0 failed**; build 4.1 s avg / 4.6 s worst headless |
+| test_objective | 0 failed |
+| test_nav `front` | in a wall 0, sunk 0, **stuck 0**, inside another 22 |
+| test_nav `trench`, test_trench, test_trench_level `game nav` | 0 failed (legacy) |
+| test_killcam `floor report` | 0 failed |
+| test_game, test_cover, test_motion, test_events, test_base, test_stairs_walk, test_legs | as baseline |
+| test_curse | 1 failed (`rattlejack: the neck snaps over (49 deg)`, baseline) |
+| legacy scene | `TrenchMaze … objective ELIMINATION / ok` |
+
+### Known and noted
+- Enemies do not collide with the wire (player-only layer); they route round it. A soldier pushed
+  off his path (a ragdoll shove, a grenade) could stand in a belt. Acceptable for now; revisit with
+  the impact/AI work if it shows.
+- The brains still aim at a fixed 1.25 m and look for the head at 1.5 m; crouching hides the
+  *player's view* behind a rim today, and will hide him from rifles and MGs when M6 reads
+  `eye_height()`/`chest_height()`.
+- Crater water (decorative planes in holes over 0.55 m) now sits in deeper holes: wading, no
+  footstep sound change out there yet.
+- Fire-step bays under a bridge or at a sap keep their legacy behaviour; nothing in the trenches changed.
+- Mac performance still **PENDING**.
+
+(Milestones 4–13: scope as in the package; detailed when authorised.)

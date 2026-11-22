@@ -10,6 +10,15 @@ extends Node3D
 ##             -z, theirs toward +z), fire steps on the front of each bay, the
 ##             assault ramps climb from floor to ground at a walkable slope,
 ##             the wire belts stand in front of each line
+##   cover     (M3) the shell holes of No Man's Land: a man standing on the
+##             floor of one is chest-deep, crouched his head is under the rim;
+##             every wall is one he can walk (under 36 degrees); the player
+##             crouches (Ctrl): capsule, eye and pace, and stands again
+##   wire      (M3) the belts: no top cell under the wire except at a gap; a
+##             player walking into a belt is stopped by it and walks through a
+##             gap; the brains' path from their lines to ours crosses at a gap
+##   crossing  (M3) a rifleman in their fire trench, alerted to the player at
+##             our parapet, comes across No Man's Land and arrives
 ##   game      floor 3 of a run is the Front, SURVIVAL, with the enemies in
 ##             the trenches (two in three in theirs, none out in the open),
 ##             the H.Q. door at the exit; the player walks the whole way from
@@ -46,7 +55,7 @@ func _run() -> void:
 	for a in args:
 		if a.begins_with("seed="):
 			fixed_seed = int(a.substr(5))
-	var secs := ["layouts", "geo", "game", "views"]
+	var secs := ["layouts", "geo", "cover", "wire", "crossing", "game", "views"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -176,7 +185,7 @@ func _layouts() -> void:
 	var topsum := 0
 	for t in tops:
 		topsum += t
-	print("      %d of %d seeds failed; %d trench cells avg; route %d cells avg (%d of them over the top); the main route used an assault ramp %d times of %d (the rest go round a flank); fire trenches %.0f m apart; build %d ms avg, %d ms worst (headless)" % [bad, times.size(), osum / times.size(), rsum / routes.size(), topsum / tops.size(), assault_used, times.size() * 2, gaps[0], tsum / times.size(), tmax])
+	print("      %d of %d seeds failed; %d trench cells avg; route %d cells avg (%d of them over the top); the main route used an assault ramp %d times of %d (the rest go through a sap's gap in the wire); fire trenches %.0f m apart; build %d ms avg, %d ms worst (headless)" % [bad, times.size(), osum / times.size(), rsum / routes.size(), topsum / tops.size(), assault_used, times.size() * 2, gaps[0], tsum / times.size(), tmax])
 	_check(bad == 0, "every seed: two whole networks, an empty No Man's Land, a route up, over and down, every assault ramp on the way")
 
 
@@ -247,12 +256,254 @@ func _geo() -> void:
 			near_ours += 1
 		if p.z < z_theirs + 3.2 and p.z > z_theirs - 1.0:
 			near_theirs += 1
-	_check(near_ours >= 5 and near_theirs >= 5 and near_ours + near_theirs >= art.rattle_spots.size() * 0.95, "wire pickets in front of each line (%d ours, %d theirs of %d rattle spots)" % [near_ours, near_theirs, art.rattle_spots.size()])
+	_check(near_ours >= 5 and near_theirs >= 5, "wire pickets in front of each line (%d ours, %d theirs of %d rattle spots; the rest are the short belts out in the middle)" % [near_ours, near_theirs, art.rattle_spots.size()])
 	# the H.Q. is at the front edge of the world, in their rear trench
 	var xf := m.exit_transform()
 	_check(xf.origin.z < 3.0 and m.theirs.has(m.exit_cell) and m.kind[m.exit_cell] == "comm", "the H.Q. portal at the end of their rear communication trench (z %.1f)" % xf.origin.z)
 	m.queue_free()
 	await _frames(1)
+
+
+# --- cover (M3) ---------------------------------------------------------------------------------
+func _cover() -> void:
+	print("-- cover")
+	var m := _make(1916 if fixed_seed == 0 else fixed_seed)
+	var z_near := (m.their_row0 + TrenchMaze.GRID_D) * m.cell
+	var z_far := m.our_row0 * m.cell
+	var n := 0
+	var chest_deep := 0
+	var head_under := 0
+	var walkable := 0
+	var worst_slope := 0.0
+	var depths: Array[float] = []
+	for cr: Vector4 in m.crater_list:
+		if cr.y < z_near or cr.y > z_far or cr.z < 2.2:
+			continue
+		n += 1
+		var floor_y := m.floor_height(Vector3(cr.x, 0, cr.y))
+		# the rim: the highest ground within 0.9-1.3 radii, in eight directions
+		var rim := -99.0
+		var steep := 0.0
+		for k in 8:
+			var dir := Vector2(cos(k * TAU / 8.0), sin(k * TAU / 8.0))
+			# (the slope over a stride, 0.6 m: a 0.2 m step across the bilinear
+			# heightfield's diagonals reads a third steeper than the surface is)
+			var ys: Array[float] = [floor_y]
+			var dist := 0.0
+			while dist < cr.z * 1.4:
+				dist += 0.2
+				var px := cr.x + dir.x * dist
+				var pz := cr.y + dir.y * dist
+				if m._sample(m.sdf, px, pz) < 0.6:
+					break                    # into a trench (a sap's post by the wire): not the hole's wall
+				var y := m.floor_height(Vector3(px, 0, pz))
+				ys.append(y)
+				if ys.size() > 3:
+					steep = maxf(steep, absf(y - ys[ys.size() - 4]) / 0.6)
+				if dist > cr.z * 0.9:
+					rim = maxf(rim, y)
+		var cover := rim - floor_y
+		depths.append(cover)
+		if cover >= 1.25:
+			chest_deep += 1
+		if cover >= FpsPlayer.CROUCH_EYE + 0.15:
+			head_under += 1
+		if steep < tan(deg_to_rad(45.0)):
+			walkable += 1
+		else:
+			print("      steep hole at (%.1f, %.1f) r %.1f depth %.2f: %.0f degrees; nearest trench floor %.1f m, on a ramp %s, in the wire %s" % [cr.x, cr.y, cr.z, cr.w, rad_to_deg(atan(steep)), m._nearest(cr.x, cr.y).d, not m.ramp_at(Vector3(cr.x, 0, cr.y)).is_empty(), m.wire_at(cr.x, cr.y)])
+		worst_slope = maxf(worst_slope, steep)
+	var dsum := 0.0
+	for dd in depths:
+		dsum += dd
+	print("      %d holes 2.2 m and more across in No Man's Land; floor to rim %.2f m on average; %d chest-deep (1.25 m+), %d a crouched head under the rim, %d with every wall under 45 degrees over a stride (steepest %.0f; the player climbs 50)" % [n, dsum / maxi(n, 1), chest_deep, head_under, walkable, rad_to_deg(atan(worst_slope))])
+	_check(n >= 25, "enough holes to move between (%d)" % n)
+	_check(chest_deep >= n * 0.75, "most are chest-deep: real cover standing")
+	_check(head_under >= n * 0.8, "most hide a crouched man's head")
+	_check(walkable == n, "every hole can be walked into and out of (no wall steeper than 45 degrees over a stride; the player climbs 50)")
+	m.queue_free()
+	await _frames(1)
+	# the crouch itself, on a real floor
+	await _new_game(1916 if fixed_seed == 0 else fixed_seed)
+	var p: FpsPlayer = game.player
+	var eye0: float = p.camera.position.y
+	_check(is_equal_approx(eye0, FpsPlayer.STAND_EYE) and p.crouch == 0.0, "standing: eye at %.2f m" % eye0)
+	_key(KEY_CTRL, true)
+	for i in 30:
+		await get_tree().physics_frame
+	_check(p.crouch > 0.99 and absf(p.camera.position.y - FpsPlayer.CROUCH_EYE) < 0.01 and absf(p._capsule.height - FpsPlayer.CROUCH_H) < 0.01, "Ctrl held: crouched, eye %.2f m, capsule %.2f m" % [p.camera.position.y, p._capsule.height])
+	_check(absf(p.chest_height() - 0.8) < 0.01 and absf(p.eye_height() - FpsPlayer.CROUCH_EYE) < 0.01, "his chest and eye are reported lower for whoever aims at him")
+	# pace: half (the speed asked of the body, so a wall in the way does not count)
+	_key(KEY_W, true)
+	for i in 20:
+		await get_tree().physics_frame
+	var crouched_pace := Vector2(p.velocity.x, p.velocity.z).length()
+	_key(KEY_W, false)
+	_key(KEY_CTRL, false)
+	for i in 30:
+		await get_tree().physics_frame
+	_check(p.crouch == 0.0 and is_equal_approx(p.camera.position.y, FpsPlayer.STAND_EYE), "let go: standing again")
+	_key(KEY_W, true)
+	for i in 20:
+		await get_tree().physics_frame
+	var pace := Vector2(p.velocity.x, p.velocity.z).length()
+	_key(KEY_W, false)
+	_check(crouched_pace < pace * 0.6 and crouched_pace > 1.0, "crouched he moves at %.1f m/s against %.1f walking" % [crouched_pace, pace])
+
+
+# --- wire (M3) ------------------------------------------------------------------------------------
+func _wire() -> void:
+	print("-- wire")
+	var m := _make(1916 if fixed_seed == 0 else fixed_seed)
+	# the layer: no top cell in the wire; the gaps are open
+	var bad := 0
+	var gap_cells := 0
+	for b: Dictionary in m.wire_belts:
+		var band := m.belt_band(b)
+		for c: Vector2i in m.top_cells:
+			var cx := (c.x + 0.5) * m.cell
+			var cz := (c.y + 0.5) * m.cell
+			if cx < b.x0 or cx > b.x1 or cz < band.x or cz > band.y:
+				continue
+			var in_gap := false
+			for gx: float in b.gaps:
+				if absf(cx - gx) < FrontMaze.WIRE_GAP:
+					in_gap = true
+			if in_gap:
+				gap_cells += 1
+			else:
+				bad += 1
+	print("      %d belts (%d short ones in the middle), %d cells taken out for the wire, %d gap cells left in" % [m.wire_belts.size(), m.wire_belts.size() - 2, m.wire_cells.size(), gap_cells])
+	_check(bad == 0 and m.wire_cells.size() > 40, "no top cell in the wire")
+	_check(gap_cells >= 6, "the gaps are open ground")
+	# the brains' way across goes through a gap
+	var a := m.cell_center(m.theirs.keys()[0])
+	var way := m.path(a, m.cell_center(m.start_cell))
+	var through_wire := 0
+	for pt: Vector3 in way:
+		if m.wire_at(pt.x, pt.z):
+			through_wire += 1
+	_check(way.size() > 30 and through_wire == 0, "a path from their lines to our start never crosses the wire (%d points)" % way.size())
+	m.queue_free()
+	await _frames(1)
+	# the collision: into the belt, and through a gap
+	await _new_game(1916 if fixed_seed == 0 else fixed_seed)
+	var fm := game.maze as FrontMaze
+	var p: FpsPlayer = game.player
+	var belt: Dictionary = fm.wire_belts[0]           # ours
+	# a stretch with no gap within 8 m
+	var x := 0.0
+	var found := false
+	for xi in range(4, int(fm.w * fm.cell) - 4):
+		x = float(xi)
+		var clear := true
+		for gx: float in belt.gaps:
+			if absf(x - gx) < 4.5:
+				clear = false
+		if clear:
+			found = true
+			break
+	_check(found, "a stretch of our belt with no gap near (x %.0f)" % x)
+	var z_start: float = belt.z + 3.0           # behind the belt (its trench side)
+	var start := Vector3(x, 0, z_start)
+	start.y = fm.floor_height(start) + 0.1
+	p.global_position = start
+	p.velocity = Vector3.ZERO
+	p.rotation.y = 0.0                           # facing -z: into the belt
+	_key(KEY_W, true)
+	for i in 240:
+		await get_tree().physics_frame
+	_key(KEY_W, false)
+	var went := start.z - p.global_position.z
+	_check(went > 1.0 and went < 5.0 and p.global_position.z > fm.belt_band(belt).x - 0.3, "walking into the belt for 4 s he is held at it (%.1f m on, the wire from %.1f to %.1f m)" % [went, belt.z + 3.0 - fm.belt_band(belt).y, belt.z + 3.0 - fm.belt_band(belt).x])
+	# through a gap: the one in front of an assault ramp, from the ramp's head
+	# (a sap's gap has the sap's trench behind it)
+	var gx0 := 0.0
+	var head := Vector2.ZERO
+	for r: Dictionary in fm.assault_ramps:
+		if r.dir.y == -1:
+			gx0 = (r.cell.x + 0.5) * fm.cell
+			head = r.head
+			break
+	start = Vector3(gx0, 0, head.y - 1.0)
+	start.y = fm.floor_height(start) + 0.1
+	p.global_position = start
+	p.velocity = Vector3.ZERO
+	p.rotation.y = 0.0
+	_key(KEY_W, true)
+	for i in 240:
+		await get_tree().physics_frame
+	_key(KEY_W, false)
+	went = start.z - p.global_position.z
+	_check(went > 7.0, "through the gap at x %.1f he walks on (%.1f m)" % [gx0, went])
+
+
+# --- crossing (M3) --------------------------------------------------------------------------------
+func _crossing() -> void:
+	print("-- crossing")
+	await _new_game(1916 if fixed_seed == 0 else fixed_seed)
+	var m := game.maze as FrontMaze
+	var p: FpsPlayer = game.player
+	# the player at the head of our first assault ramp, on the top
+	var ramp: Dictionary = {}
+	for r: Dictionary in m.assault_ramps:
+		if r.dir.y == -1:
+			ramp = r
+			break
+	var head: Vector2 = ramp.head
+	p.global_position = Vector3(head.x, 0, head.y - 1.5)
+	p.global_position.y = m.floor_height(p.global_position) + 0.1
+	p.velocity = Vector3.ZERO
+	# one rifleman in their fire trench, the rest gone
+	var runner: Clown = null
+	for c: Clown in game.clowns:
+		if runner == null and m.theirs.has(m.cell_of(c.global_position)) and c.has_rifle and not (c is Rattlejack) and not (c is Zornhauptmann) and not (c is Klappersoldat):
+			runner = c
+		else:
+			c.queue_free()
+	game.clowns.clear()
+	if runner == null:
+		_check(false, "no rifleman in their lines to send")
+		return
+	game.clowns.append(runner)
+	# put him on their fire step side, by a bay
+	var bay := Vector2i(-1, -1)
+	for c: Vector2i in m.bays:
+		if m.theirs.has(c):
+			bay = c
+			break
+	runner.global_position = m.cell_center(bay) + Vector3(0, 0, -0.4)
+	runner.global_position.y = m.floor_height(runner.global_position)
+	await _frames(3)
+	var brain: ClownBrain = runner.get_node("Brain")
+	brain.use_cover = false
+	var d0 := runner.global_position.distance_to(p.global_position)
+	brain.alert(p.global_position)
+	var t := 0.0
+	var closest := d0
+	var in_wire := 0
+	var up_top := 0
+	var frames := 0
+	while t < 150.0:
+		await get_tree().physics_frame
+		t += 1.0 / 60.0
+		frames += 1
+		brain.alert(p.global_position, false)
+		if runner.dead:
+			break
+		var d := runner.global_position.distance_to(p.global_position)
+		closest = minf(closest, d)
+		if m.wire_at(runner.global_position.x, runner.global_position.z):
+			in_wire += 1
+		if m.on_top(runner.global_position):
+			up_top += 1
+		if d < 12.0:
+			break
+	print("      from %.0f m: closest %.1f m after %.0f s; %d of %d frames up on the open ground, %d in the wire" % [d0, closest, t, up_top, frames, in_wire])
+	_check(d0 > 70.0, "he started across No Man's Land (%.0f m)" % d0)
+	_check(closest < 25.0, "he came over the top and across to within rifle range of the player (riflemen stop to shoot)")
+	_check(up_top > 60, "crossing the open ground")
+	_check(in_wire == 0, "never through the wire")
 
 
 # --- game ----------------------------------------------------------------------------------
@@ -443,6 +694,29 @@ func _views() -> void:
 	await _shot("no_mans_land")
 	cam.look_at(Vector3(nml.x, nml.y - 1.0, m.our_row0 * m.cell))
 	await _shot("looking_back")
+	# (M3) down in a shell hole, crouched, the rim and their line beyond it
+	var best := Vector4.ZERO
+	for cr: Vector4 in m.crater_list:
+		if cr.z > 3.0 and cr.y > (m.their_row0 + TrenchMaze.GRID_D) * m.cell + 20.0 and cr.y < m.our_row0 * m.cell - 20.0 and (best == Vector4.ZERO or absf(cr.x - m.w * m.cell * 0.5) < absf(best.x - m.w * m.cell * 0.5)):
+			best = cr
+	if best != Vector4.ZERO:
+		var hole := Vector3(best.x, 0, best.y + best.z * 0.3)
+		hole.y = m.floor_height(hole) + FpsPlayer.CROUCH_EYE
+		cam.global_position = hole
+		cam.look_at(Vector3(best.x, hole.y + 0.3, (m.their_row0 + TrenchMaze.GRID_D) * m.cell))
+		await _shot("shell_hole")
+		hole.y = m.floor_height(hole) + FpsPlayer.STAND_EYE
+		cam.global_position = hole
+		cam.look_at(Vector3(best.x, hole.y - 0.4, (m.their_row0 + TrenchMaze.GRID_D) * m.cell))
+		await _shot("shell_hole_standing")
+	# (M3) our wire, from the open ground in front of it, looking along the belt
+	var wz: float = m.wire_belts[0].z - 4.0
+	var wire_at := Vector3(m.w * m.cell * 0.2, 0, wz)
+	wire_at.y = m.floor_height(wire_at) + 1.65
+	cam.global_position = wire_at
+	var belt_z: float = m.wire_belts[0].z
+	cam.look_at(Vector3(m.w * m.cell * 0.8, wire_at.y - 0.8, belt_z - 1.0))
+	await _shot("wire")
 	# their fire trench, from the foot of a ramp
 	if not down_ramp.is_empty():
 		var f: Vector2 = down_ramp.foot

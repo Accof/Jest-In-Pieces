@@ -1,7 +1,7 @@
 class_name FpsPlayer
 extends CharacterBody3D
-## First-person player. WASD move, Shift sprint, mouse look, left click fire,
-## R reload, 1 pistol, 2 shotgun, 3 submachine gun, 4 stake gun, 6 rifle,
+## First-person player. WASD move, Shift sprint, Ctrl (or C) crouch, mouse
+## look, left click fire, R reload, 1 pistol, 2 shotgun, 3 submachine gun, 4 stake gun, 6 rifle,
 ## 7 revolver, F flashlight,
 ## G god mode (no damage; for testing).
 ## L every eligible Zornhauptmann kill is a Last Defiance (for testing).
@@ -136,6 +136,17 @@ var _shell_left := -1.0         # shotgun: seconds until the next shell is in
 var _look := Vector2.ZERO
 var camera: Camera3D
 var flashlight: SpotLight3D
+## Crouching (hold Ctrl or C): the capsule shrinks to CROUCH_H, the eye drops
+## to CROUCH_EYE, the pace halves; he stands again only where there is
+## headroom. `crouch` is 0 standing .. 1 down. In a shell hole it keeps his
+## head under the rim (Operation Drowned Front, Milestone 3).
+const STAND_H := 1.8
+const CROUCH_H := 1.2
+const STAND_EYE := 1.65
+const CROUCH_EYE := 1.05
+var crouch := 0.0
+var _capsule: CapsuleShape3D
+var _capsule_shape: CollisionShape3D
 var _cooldown := 0.0
 var _shot_id := 0
 var _label: Label
@@ -182,10 +193,12 @@ func _ready() -> void:
 	var cs := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
 	cap.radius = 0.3
-	cap.height = 1.8
+	cap.height = STAND_H
 	cs.shape = cap
-	cs.position.y = 0.9
+	cs.position.y = STAND_H * 0.5
 	add_child(cs)
+	_capsule = cap
+	_capsule_shape = cs
 	camera = Camera3D.new()
 	camera.position.y = 1.65
 	camera.fov = 80.0
@@ -372,8 +385,10 @@ func _physics_process(delta: float) -> void:
 	if mount:
 		input = Vector3.ZERO                     # hands on the gun
 	var dir := (global_basis * input.normalized())
-	var s: float = (sprint_speed if Input.is_key_pressed(KEY_SHIFT) and ads < 0.5 else speed) * stats.speed * (0.75 if weapon == MAXIM else 1.0)
+	_tick_crouch(delta)
+	var s: float = (sprint_speed if Input.is_key_pressed(KEY_SHIFT) and ads < 0.5 and crouch < 0.5 else speed) * stats.speed * (0.75 if weapon == MAXIM else 1.0)
 	s *= lerpf(1.0, ads_slow, ads)
+	s *= lerpf(1.0, 0.5, crouch)
 	var want := Vector2(dir.x, dir.z) * s
 	var flat := Vector2(velocity.x, velocity.z)
 	var rate := accel if want.length() > flat.length() + 0.01 else decel
@@ -382,6 +397,44 @@ func _physics_process(delta: float) -> void:
 	velocity.z = flat.y
 	velocity.y = velocity.y - 9.8 * delta if not is_on_floor() else 0.0
 	move_and_slide()
+
+
+## Hold Ctrl or C to crouch. Standing up needs headroom (a dugout roof, a
+## footbridge overhead): the standing capsule is tried where he is first.
+func _tick_crouch(delta: float) -> void:
+	var want := (Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_C)) and not mount
+	if not want and crouch > 0.0 and not _headroom():
+		want = true
+	var goal := 1.0 if want else 0.0
+	if is_equal_approx(crouch, goal):
+		return
+	crouch = move_toward(crouch, goal, delta * 7.0)
+	var h := lerpf(STAND_H, CROUCH_H, crouch)
+	_capsule.height = h
+	_capsule_shape.position.y = h * 0.5
+	camera.position.y = lerpf(STAND_EYE, CROUCH_EYE, crouch)
+
+
+## Room to stand up where he is?
+func _headroom() -> bool:
+	var q := PhysicsShapeQueryParameters3D.new()
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.28
+	cap.height = STAND_H - 0.02
+	q.shape = cap
+	q.transform = Transform3D(Basis.IDENTITY, global_position + Vector3.UP * (STAND_H * 0.5 + 0.02))
+	q.collision_mask = LAYER_WORLD
+	q.exclude = [get_rid()]
+	return get_world_3d().direct_space_state.intersect_shape(q, 1).is_empty()
+
+
+## Where his eye is, and his chest, allowing for a crouch (for whoever aims at him).
+func eye_height() -> float:
+	return lerpf(STAND_EYE, CROUCH_EYE, crouch)
+
+
+func chest_height() -> float:
+	return lerpf(1.25, 0.8, crouch)
 
 
 func select_weapon(w: int) -> void:

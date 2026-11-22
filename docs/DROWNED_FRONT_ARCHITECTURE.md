@@ -176,6 +176,8 @@ filtering: none beyond distance attenuation and `AudioStreamPlayer3D` defaults.
 |---|---|---|
 | `scripts/world/front/front_maze.gd` | `FrontMaze extends TrenchMaze` | `generate()`: two scratch `TrenchMaze._layout()`s merged (`_merge`, theirs through a 180° turn), `facing{}`, `ours{}`/`theirs{}`, assault ramps (`_assault_candidates`, `_assault_ramps`), `_finish_front()` (graph, ramps, bridges, depths, carve, top layer, **then** the route), `timing{}`. Facing-aware overrides listed in D-02. `cells_far_from` walks the A* graph (ramps and the top included). |
 | `scripts/world/front/front_art.gd` | `FrontArt extends TrenchArt` | `build()` → `super.build()`; overrides `_parapets`, `_fire_steps`, `_wire` (+ `_wire_belt`), `_no_mans_land`, `_mist`. |
+| (M3) `FrontMaze.wire_belts` / `wire_at()` / `wire_cells` | | the wire plan; cells under it leave the top layer in the `_top_layer` override; `FrontArt._wire_body` (`LAYER_RAMP`) stops the player. Shell holes: cosine bowl + lip in the `_carve` copy, deeper-wins merge. |
+| (M3) `FpsPlayer.crouch`, `eye_height()`, `chest_height()` | | Ctrl/C crouch; the brains do not read the heights yet (M6). |
 | `scripts/world/exit_door.gd` | `ExitDoor` | the [E] door on SURVIVAL floors (M1 follow-up). |
 | `scripts/game/game.gd` | | `next_floor()`: `FrontMaze` when outdoor and SURVIVAL, `TrenchMaze` when outdoor and the legacy rule, `Maze` otherwise; no `TrenchBattle` on a `FrontMaze`; a `Drowned Front: …` build line printed. |
 | `scenes/play_front.tscn` (`scripts/dev/play_front.gd`) | | straight into the Front (`seed=`, `floor=`, `god`, `perf=`). |

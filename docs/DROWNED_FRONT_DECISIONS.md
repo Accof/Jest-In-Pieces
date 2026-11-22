@@ -144,13 +144,36 @@ Add a record whenever a choice closes a door.
   Land is all top cells, so `Maze.path`/`path_cells` carry the player's route and the brains across
   it unchanged (D-05 resolved: option (a), the cell grid, at zero new code; its cost is one plain
   A* over ~2,900 nodes).
-- **Flank routes exist.** The fire trench spans x = 2…29 of 32, so the two edge columns join the
-  ground behind it to No Man's Land: a route can go up an ordinary ramp behind the fire trench and
-  round its end instead of over the top (13 of 80 ways in the 40-seed test). Kept for now as a
-  second route; Milestone 3 decides whether wire closes the flanks or shapes them.
+- **Flank routes** existed in M2 (round the end of a fire trench along the edge of the world).
+  **M3: the wire closes them.** Each front belt runs the full width to the world's edge; the only
+  ways through are its gaps (D-15).
 - **The legacy battle is not run on the Front** (`TrenchBattle`, `TrenchField`, `TrenchFog`, its
   pace and encounters): they place the enemy, the field and the fog by the legacy's single front.
   The Front's soldiers keep their own `ClownBrain` behaviour until the director (M6–M9). The
   ambience (`TrenchAmbience`: wind, far guns, shells, drips) comes with the art and does run.
 - **Enemy placement:** `FrontMaze.cells_far_from` returns trench cells only (never the open
   ground), two in three in the enemy network. Counts are the legacy's (15 + officer on floor 3).
+
+### D-15 · Wire is a real barrier, shell holes are real cover, the player can crouch — decided (M3)
+- **Wire.** `FrontMaze.wire_belts` is the plan (two full-width belts in front of the lines with a
+  gap at every sap's observation post and every assault ramp; three to five short belts out in the
+  middle). The plan drives both the look (`FrontArt._wire_belt`) and the game: the cells under a
+  belt are taken out of the top layer (`_top_layer` override), so the brains path through the gaps
+  like the player; each run of wire between two post positions and each coil gets a collision box
+  on `LAYER_RAMP`, so it stops the **player only** — sight and rounds pass, as through real wire.
+  A blown-out picket still blocks (its strands lie tangled); only a gap is open, and no run or coil
+  is laid across one. Enemies are not stopped by the collision (their layer); they avoid the wire by
+  pathing, which is the same thing in practice. The flank routes of M2 are closed by this.
+- **Shell holes.** No Man's Land's holes are 2.2–4.5 m across the rim and 0.9–1.7 m deep (small
+  ones mixed in), a **cosine bowl** with a low wide lip: the wall is never steeper than about 38°
+  for any depth, so a man walks in and out, and the floor is chest-deep for a standing man and hides
+  a crouched man's head (test: 57 holes, 45 chest-deep, 46 head-under, all walkable). Where holes
+  run into one another the deeper bowl wins (min), lips max — summing them made 50° walls. The
+  legacy parabola profile is unchanged for the legacy level.
+- **Crouch.** `FpsPlayer`: hold Ctrl or C; capsule 1.8 → 1.2 m, eye 1.65 → 1.05 m, pace halved, no
+  sprint; stands only with headroom (a shape check). `eye_height()` and `chest_height()` report the
+  crouched figures for whoever aims at him — **not yet used by `ClownBrain`** (it still aims at
+  +1.25 m and looks for the head at +1.5 m); that hook is Milestone 6's, with the MG arcs, so that
+  crouching behind a rim really hides him from an MG and a rifleman alike.
+- **Enemy cover in holes** (ducking into a crater under fire, crater-to-crater dashes) is the
+  director's (M7–M9), on the field soldier's pattern; M3 only guarantees they can cross.

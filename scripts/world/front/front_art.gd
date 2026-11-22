@@ -84,28 +84,29 @@ func _fire_steps() -> void:
 			_box("step_planks", planks, Vector3(cx, base + h * 0.5, z_edge - f * 0.01), Basis(), Vector3(x1 - x0, h + 0.05, 0.04))
 
 
-## A wire belt in front of each fire trench: two rows of pickets and the
-## strands between, concertina along the front, gaps where the saps go out
-## and where the assault ramps come up.
+## The wire, from the maze's plan (FrontMaze.wire_belts): a belt in front of
+## each fire trench (two rows of pickets, strands, concertina), gaps where the
+## saps go out and the assault ramps come up, and short broken belts out in
+## the middle. Each run of wire between two standing pickets, and each coil,
+## gets a collision box the player cannot pass (LAYER_RAMP: him only, so sight
+## and rounds go through); the brains path round it (the maze took its cells
+## out of the top layer).
+var _wire_body: StaticBody3D
+
+
 func _wire() -> void:
-	var m := maze
 	if front == null:
 		super._wire()
 		return
+	_wire_body = StaticBody3D.new()
+	_wire_body.name = "WireCollision"
+	_wire_body.collision_layer = Maze.LAYER_RAMP
+	_wire_body.collision_mask = 0
+	add_child(_wire_body)
 	var lines := PackedVector3Array()
 	var cols := PackedColorArray()
-	for f in [-1, 1]:
-		var gaps: Array[float] = []
-		for l: Dictionary in m.landmarks:
-			if l.kind == "op" and front.facing_of(l.cell) == f:
-				gaps.append((l.cell.x + 0.5) * m.cell)
-		for r: Dictionary in front.assault_ramps:
-			if r.dir.y == f:
-				gaps.append((r.cell.x + 0.5) * m.cell)
-		# the block's front edge: our block starts at our_row0 (its front is
-		# that row's z), theirs ends at their_row0 + GRID_D
-		var z0 := front.our_row0 * m.cell if f == -1 else (front.their_row0 + TrenchMaze.GRID_D) * m.cell
-		_wire_belt(lines, cols, z0, f, gaps)
+	for b: Dictionary in front.wire_belts:
+		_wire_belt(lines, cols, b)
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/wire_sway.gdshader")
 	var arrays := []
@@ -123,27 +124,45 @@ func _wire() -> void:
 	_wire_lines = lines
 
 
-## One belt in front of the block whose front edge is at z0: rows 0.4 m
-## behind and 1.2 m beyond it, coils 2.6 m out (f = -1: out is -z, our block;
-## f = +1: out is +z, theirs). TrenchArt._wire's geometry, turned by f.
-func _wire_belt(lines: PackedVector3Array, cols: PackedColorArray, z0: float, f: int, gap_x: Array[float]) -> void:
-	var m := maze
+func _wire_block(a: Vector3, b: Vector3, height: float, thick: float) -> void:
+	var along := b - a
+	along.y = 0.0
+	var length := along.length()
+	if length < 0.2:
+		return
+	var u := along / length
+	var basis := Basis(u, Vector3.UP, u.cross(Vector3.UP))
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(length, height, thick)
+	cs.shape = box
+	cs.transform = Transform3D(basis, (a + b) * 0.5 + Vector3.UP * height * 0.5)
+	_wire_body.add_child(cs)
+
+
+## One belt (TrenchArt._wire's geometry, laid along the belt's rows). A
+## picket blown out leaves its strands tangled on the ground: it still stops
+## a man, so the collision runs post position to post position; only a gap
+## (a sap's, a ramp's) is open, and no run of wire or coil is laid across one.
+func _wire_belt(lines: PackedVector3Array, cols: PackedColorArray, b: Dictionary) -> void:
 	var picket := _mat("iron", 1.6)
-	var x0 := -6.0
-	var x1 := m.w * m.cell + 6.0
-	for row in 2:
-		# TrenchArt's rows are at z = 0.4 and -1.2 (the second further out, toward
-		# -z); here that is measured from z0, out along f
-		var z := z0 - f * (0.4 - row * 1.6)
-		var posts: Array[Vector3] = []
-		var x := x0 + row * 1.2
-		while x < x1:
+	var f: int = b.f
+	var gaps: Array = b.gaps
+	for row in int(b.rows):
+		var z: float = b.z + f * row * FrontMaze.WIRE_ROW
+		var posts: Array[Vector3] = []          # the standing pickets' tops (INF: none here)
+		var feet: Array[Vector3] = []           # every post position, gap or not
+		var in_gap: Array[bool] = []
+		var x: float = b.x0 + row * 1.2
+		while x < b.x1:
 			var gap := false
-			for sx in gap_x:
-				if absf(x - sx) < 2.2:
+			for sx: float in gaps:
+				if absf(x - sx) < FrontMaze.WIRE_GAP:
 					gap = true
-			var p := Vector3(x + rng.randf_range(-0.3, 0.3), 0, z + rng.randf_range(-0.35, 0.35))
+			var p := Vector3(x + rng.randf_range(-0.3, 0.3), 0, z + rng.randf_range(-0.3, 0.3))
 			p.y = height_at(p.x, p.z)
+			feet.append(p)
+			in_gap.append(gap)
 			if gap or rng.randf() < 0.08:
 				posts.append(Vector3.INF)
 			else:
@@ -156,29 +175,49 @@ func _wire_belt(lines: PackedVector3Array, cols: PackedColorArray, z0: float, f:
 			x += rng.randf_range(2.2, 2.8)
 		for i in posts.size() - 1:
 			var a := posts[i]
-			var b := posts[i + 1]
-			if a == Vector3.INF or b == Vector3.INF:
-				continue
-			for k in 3:
-				if rng.randf() < 0.15:
-					continue
-				var fr: float = [1.0, 0.65, 0.3][k]
-				var pa := Vector3(a.x, lerpf(height_at(a.x, a.z), a.y, fr), a.z)
-				var pb := Vector3(b.x, lerpf(height_at(b.x, b.z), b.y, fr), b.z)
-				_strand(lines, cols, pa, pb, rng.randf_range(0.05, 0.25))
-			if rng.randf() < 0.7:
-				_strand(lines, cols, a, Vector3(b.x, height_at(b.x, b.z) + 0.1, b.z), 0.1)
-	var zc := z0 + f * 2.6
-	var x := x0
-	while x < x1:
-		var length := rng.randf_range(4.0, 8.0)
-		var gap := false
-		for sx in gap_x:
-			if absf(x + length * 0.5 - sx) < 4.0:
-				gap = true
-		if not gap and rng.randf() < 0.85:
-			_coil(lines, cols, Vector3(x, 0, zc + rng.randf_range(-0.4, 0.4)), length, rng.randf_range(0.35, 0.5))
-		x += length + rng.randf_range(0.5, 2.5)
+			var c := posts[i + 1]
+			if a != Vector3.INF and c != Vector3.INF:
+				for k in 3:
+					if rng.randf() < 0.15:
+						continue
+					var fr: float = [1.0, 0.65, 0.3][k]
+					var pa := Vector3(a.x, lerpf(height_at(a.x, a.z), a.y, fr), a.z)
+					var pb := Vector3(c.x, lerpf(height_at(c.x, c.z), c.y, fr), c.z)
+					_strand(lines, cols, pa, pb, rng.randf_range(0.05, 0.25))
+				if rng.randf() < 0.7:
+					_strand(lines, cols, a, Vector3(c.x, height_at(c.x, c.z) + 0.1, c.z), 0.1)
+			# the wire on the ground between two posts stops a man, unless either
+			# post is in a gap (the way through)
+			if not in_gap[i] and not in_gap[i + 1]:
+				_wire_block(feet[i], feet[i + 1], 1.1, 0.25)
+	if b.coil:
+		var zc: float = b.z + f * (FrontMaze.WIRE_ROW * (int(b.rows) - 1) + FrontMaze.WIRE_COIL)
+		var x: float = b.x0
+		while x < b.x1:
+			var length := minf(rng.randf_range(4.0, 8.0), b.x1 - x)
+			if rng.randf() < 0.85 and length > 1.5:
+				# the segment, less any gap it crosses
+				var pieces: Array = [[x, x + length]]
+				for sx: float in gaps:
+					var cut: Array = []
+					for seg: Array in pieces:
+						var g0: float = sx - FrontMaze.WIRE_GAP - 0.2
+						var g1: float = sx + FrontMaze.WIRE_GAP + 0.2
+						if seg[1] <= g0 or seg[0] >= g1:
+							cut.append(seg)
+						else:
+							if seg[0] < g0:
+								cut.append([seg[0], g0])
+							if seg[1] > g1:
+								cut.append([g1, seg[1]])
+					pieces = cut
+				var zz := zc + rng.randf_range(-0.3, 0.3)
+				for seg: Array in pieces:
+					if seg[1] - seg[0] < 1.2:
+						continue
+					_coil(lines, cols, Vector3(seg[0], 0, zz), seg[1] - seg[0], rng.randf_range(0.35, 0.5))
+					_wire_block(Vector3(seg[0], height_at(seg[0], zz), zz), Vector3(seg[1], height_at(seg[1], zz), zz), 0.9, 0.9)
+			x += length + rng.randf_range(0.5, 2.5)
 
 
 ## No Man's Land is between the networks now: its dead trees and the wrecked
