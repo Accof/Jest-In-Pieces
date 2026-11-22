@@ -75,6 +75,15 @@ static func tex(name_: String) -> Texture2D:
 	return load("res://art/trench/%s.png" % name_)
 
 
+## Bounced light (SDFGI): the sunlit wall and parapet light the shadowed side
+## and the floor, so the trench is lit from one side and from above rather
+## than by an even fill, and the floor is lit by what it can actually see.
+## With it on the baked "deeper is darker" sky visibility is left off (the GI
+## does that occlusion itself). Costs GPU time: switch off here (or NO_GI=1)
+## if frame rate suffers; the even fill is then used as before.
+static var bounce_light := not OS.has_environment("NO_GI")
+
+
 ## Where the light comes from: low, behind the storm cloud, over No Man's
 ## Land (the sky shader's light_dir; the sun shines along -LIGHT_DIR).
 const LIGHT_DIR := Vector3(-0.45, 0.32, -0.83)
@@ -101,7 +110,15 @@ static func make_environment() -> Environment:
 	# and the baked sky visibility takes it away lower down
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_sky_contribution = 1.0
-	env.ambient_light_energy = 1.05             # (was 0.75: lifted so the trench floor shows its detail)
+	env.ambient_light_energy = 1.0 if bounce_light else 1.05   # (was 0.75: lifted so the trench floor shows its detail)
+	if bounce_light:
+		env.sdfgi_enabled = true
+		env.sdfgi_use_occlusion = true
+		env.sdfgi_read_sky_light = true
+		env.sdfgi_cascades = 4
+		env.sdfgi_min_cell_size = 0.15
+		env.sdfgi_energy = 1.5
+		env.sdfgi_bounce_feedback = 0.6
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 1.0
@@ -190,7 +207,7 @@ static func make_camera_attributes() -> CameraAttributesPractical:
 	ca.auto_exposure_scale = 0.4
 	ca.auto_exposure_speed = 0.5
 	ca.auto_exposure_min_sensitivity = 95.0
-	ca.auto_exposure_max_sensitivity = 260.0      # looking down into the trench, the eye opens up more
+	ca.auto_exposure_max_sensitivity = 280.0 if bounce_light else 260.0   # looking down into the trench, the eye opens up more
 	return ca
 
 
@@ -199,7 +216,7 @@ static func make_camera_attributes() -> CameraAttributesPractical:
 ## shadow.
 static func setup_sun(sun: DirectionalLight3D) -> void:
 	sun.light_color = Color(0.82, 0.86, 0.94)
-	sun.light_energy = 0.85
+	sun.light_energy = 1.2 if bounce_light else 0.85   # (with the bounce, more of it reaches the floor indirectly)
 	sun.light_specular = 0.08            # overcast: no hard sun glints on the water
 	sun.light_angular_distance = 2.5
 	sun.light_volumetric_fog_energy = 0.35
@@ -239,6 +256,8 @@ func ground_material() -> ShaderMaterial:
 	mat.set_shader_parameter("floor_a", load("res://art/trench/polyhaven/brown_mud_03_diff_2k.png"))
 	mat.set_shader_parameter("floor_n", load("res://art/trench/polyhaven/brown_mud_03_nor_gl_2k.png"))
 	mat.set_shader_parameter("floor_ard", load("res://art/trench/polyhaven/brown_mud_03_ard_2k.png"))
+	if bounce_light:
+		mat.set_shader_parameter("sky_occlusion", 0.0)
 	_ground_mat = mat
 	return mat
 
@@ -256,6 +275,8 @@ func _share_sky() -> void:
 			sm.set_shader_parameter("sky_origin", org)
 			sm.set_shader_parameter("sky_size", size)
 			sm.set_shader_parameter("sky_on", true)
+			if bounce_light:
+				sm.set_shader_parameter("sky_occlusion", 0.0)
 
 
 ## How broken-down the ground is around each point (vertex A, 0..1): the

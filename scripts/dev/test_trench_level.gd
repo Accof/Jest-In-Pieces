@@ -2725,6 +2725,19 @@ func _light() -> void:
 		var occ := 0.6
 		var ex := 1.0
 		var ms := 260.0
+		var gi := 1.0 if TrenchArt.bounce_light else 0.0
+		var ge := 1.5
+		var sun := 1.2 if TrenchArt.bounce_light else 0.85
+		if TrenchArt.bounce_light:
+			amb = 1.0
+			occ = 0.0
+			ms = 280.0
+		if v == "old" or v == "fill":
+			gi = 0.0
+			sun = 0.85
+			amb = 1.05
+			occ = 0.6
+			ms = 260.0
 		if v == "old":
 			fd = 0.4
 			sf = 0.12
@@ -2743,11 +2756,23 @@ func _light() -> void:
 					"occ": occ = float(p[1])
 					"exp": ex = float(p[1])
 					"ms": ms = float(p[1])
+					"gi": gi = float(p[1])
+					"ge": ge = float(p[1])
+					"sun": sun = float(p[1])
 		for sm in ground:
 			sm.set_shader_parameter("floor_darkness", fd)
 			sm.set_shader_parameter("sky_floor", sf)
 			sm.set_shader_parameter("sky_occlusion", occ)
 		env.tonemap_exposure = ex
+		env.sdfgi_enabled = gi > 0.5
+		env.sdfgi_use_occlusion = true
+		env.sdfgi_read_sky_light = true
+		env.sdfgi_min_cell_size = 0.15
+		env.sdfgi_cascades = 4
+		env.sdfgi_energy = ge
+		env.sdfgi_bounce_feedback = 0.6
+		for l in game.find_children("*", "DirectionalLight3D", true, false):
+			(l as DirectionalLight3D).light_energy = sun
 		for sm in props:
 			sm.set_shader_parameter("sky_floor", sf)
 			sm.set_shader_parameter("sky_occlusion", occ)
@@ -2757,5 +2782,5 @@ func _light() -> void:
 		for name_: String in views:
 			cam.global_position = views[name_][0]
 			cam.look_at(views[name_][1])
-			await _frames(40)
+			await _frames(40 if gi < 0.5 else 150)
 			await _shot("light_%s_%s" % [name_, v.replace("=", "").replace(",", "_").replace(".", "")])
