@@ -368,6 +368,263 @@ func _no_mans_land() -> void:
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		mi.position = Vector3(cr.x, bottom + cr.w * 0.35, cr.y)
 		add_child(mi)
+	_dressing(z_near, z_far)
+	call_deferred("_bodies", z_near, z_far)
+
+
+## The litter of No Man's Land (package §C; M4 gate iteration): shattered
+## trees and stumps in clusters, lone screw pickets and tangles of loose
+## wire, ruined timber and duckboard, a gun pit or two with its wreck, kit
+## dropped where men fell, sandbags blown off the lips, a ruin or two for a
+## landmark. Thickest in the band in front of our wire, where the player
+## looks at it most. Nothing here has collision (the wire belts and the
+## holes are the field's real obstacles, D-14), so M3's routes stand.
+func _dressing(z_near: float, z_far: float) -> void:
+	var w := maze.w * maze.cell
+	var bark := _plain("bark", Color(0.13, 0.115, 0.1), 0.9)
+	var wood := _mat("timber", 0.8)
+	var board := _mat("board", 1.0)
+	var planks := _mat("planks_wet", 1.0)
+	var rust := _plain("rust", Color(0.2, 0.15, 0.11), 0.85, 0.3)
+	var burlap := _mat("burlap", 0.5)
+	var bag_mesh := _bag_mesh()
+	var near_band := z_far - 30.0                       # our side of the field: the view from our parapet
+	# a point on the field, weighted toward the near band
+	var spot := func() -> Vector3:
+		var z := rng.randf_range(z_near, z_far) if rng.randf() < 0.4 else rng.randf_range(near_band, z_far)
+		return Vector3(rng.randf_range(-8.0, w + 8.0), 0, z)
+	# --- the wood: clusters of stumps and shattered trees (a copse that was)
+	for k in 9:
+		var c: Vector3 = spot.call()
+		var r := rng.randf_range(5.0, 11.0)
+		for i in rng.randi_range(4, 9):
+			var a := rng.randf() * TAU
+			var q := c + Vector3(cos(a), 0, sin(a)) * sqrt(rng.randf()) * r
+			if rng.randf() < 0.35:
+				_dead_tree(q, bark, rng.randf_range(2.0, 6.0))
+			else:
+				_stump(q, bark)
+	for i in 24:                                          # and strays
+		_stump(spot.call(), bark)
+	# --- lone pickets, some still carrying a strand, and the tangles
+	var lines := PackedVector3Array()
+	var cols := PackedColorArray()
+	var picket := _plain("picket_iron", Color(0.14, 0.12, 0.1), 0.7, 0.5)
+	for i in 70:
+		var q: Vector3 = spot.call()
+		q.y = height_at(q.x, q.z)
+		var h := rng.randf_range(0.7, 1.4)
+		var tilt := Basis(Vector3(rng.randf_range(-1, 1), 0, rng.randf_range(-1, 1)).normalized(), rng.randf_range(0.0, 0.5))
+		_box("pickets", picket, q + tilt * Vector3.UP * (h * 0.5 - 0.15), tilt, Vector3(0.05, h, 0.05))
+		if rng.randf() < 0.4:
+			var q2 := q + Vector3(rng.randf_range(-3.0, 3.0), 0, rng.randf_range(-3.0, 3.0))
+			q2.y = height_at(q2.x, q2.z) + rng.randf_range(0.1, 0.6)
+			_strand(lines, cols, q + tilt * Vector3.UP * h * rng.randf_range(0.5, 0.9), q2, rng.randf_range(0.2, 0.6))
+	for i in 50:
+		_tangle(lines, cols, spot.call(), rng.randf_range(0.6, 1.6))
+	_lines_mesh("LooseWire", lines, cols)
+	# --- ruined timber: beams, planks, a splintered duckboard here and there
+	for i in 60:
+		var q: Vector3 = spot.call()
+		q.y = height_at(q.x, q.z)
+		var yaw := Basis(Vector3.UP, rng.randf() * TAU)
+		var length := rng.randf_range(1.2, 3.2)
+		var tilt := yaw * Basis(Vector3.RIGHT, rng.randf_range(-0.35, 0.35))
+		var m: Material = [wood, board, planks][rng.randi() % 3]
+		if rng.randf() < 0.3:                             # a duckboard, half sunk
+			for sx in [-0.28, 0.28]:
+				_box("nml_timber", wood, q + tilt * Vector3(sx, 0.02, 0), tilt, Vector3(0.06, 0.06, length))
+			var n := int(length / 0.14)
+			for k in n:
+				if rng.randf() < 0.75:
+					_box("nml_planks", planks, q + tilt * Vector3(0, 0.06, -length * 0.5 + (k + 0.5) * 0.14), tilt, Vector3(0.62, 0.025, 0.11))
+		else:
+			var sz := Vector3(rng.randf_range(0.1, 0.22), rng.randf_range(0.08, 0.2), length)
+			_box("nml_timber", m, q + tilt * Vector3(0, sz.y * 0.3, 0), tilt, sz)
+	# --- gun pits: a ring of thrown-up earth and bags round a wrecked piece
+	for i in 2:
+		var c: Vector3 = spot.call()
+		c.y = height_at(c.x, c.z)
+		var yaw := rng.randf() * TAU
+		for k in 14:
+			var a := yaw + k * TAU / 14.0 + rng.randf_range(-0.1, 0.1)
+			if rng.randf() < 0.3:
+				continue
+			var q := c + Vector3(cos(a), 0, sin(a)) * rng.randf_range(2.6, 3.4)
+			q.y = height_at(q.x, q.z)
+			var bb := Basis(Vector3.UP, a + PI * 0.5).rotated(Vector3.UP, rng.randf_range(-0.3, 0.3))
+			_add("bags", bag_mesh, burlap, Transform3D(bb.scaled_local(Vector3(rng.randf_range(0.85, 1.05), rng.randf_range(0.8, 1.05), 1.0)), q + Vector3.UP * TrenchArt.BAG.y * 0.3))
+		var lb := Basis(Vector3.UP, yaw) * Basis(Vector3.FORWARD, rng.randf_range(0.2, 0.6))
+		_box("nml_wood", wood, c + lb * Vector3(0, 0.45, 0), lb, Vector3(0.9, 0.6, 1.4))
+		var barrel := CylinderMesh.new()
+		barrel.top_radius = 0.07
+		barrel.bottom_radius = 0.11
+		barrel.height = 2.2
+		barrel.radial_segments = 10
+		_add("gun_barrels", barrel, rust, Transform3D(lb * Basis(Vector3.RIGHT, PI * 0.5 + 0.3), c + lb * Vector3(0, 0.8, 0.9)))
+		_wheel(c + lb * Vector3(0.9, 0.55, -0.2), lb * Basis(Vector3.FORWARD, PI * 0.5), wood)
+		_wheel(c + Vector3(rng.randf_range(-2.5, 2.5), 0.08, rng.randf_range(-2.5, 2.5)), Basis(Vector3.UP, rng.randf() * TAU), wood)
+		for k in 4:
+			_thing("helmet", _ground_xf(c + Vector3(rng.randf_range(-3.0, 3.0), 0, rng.randf_range(-3.0, 3.0))))
+	# --- kit where men fell: helmets most of all, a rifle, a stretcher, tins, a reel
+	for i in 50:
+		_thing("helmet", _ground_xf(spot.call()))
+	for i in 10:
+		var xf := _ground_xf(spot.call())
+		_thing("rifle", Transform3D(xf.basis * Basis(Vector3.RIGHT, -PI * 0.5 + rng.randf_range(0.15, 0.4)), xf.origin))
+	for i in 3:
+		var xf := _ground_xf(spot.call())
+		_thing("stretcher", Transform3D(xf.basis * Basis(Vector3.RIGHT, -PI * 0.5 + rng.randf_range(0.1, 0.3)), xf.origin))
+	for i in 8:
+		_thing("tins", _ground_xf(spot.call()))
+	for i in 3:
+		_thing("reel", _ground_xf(spot.call()))
+	for i in 5:
+		_thing("blanket", _ground_xf(spot.call()))
+	# --- sandbags blown off the lips, lying where they fell
+	for i in 50:
+		var q: Vector3 = spot.call()
+		q.y = height_at(q.x, q.z)
+		var bb := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.25, 0.25))
+		_add("bags", bag_mesh, burlap, Transform3D(bb.scaled_local(Vector3(rng.randf_range(0.85, 1.05), rng.randf_range(0.8, 1.05), 1.0)), q + Vector3.UP * TrenchArt.BAG.y * 0.25))
+	# --- a landmark: the footings of a farm building, knocked down to the sills
+	var brick := _plain("old_brick", Color(0.22, 0.18, 0.15), 0.95)
+	var c := Vector3(rng.randf_range(6.0, w - 6.0), 0, rng.randf_range(z_near + 20.0, z_far - 20.0))
+	_cottage_ruin(c, Basis(Vector3.UP, rng.randf() * TAU), brick)
+
+
+## What is left of a cottage: broken walls no higher than a man's chest,
+## most of them gone to the footings, rubble about.
+func _cottage_ruin(at: Vector3, face: Basis, mat: Material) -> void:
+	var w := rng.randf_range(6.0, 9.0)
+	var dpt := rng.randf_range(4.0, 6.0)
+	at.y = height_at(at.x, at.z) - 0.25
+	for side in 4:
+		var along := face * (Vector3.RIGHT if side % 2 == 0 else Vector3.BACK)
+		var length := w if side % 2 == 0 else dpt
+		var off := face * (Vector3(0, 0, dpt * 0.5) if side == 0 else Vector3(0, 0, -dpt * 0.5) if side == 2 else Vector3(w * 0.5, 0, 0) if side == 1 else Vector3(-w * 0.5, 0, 0))
+		var n := int(length / 1.2)
+		for k in n:
+			if rng.randf() < 0.25:
+				continue
+			var t := (k + 0.5) / n - 0.5
+			var hh := rng.randf_range(0.3, 1.6) * (1.0 if rng.randf() < 0.7 else 1.6)
+			var cpos := at + off + along * t * length + Vector3.UP * hh * 0.5
+			_box("cottage", mat, cpos, Basis(along.cross(Vector3.UP), Vector3.UP, along).orthonormalized(), Vector3(0.45, hh, length / n + 0.03))
+	for k in 10:
+		var q := at + face * Vector3(rng.randf_range(-w, w) * 0.7, 0, rng.randf_range(-dpt, dpt) * 0.7)
+		var sz := rng.randf_range(0.3, 0.9)
+		_box("cottage", mat, q + Vector3.UP * sz * 0.15, Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.3, 0.3)), Vector3(sz, sz * 0.4, sz * 0.7))
+
+
+## A prop's transform on the open ground: on the field, facing a random way.
+func _ground_xf(at: Vector3) -> Transform3D:
+	at.y = height_at(at.x, at.z)
+	return Transform3D(Basis(Vector3.UP, rng.randf() * TAU), at)
+
+
+## What is left of a tree: a short trunk, split and splintered at the top.
+func _stump(p: Vector3, bark: Material) -> void:
+	p.y = height_at(p.x, p.z) - 0.15
+	var h := rng.randf_range(0.4, 1.5)
+	var tilt := Basis(Vector3(rng.randf_range(-1, 1), 0, rng.randf_range(-1, 1)).normalized(), rng.randf_range(0.0, 0.25))
+	var tr := CylinderMesh.new()
+	tr.top_radius = rng.randf_range(0.14, 0.26)
+	tr.bottom_radius = rng.randf_range(0.28, 0.45)
+	tr.height = h
+	tr.radial_segments = 8
+	tr.rings = 1
+	_add("stumps_%d" % int(h * 4.0), tr, bark, Transform3D(tilt, p + tilt * Vector3.UP * h * 0.5))
+	for k in rng.randi_range(2, 4):
+		var dir := (tilt * Vector3(cos(k * 1.7 + p.z), rng.randf_range(0.6, 1.6), sin(k * 1.7 + p.z))).normalized()
+		var length := rng.randf_range(0.25, 0.9)
+		_box("splinters", bark, p + tilt * Vector3.UP * h + dir * length * 0.5, Basis.looking_at(dir, Vector3.UP if absf(dir.y) < 0.9 else Vector3.RIGHT), Vector3(0.06, 0.06, length))
+
+
+## A tangle of loose wire: a few loops thrown about a point, lying on the
+## ground and standing up off it.
+func _tangle(lines: PackedVector3Array, cols: PackedColorArray, at: Vector3, size: float) -> void:
+	var g := height_at(at.x, at.z)
+	var u := Vector3(rng.randf_range(-1, 1), rng.randf_range(0.0, 0.5), rng.randf_range(-1, 1)).normalized()
+	var v := u.cross(Vector3.UP).normalized()
+	var loops := rng.randi_range(3, 7)
+	var prev := Vector3.INF
+	var steps := loops * 14
+	for i in steps + 1:
+		var t := float(i) / steps
+		var a := t * loops * TAU
+		# the axis wanders so the loops do not stack
+		var uu := (u + Vector3(sin(t * 5.0), 0.0, cos(t * 3.7)) * 0.4).normalized()
+		var vv := uu.cross(Vector3.UP).normalized()
+		var r := size * (0.6 + 0.4 * sin(t * 9.0 + at.x))
+		var p := at + (uu * cos(a) + vv * sin(a)) * r + Vector3(0, size * 0.5 * (1.0 + sin(a)), 0) * 0.5 + Vector3(t - 0.5, 0, 0) * size
+		var gy := height_at(p.x, p.z)
+		p.y = maxf(p.y - at.y + g, gy + 0.04)
+		if prev != Vector3.INF:
+			lines.append(prev)
+			cols.append(Color(0.4, 0, 0))
+			lines.append(p)
+			cols.append(Color(0.4, 0, 0))
+		prev = p
+
+
+func _lines_mesh(name_: String, lines: PackedVector3Array, cols: PackedColorArray) -> void:
+	if lines.is_empty():
+		return
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/wire_sway.gdshader")
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = lines
+	arrays[Mesh.ARRAY_COLOR] = cols
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
+	var mi := MeshInstance3D.new()
+	mi.name = name_
+	mi.mesh = am
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(mi)
+
+
+## The dead of earlier attacks: WitzSoldats as they fell, in and about the
+## holes and along the wire, the game's own bodies (corpses from the start:
+## no kill to count, every gore system as it is). Made a frame after the
+## world, as the ragdolls need the ground under them.
+const BODIES := 18
+var bodies: Array[Clown] = []
+func _bodies(z_near: float, z_far: float) -> void:
+	if not is_inside_tree():
+		return
+	await get_tree().physics_frame
+	var w := maze.w * maze.cell
+	for i in BODIES:
+		var at: Vector3
+		if i % 3 == 0 and not maze.crater_list.is_empty():       # in a hole
+			var cr: Vector4 = maze.crater_list[rng.randi() % maze.crater_list.size()]
+			var a := rng.randf() * TAU
+			at = Vector3(cr.x + cos(a) * cr.z * rng.randf_range(0.0, 0.8), 0, cr.y + sin(a) * cr.z * rng.randf_range(0.0, 0.8))
+		elif i % 3 == 1 and not front.wire_belts.is_empty():     # at the wire
+			var b: Dictionary = front.wire_belts[rng.randi() % front.wire_belts.size()]
+			at = Vector3(rng.randf_range(2.0, w - 2.0), 0, float(b.z) + rng.randf_range(-2.5, 2.5))
+		else:
+			at = Vector3(rng.randf_range(0.0, w), 0, rng.randf_range(z_near, z_far))
+		if at.z < z_near or at.z > z_far:
+			continue
+		at.y = height_at(at.x, at.z) + 0.35
+		var c := Clown.new()
+		c.body = "witzsoldat"
+		add_child(c)
+		c.global_position = at
+		c.rotation.y = rng.randf() * TAU
+		if rng.randf() < 0.5:                                      # already down
+			c.rotation.x = PI * 0.5 * (1.0 if rng.randf() < 0.5 else -1.0)
+			c.global_position.y += 0.4
+		bodies.append(c)
+	await get_tree().physics_frame
+	for c in bodies:
+		if is_instance_valid(c):
+			c.make_corpse()
 
 
 ## The ground mist over the whole front, No Man's Land thickest.

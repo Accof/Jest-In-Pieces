@@ -766,6 +766,15 @@ func _atmos() -> void:
 		var from := bk.pos + Vector3(-bk.radius - 2.0, 1.5, 0)
 		var to := bk.pos + Vector3(bk.radius + 2.0, 1.5, 0)
 		cut = ffog.visibility(from, to)
+	# the dead of earlier attacks lie out there, already dead, not enemies
+	await _frames(4)
+	var fart: FrontArt = game.maze.get_node_or_null("Art") as FrontArt
+	var dead_ok := fart != null and fart.bodies.size() >= 10
+	if fart:
+		for c: Clown in fart.bodies:
+			if not is_instance_valid(c) or not c.dead or game.clowns.has(c):
+				dead_ok = false
+	_check(dead_ok, "the field's dead: %d bodies, all corpses, none counted as enemies (%d enemies)" % [fart.bodies.size() if fart else 0, game.clowns.size()])
 	_check(ffog != null and ffog.banks.size() >= 2 and cut < 0.6, "the rolling fog: %d banks on the field at load, a line through the first gets %.2f of the way" % [ffog.banks.size() if ffog else 0, cut])
 	game.next_floor()
 	await _frames(2)

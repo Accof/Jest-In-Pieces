@@ -493,11 +493,9 @@ third against the same bands of (b) and (c)):
   the volumetric mist and the shadow blur all look different on a real GPU, and the Mac's
   colour management (Display P3) will shift it again. **Please judge it live on the Mac**, not
   only from these PNGs; the fixed cameras are reproducible there (`play_front -- god seed=1916`).
-- **No near-field debris.** Broken trees, stumps, timber, tangles of loose wire and litter in
-  No Man's Land are the thing the reference has most of and we have least of: the field is
-  heightfield + holes + the planned wire belts + a few posts. That is prop placement (the
-  package's "battlefield dressing"), not atmosphere; it would change the look materially, so I
-  flag it now rather than after approval.
+- **Debris is now there (gate iteration, above), but it is box-and-cylinder dressing** from the
+  legacy prop kit, not scanned or modelled wreckage: good at 10 m and in the haze, crude at 1 m.
+  The reference's mirror puddle with reflections is SSR's job on the Mac.
 - **One profile, no regions yet.** Our trench, No Man's Land, their trench and the H.Q. share
   the environment; the mist is thicker over No Man's Land, that is all. Region profiles,
   transitions, wind-driven banks and flare light are director work (M7+). The visibility model
@@ -541,6 +539,19 @@ third against the same bands of (b) and (c)):
   gets 0.08 of the way). Base mist 0.08 → 0.12, e-folding height 0.9 → 1.4 m, ×2.6 over the field;
   drifting smoke 5 → 8 patches, 16 billows each, 8 m. Shots with a bank crossing:
   `gate_b_panorama_fogbank.png`, `gate_d_silhouettes_fogbank.png`. Legacy `TrenchFog` untouched.
+
+- **22 Nov, Andrew: "yes" to the field dressing.** `FrontArt._dressing()` + `_bodies()` (package §C
+  "No Man's Land", owed from M2/M3): 9 clusters of stumps and shattered trees + 24 strays; 70 lone
+  screw pickets (40% still carrying a strand) and 50 tangles of loose wire (`_tangle`, lines on the
+  wire shader, cosmetic — no collision, D-14 stands); 60 pieces of ruined timber/duckboard; 2 gun
+  pits (bag ring, wrecked carriage, barrel, wheels, helmets); kit — 50 helmets, 10 rifles, 3
+  stretchers, tins, reels, blankets; 50 sandbags blown off the lips; one cottage ruin knocked down
+  to chest height (`_cottage_ruin`; the legacy `_ruined_block` was tried first and made a 9 m
+  tower-block skyline — out); **18 WitzSoldat corpses** (`Clown.make_corpse()`, the game's own
+  bodies: in and about the holes, along the wire, half already prone; dead from the start, not in
+  `game.clowns`, every gore system as it is; test: ≥10 bodies, all corpses, enemy count unchanged).
+  60% of everything lands in the 30 m band in front of our wire. Nothing new collides, so M3's
+  routes stand (`crossing` + `game` sections pass). All five shots re-taken.
 
 ### Acceptance (package F, row 4)
 - [x] Green-grey lighting, fog, smoke, wet surfaces, silhouettes built as separate profile.
