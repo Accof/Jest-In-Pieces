@@ -1341,8 +1341,19 @@ func _fire(dist: float) -> bool:
 	var end := aim_at if hit else aim_at + Vector3(randf_range(-0.7, 0.7), randf_range(-0.4, 0.6), randf_range(-0.7, 0.7))
 	if hit:
 		player.take_damage(gun_damage, (aim_at - from).normalized())
+	else:
+		_miss_lands(from, (end - from).normalized(), dist + 12.0)
 	_tracer(from, from + (end - from).normalized() * (dist + 2.0))
 	return hit
+
+
+## A round that missed goes on into the world: where it lands kicks up (M5).
+## Cosmetic only - the hit roll above is the damage authority, as before.
+func _miss_lands(from: Vector3, dir: Vector3, reach: float) -> void:
+	var q := PhysicsRayQueryParameters3D.create(from, from + dir * reach, LAYER_WORLD)
+	var h := clown.get_world_3d().direct_space_state.intersect_ray(q)
+	if not h.is_empty():
+		Impacts.bullet(h, dir, {name = "EnemyRifle", damage = gun_damage}, 1.0)
 
 
 func _tracer(from: Vector3, to: Vector3) -> void:

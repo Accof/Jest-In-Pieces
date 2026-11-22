@@ -486,6 +486,7 @@ func _clear_floor() -> void:
 	clowns.clear()
 	base = null
 	Blood.clear()
+	Impacts.clear()
 
 
 ## The killcam has come back to full speed on the last body: the coroner's

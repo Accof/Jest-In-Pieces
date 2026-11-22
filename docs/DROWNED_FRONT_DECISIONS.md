@@ -91,7 +91,12 @@ Add a record whenever a choice closes a door.
   `TrenchBattle`'s pace/encounter code is the model, not the host: the legacy class stays as is.
   Damaging fire and cosmetic fire are different code paths, never the same actor flipping.
 
-### D-07 · Surface impacts: one manager, metadata first — decided in principle (Milestone 5)
+### D-07 · Surface impacts: one manager, metadata first — **decided and built (Milestone 5, 22 Nov)**
+- As built: autoload `Impacts` (`scripts/fx/surface_impacts.gd`); `surface` meta on the
+  CollisionShape3D first, then the body; the heightfield via `TrenchMaze.surface_at` + crater pools;
+  bunker walls concrete by their body; 7 responses (mud, earth, wood, concrete, metal, sandbag/wattle,
+  water); hooks in the player's ray, the soldiers' misses, the Rattlejack, explosions; budgets 240
+  marks / 40 + 28 emitters / 6 bursts a frame / 45–90 m LOD. Damage code untouched.
 - `SurfaceImpactManager` (autoload or a child of the world) receives `(position, normal, dir,
   surface, weapon, energy, penetrated)` from `FpsPlayer.shoot_ray`'s world branch, the enemy raycasts
   and the mounted gun. Surface comes from collider meta (`surface = "mud"|"wood"|"concrete"|"metal"|
@@ -178,7 +183,7 @@ Add a record whenever a choice closes a door.
 - **Enemy cover in holes** (ducking into a crater under fire, crater-to-crater dashes) is the
   director's (M7–M9), on the field soldier's pattern; M3 only guarantees they can cross.
 
-### D-16 · One atmosphere profile for the Front, and one visibility model — proposed (M4, awaiting the visual gate)
+### D-16 · One atmosphere profile for the Front, and one visibility model — **approved 22 Nov** (five gate iterations; baseline `docs/reference/approved_atmosphere/`, tag `drowned_front_approved_atmosphere`; the look does not change again without a new approval)
 - **A separate profile, not a tint.** `FrontAtmosphere` (`scripts/world/front/front_atmosphere.gd`)
   owns the Front's `Environment`, `CameraAttributes` and sun; `Game._apply_floor_look()` picks it
   only when the floor is outdoor **and** the maze is a `FrontMaze`. `_bunker_env`, the base, the

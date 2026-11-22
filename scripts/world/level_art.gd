@@ -43,6 +43,7 @@ func build(m: Maze) -> void:
 	bunker_style = m.theme == "bunker"
 	_props = StaticBody3D.new()
 	_props.collision_layer = LAYER_WORLD
+	_props.set_meta(&"surface", "wood")          # the bunker's crates and furniture (Impacts, M5); the walls are concrete by their body
 	_props.collision_mask = 0
 	add_child(_props)
 	for i in m.route.size():
@@ -513,7 +514,7 @@ func _rooms() -> void:
 		if bunker_style:
 			# a concrete column holding up the middle, steel beams off it
 			_box_faces("wall_conc", Vector3(mid.x, (lo.y + ceil) * 0.5, mid.z), Vector3(0.55, ceil - lo.y, 0.55))
-			_collider(Vector3(0.55, ceil - lo.y, 0.55), Transform3D(Basis.IDENTITY, Vector3(mid.x, (lo.y + ceil) * 0.5, mid.z)))
+			_collider(Vector3(0.55, ceil - lo.y, 0.55), Transform3D(Basis.IDENTITY, Vector3(mid.x, (lo.y + ceil) * 0.5, mid.z)), "concrete")
 			for b: Basis in [Basis.IDENTITY, Basis(Vector3.UP, PI * 0.5)]:
 				_add_multi("ibeam", Transform3D(b.scaled_local(Vector3(Maze.CELL * 2.0, 0.26, 0.18)), Vector3(mid.x, ceil - 0.13, mid.z)))
 			for c: Vector2i in cells:
@@ -589,7 +590,7 @@ func _entrance(low: Vector2i, high: Vector2i, dir: Vector2i) -> void:
 		for side: float in [-1.0, 1.0]:
 			var p := front + along * side * (w + 0.25)
 			_box_faces("wall_conc", Vector3(p.x, (tf + lb + 0.4) * 0.5, p.z) + dv * 0.1, Vector3(0.5, lb + 0.4 - tf, 0.5) * (Vector3.ONE - dv.abs()) + dv.abs() * 0.5)
-			_collider(Vector3(0.5, lb + 0.4 - tf, 0.5), Transform3D(Basis.IDENTITY, Vector3(p.x, (tf + lb + 0.4) * 0.5, p.z) + dv * 0.1))
+			_collider(Vector3(0.5, lb + 0.4 - tf, 0.5), Transform3D(Basis.IDENTITY, Vector3(p.x, (tf + lb + 0.4) * 0.5, p.z) + dv * 0.1), "concrete")
 			_bulb(Vector3(p.x, tf + 2.25, p.z) + dv * 0.45, true)
 		_add_multi("ibeam", Transform3D(Basis(along, Vector3.UP, along.cross(Vector3.UP)).scaled_local(Vector3(w * 2.0 + 1.2, 0.32, 0.3)), Vector3(front.x, lb + 0.12, front.z) + dv * 0.12))
 	else:
@@ -635,7 +636,7 @@ func _portals() -> void:
 					var size := along.abs() * 0.4 + dv.abs() * 0.55 + Vector3.UP * (y1 - y0)
 					var ctr := Vector3(p.x, (y0 + y1) * 0.5, p.z)
 					_box_faces("wall_conc", ctr, size)
-					_collider(size, Transform3D(Basis.IDENTITY, ctr))
+					_collider(size, Transform3D(Basis.IDENTITY, ctr), "concrete")
 				var hb := Basis(along, Vector3.UP, along.cross(Vector3.UP))
 				_add_multi("ibeam", Transform3D(hb.scaled_local(Vector3(Maze.CELL, 0.34, 0.3)), Vector3(edge.x, y1 - 0.17, edge.z)))
 
@@ -685,7 +686,7 @@ func _explosive(c: Vector2i) -> void:
 
 func _barrel(p: Vector3) -> void:
 	_add_multi("barrel", Transform3D(Basis(Vector3.UP, rng.randf() * TAU), p + Vector3.UP * 0.44))
-	_collider(Vector3(0.58, 0.88, 0.58), Transform3D(Basis.IDENTITY, p + Vector3.UP * 0.44))
+	_collider(Vector3(0.58, 0.88, 0.58), Transform3D(Basis.IDENTITY, p + Vector3.UP * 0.44), "metal")
 
 
 ## A bare bulb in a wire cage, hung from the ceiling on its flex.
@@ -951,12 +952,14 @@ func _light(p: Vector3, energy: float, range_: float, may_shadow: bool) -> void:
 	_lights.append([l, energy, rng.randf() * 100.0, rng.randf_range(6.0, 11.0)])
 
 
-func _collider(size: Vector3, xf: Transform3D) -> void:
+func _collider(size: Vector3, xf: Transform3D, surface := "") -> void:
 	var cs := CollisionShape3D.new()
 	var b := BoxShape3D.new()
 	b.size = size
 	cs.shape = b
 	cs.transform = xf
+	if surface != "":
+		cs.set_meta(&"surface", surface)      # what a bullet finds here (Impacts, M5)
 	_props.add_child(cs)
 
 

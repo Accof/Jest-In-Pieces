@@ -121,7 +121,9 @@ func _fire() -> void:
 	var end: Vector3 = hit.position if not hit.is_empty() else from + dir * 120.0
 	if _rounds % 3 == 0:
 		_tracer(_muzzle.global_position, end)
-	if not hit.is_empty() and not (hit.collider is PhysicalBone3D):
+	# (M5) the round's impact is drawn by Impacts from inside shoot_ray; the old
+	# generic dust stays only where that is missing
+	if not hit.is_empty() and not (hit.collider is PhysicalBone3D) and get_node_or_null("/root/Impacts") == null:
 		_dust(hit.position, hit.normal)
 	heat = minf(heat + HEAT_PER_SHOT, 1.0)
 	if heat >= 1.0:

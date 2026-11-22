@@ -1021,7 +1021,8 @@ func _rattle_shot() -> void:
 		elif c and c.has_method("shot"):
 			c.shot(hit.position, dir, death_rattle_damage)
 		else:
-			MechFx.sparks(self, hit.position, (hit.normal as Vector3), 0.35)
+			# (M5) the world: what it is made of answers
+			Impacts.bullet(hit, dir, {name = "Lewis Gun", damage = death_rattle_damage}, 1.2)
 	_tracer(from, end)
 
 

@@ -451,12 +451,14 @@ func _flush() -> void:
 	_multi.clear()
 
 
-func _collide(centre: Vector3, basis: Basis, size: Vector3) -> void:
+func _collide(centre: Vector3, basis: Basis, size: Vector3, surface := "") -> void:
 	var cs := CollisionShape3D.new()
 	var b := BoxShape3D.new()
 	b.size = size
 	cs.shape = b
 	cs.transform = Transform3D(basis, centre)
+	if surface != "":
+		cs.set_meta(&"surface", surface)      # what a bullet finds here (Impacts, M5)
 	_body.add_child(cs)
 
 
@@ -553,7 +555,7 @@ func _revetments() -> void:
 					_broken(planks, timber, foot, up, along, inn, length, h)
 			if t != "broken":
 				# collision for the lining: thin, just behind its face
-				_collide(foot + up * (h * 0.5) - inn * 0.03, basis, Vector3(length, h, 0.08))
+				_collide(foot + up * (h * 0.5) - inn * 0.03, basis, Vector3(length, h, 0.08), {"timber": "wood", "iron": "metal", "wattle": "wattle", "sandbag": "sandbag"}.get(t, "earth"))
 
 
 ## How much of a wall a lining covers, the same along a stretch of trench.
@@ -804,7 +806,7 @@ func _bunker_portal(c: Vector2i, dir: Vector2i) -> void:
 	var door := StandardMaterial3D.new()
 	door.albedo_color = Color(0.03, 0.03, 0.03)
 	_box("portal_dark", door, p + Vector3.UP * 1.05 + inward * 0.02, b, Vector3(1.15, 2.1, 0.05))
-	_collide(p + Vector3.UP * 1.25 - inward * 0.25, b, Vector3(2.6, 2.6, 0.5))
+	_collide(p + Vector3.UP * 1.25 - inward * 0.25, b, Vector3(2.6, 2.6, 0.5), "concrete")
 	var sign := Label3D.new()
 	sign.text = "H.Q. BUNKER"
 	sign.font_size = 48
@@ -870,7 +872,7 @@ func _dugout(l: Dictionary) -> void:
 				if p.x > hi.x + 0.65:
 					continue
 				_add("bags", mesh, bag, Transform3D(Basis(Vector3.UP, rng.randf_range(-0.2, 0.2)), p))
-	_collide(Vector3(mid.x, roof_y + 0.12, mid.y), Basis(), Vector3(size.x, 0.3, size.y))
+	_collide(Vector3(mid.x, roof_y + 0.12, mid.y), Basis(), Vector3(size.x, 0.3, size.y), "earth")
 	# boarded headers round the room under the roof's edge: where an earth
 	# wall leans back from the floor, they close the gap up to the roof
 	var hdr := 1.3
@@ -944,7 +946,7 @@ func _bridges() -> void:
 			# (flush with the deck: no kerb for a body to catch on going over the side)
 			var p: Vector3 = mid + side * s * (wdt * 0.5 + 0.06) - up * 0.07
 			_box("br_beams", timber, p, basis, Vector3(0.12, 0.14, length + 0.6))
-			_collide(p, basis, Vector3(0.12, 0.14, length + 0.6))
+			_collide(p, basis, Vector3(0.12, 0.14, length + 0.6), "wood")
 		# planks across, uneven: gaps, a few short or split, some sagging
 		var n := int(length / 0.21)
 		for i in n:
@@ -957,7 +959,7 @@ func _bridges() -> void:
 			var p := a.lerp(e, t) + side * shift - up * (0.03 + rng.randf_range(0.0, 0.012))
 			_box("br_planks", planks, p, bb, Vector3(lw, 0.05, 0.19))
 		# the walking surface: one smooth box for collision under the planks
-		_collide(mid - up * 0.035, basis, Vector3(wdt, 0.06, length))
+		_collide(mid - up * 0.035, basis, Vector3(wdt, 0.06, length), "wood")
 		# a sill across each end, bedded in the ground
 		for end: Vector3 in [a, e]:
 			_box("br_beams", timber, end - up * 0.12, basis, Vector3(wdt + 0.3, 0.16, 0.2))
@@ -970,10 +972,10 @@ func _bridges() -> void:
 			var p := a.lerp(e, t) + side * rs * (wdt * 0.5 - 0.04) + Vector3.UP * 0.45
 			var lean := Basis(flat, rng.randf_range(-0.05, 0.05))
 			_box("br_beams", timber, p, lean, Vector3(0.08, 0.95, 0.08))
-			_collide(p, lean, Vector3(0.08, 0.95, 0.08))
+			_collide(p, lean, Vector3(0.08, 0.95, 0.08), "wood")
 		var rail := mid + side * rs * (wdt * 0.5 - 0.04) + Vector3.UP * 0.9
 		_box("br_beams", timber, rail, basis, Vector3(0.07, 0.07, length))
-		_collide(rail, basis, Vector3(0.07, 0.07, length))
+		_collide(rail, basis, Vector3(0.07, 0.07, length), "wood")
 
 
 ## The ramps up out of the trench: boards laid up them as rough steps, a
@@ -1036,7 +1038,7 @@ func _tree(c: Vector2i) -> void:
 		var length := rng.randf_range(0.6, 1.3)
 		_box("splinters", bark, at + dir * length * 0.5, Basis.looking_at(dir, Vector3.UP if absf(dir.y) < 0.9 else Vector3.RIGHT), Vector3(0.09, 0.09, length))
 	var cs_pos := mi.position
-	_collide(cs_pos, mi.basis, Vector3(0.5, 4.6, 0.5))
+	_collide(cs_pos, mi.basis, Vector3(0.5, 4.6, 0.5), "wood")
 
 
 ## A ruined field gun in its pit: wheels, a snapped trail, the barrel down.
@@ -1072,7 +1074,7 @@ func _gun(l: Dictionary) -> void:
 	_box("gun_steel", steel, mid + b * Vector3(0, 0.75, 0.3), b * Basis(Vector3.RIGHT, -0.12), Vector3(0.18, 0.18, 2.3))
 	_box("gun_steel", steel, mid + b * Vector3(0, 0.95, -0.35), b * Basis(Vector3.RIGHT, 0.1), Vector3(1.5, 0.9, 0.04))
 	_box("gun_steel", steel, mid + b * Vector3(0.05, 0.3, -1.4), b * Basis(Vector3.UP, 0.25) * Basis(Vector3.RIGHT, 0.3), Vector3(0.14, 0.12, 1.7))
-	_collide(mid + b * Vector3(0, 0.7, 0), b, Vector3(1.6, 1.3, 1.2))
+	_collide(mid + b * Vector3(0, 0.7, 0), b, Vector3(1.6, 1.3, 1.2), "metal")
 
 
 ## The observation post at the head of a sap: sandbags round it and a periscope.
@@ -1555,14 +1557,14 @@ func _thing(kind: String, xf: Transform3D) -> void:
 			var at := p + b * Vector3(0, s.y * 0.5, -s.z * 0.5 + 0.02)
 			_box("crates", board, at, bb, s)
 			_box("crate_bands", olive, at, bb, s + Vector3(-s.x * 0.7, 0.01, 0.01))
-			_collide(at, bb, s)
+			_collide(at, bb, s, "wood")
 		"crates":
 			_thing("crate", xf)
 			_thing("crate", Transform3D(b.rotated(Vector3.UP, rng.randf_range(-0.2, 0.2)), p + Vector3.UP * 0.36))
 		"shell_box":
 			var at := p + b * Vector3(0, 0.15, -0.25)
 			_box("crates", board, at, b, Vector3(0.75, 0.3, 0.3))
-			_collide(at, b, Vector3(0.75, 0.3, 0.3))
+			_collide(at, b, Vector3(0.75, 0.3, 0.3), "wood")
 			for k in 3:
 				var cm := CylinderMesh.new()
 				cm.top_radius = 0.035
@@ -1650,7 +1652,7 @@ func _thing(kind: String, xf: Transform3D) -> void:
 					_box("rack", wood, p + b * Vector3(sx, 0.35, sz), b, Vector3(0.08, 0.7, 0.08))
 			_box("crates", board, p + b * Vector3(0, 0.55, -0.4), b, Vector3(1.8, 0.05, 0.75))
 			_box("blankets", wool, p + b * Vector3(0.1, 0.6, -0.4), b * Basis(Vector3.UP, 0.05), Vector3(1.4, 0.06, 0.6))
-			_collide(p + b * Vector3(0, 0.35, -0.4), b, Vector3(1.8, 0.7, 0.8))
+			_collide(p + b * Vector3(0, 0.35, -0.4), b, Vector3(1.8, 0.7, 0.8), "wood")
 
 
 ## Clutter where people lived and fought: kit in the dugouts, shell boxes in

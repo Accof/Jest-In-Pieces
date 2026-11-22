@@ -11,8 +11,8 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 1 | Objective separation (`ELIMINATION` / `SURVIVAL`) | **approved 22 Nov** (+ [E] door follow-up `b56bd54`) | commits `ccbbfe8`, `cbe2ac3`, `b56bd54` | approved |
 | 2 | New battlefield geometry (two networks, No Man's Land, H.Q. exit) | **done**; Andrew: "continue with the plan" (22 Nov) — his own playtest still to come | commits `663727e`, `4667339` | **user playtest** (pending) |
 | 3 | Terrain and functional cover (craters, wire, routes, enemy navigation) | **done**; Andrew: "continue" (22 Nov) — his own playtest still to come | commit `104a80e`, `5d9baaa` | user review (pending) |
-| 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | **built; AT THE GATE** — four shots + a fifth presented 22 Nov, awaiting Andrew's word | commit `f13e92c` | **HARD VISUAL APPROVAL — STOP** |
-| 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | not started | | user review |
+| 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | **APPROVED 22 Nov 22:09** — after five gate iterations on Andrew's live feedback (glint, sky, fog banks, litter, colour match, ground readability), his word: "you were right. i needed to reload the scene. Continue with the master plan" | commits `f13e92c` … `12ca5c7`; tag `drowned_front_approved_atmosphere`; `docs/reference/approved_atmosphere/` | approved |
+| 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | **done, awaiting review** | commit `M5COMMIT` | user review |
 | 6 | Core combat hazards (MG nests, suppression, artillery) | not started | | user playtest |
 | 7 | Director foundation (tension/alertness, event points, budgets, overlay) | not started | | user review |
 | 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | not started | | user playtest |
@@ -26,13 +26,11 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 numbers are to be invented). When convenient: `godot --path . res://scenes/legacy_drowned_trenches.tscn
 -- perf=30 god`, play a minute, paste the `PERF` lines here.
 
-**Next action:** the **Milestone 4 visual gate**. Andrew compares the five gate shots
-(`docs/reference/front_m4/`) and, better, the live thing on the Mac
-(`/Applications/Godot.app/Contents/MacOS/Godot --path . res://scenes/play_front.tscn -- god seed=1916`)
-with the reference, and either approves or asks for changes. On approval: the settings, the shots
-and a git tag `drowned_front_approved_atmosphere` are recorded under `docs/reference/approved_atmosphere/`
-and M5 may be authorised. Until then **nothing past M4 is started.** His M2/M3 playtest judgement is
-still open too (No Man's Land's length is one number).
+**Next action:** Andrew reviews Milestone 5 — fire every weapon at everything on the Front and in a
+bunker (`play_front -- god`, then the next floor), the Maxim in the MG-nest event, a grenade into a
+flooded hole; the material range renders in `docs/reference/front_m5/`. Milestone 6 (MG nests,
+suppression, artillery) only on his word. Still his: the Mac perf baseline (PENDING) and the M2/M3
+playtest judgement (No Man's Land's length is one number).
 
 ### Decisions taken by Andrew on 22 Nov (answers to Session Zero's questions)
 1. Performance: 60 fps at his normal development resolution; measure the real baseline on the Mac
@@ -406,7 +404,7 @@ still pending and nothing here forecloses it: No Man's Land's length is one numb
 - Fire-step bays under a bridge or at a sap keep their legacy behaviour; nothing in the trenches changed.
 - Mac performance still **PENDING**.
 
-## Milestone 4 — Reference atmosphere (22 Nov 2026) — AT THE VISUAL GATE
+## Milestone 4 — Reference atmosphere (22 Nov 2026) — APPROVED
 
 Authorised by Andrew's "continue" after M3 (taken as M4 only). The package's rule for this milestone:
 stop after it, present real screenshots against the reference, measured settings, differences,
@@ -560,7 +558,13 @@ third against the same bands of (b) and (c)):
 - [x] Green-grey lighting, fog, smoke, wet surfaces, silhouettes built as separate profile.
 - [x] Four real in-game screenshots (five) at fixed cameras, compared with the supplied image.
 - [x] Atmosphere isolation: Front env ≠ bunker env; the bunker's returns on the next floor; the legacy scene keeps TrenchArt's (checked in `test_front atmos`).
-- [ ] **Andrew's visual approval — OPEN.**
+- [x] **Andrew's visual approval — given 22 Nov 22:09** ("you were right. i needed to reload the
+  scene. Continue with the master plan"), after five gate iterations on his live feedback (the puddle
+  glint, the bland sky, no rolling fog, the bare field, "match the reference as closely as possible",
+  the black ground). Baseline recorded: `docs/reference/approved_atmosphere/` (the settings table as
+  approved, the five shots re-rendered at the approved settings, `SETTINGS.md`), tag
+  `drowned_front_approved_atmosphere` = commit `12ca5c7`. Later milestones must not change the look
+  without a new approval (D-16).
 
 ### Files
 - **`shaders/mud_terrain.gdshader` (shared with the legacy level): one new uniform `firm_tint`,
@@ -583,4 +587,83 @@ third against the same bands of (b) and (c)):
 | test_killcam `floor report`, test_game, test_events, test_base, test_curse | as baseline |
 | legacy scene | `TrenchMaze … ELIMINATION / ok`, TrenchArt environment |
 
-(Milestones 5–13: scope as in the package; detailed when authorised.)
+## Milestone 5 — Physical impacts (22 Nov 2026) — DONE, AWAITING REVIEW
+
+Authorised by Andrew's "Continue with the master plan" after the M4 approval (taken as M5 only).
+
+### What was built (D-07, package §D)
+- **`Impacts`** (autoload, `scripts/fx/surface_impacts.gd`): one manager every world hit is reported
+  to. It never touches damage — it is told after the weapon code has done its work — and answers with
+  the right thing for the surface:
+
+  | Surface | Debris | Mark | Sound |
+  |---|---|---|---|
+  | mud (saturated) | dark clods + wet spray, thrown up off the ground, along the line on a glancing hit; a dark puff | dark wet splat, smeared along a glancing round | `imp_mud` (damp thud + squelch) |
+  | earth (dry, the legacy tops) | grit, a dust puff | subtle pale mark | `imp_earth` |
+  | wood (linings, duckboards, bridges, crates) | directional splinters, a little dust | small hole with torn grain | `imp_wood` (crack) |
+  | concrete (bunker walls, portals, columns) | pale chips, dust | pale chip with a dark pit | `imp_stone` |
+  | metal (iron linings, guns, drums) | sparks (fading orange), now and then a chip | small pockmark | `imp_metal` (ring) |
+  | sandbag / wattle | grit + fibres, dust | puncture | `imp_bag` |
+  | water (flooded trench, crater pools) | droplets up, a spray puff | an expanding ripple ring, transient | `imp_water` (splash) |
+
+- **Classification, metadata first:** a `surface` meta on the CollisionShape3D (the dressers set it:
+  `TrenchArt._collide(..., surface)` on every lining by its type, bridges, ramps, crates, the gun, the
+  portal; `LevelArt._collider(..., surface)` on columns/portals = concrete, drums = metal, the prop body
+  = wood), then the body; the trench heightfield asks `TrenchMaze.surface_at()` (water / wood / mud /
+  earth; on the Front "earth" is mud — it is all saturated) plus the Front's crater pools; a bunker's
+  wall body is concrete; else earth. No node-name guessing.
+- **Hooks:** `FpsPlayer.shoot_ray` world branch (so every player weapon and the mounted Maxim, whose
+  old generic dust steps aside); `ClownBrain._fire` and the marksman's `_mark_fire` — a **miss** now
+  casts on into the world and lands (`_miss_lands`; the hit roll is the damage authority exactly as
+  before); the Rattlejack's Lewis gun; `Explosion._go` → `Impacts.blast()` (what the ground under the
+  blast is made of: a mud plume and a broad dark mark, a sheet of water and three ripples, dust off
+  concrete). Crossbow bolts stick as before (not routed).
+- **Budgets (D4):** decals in a ring of 240 (distance-faded 35–47 m), 40 one-shot debris emitters and
+  28 puff emitters in pools, 16 ripples; **6 debris bursts a frame**, beyond that a hit gets its mark
+  and sound only (`aggregated` counter); 4 sounds a frame; past 45 m from the player mark only, past
+  90 m nothing. Hit detection and damage are never throttled. `Impacts.clear()` with `Blood.clear()`
+  when a floor is torn down.
+- **Material range (D5):** `test_impacts -- range render` builds panels of every surface (real
+  colliders with their meta), fires the rifle ray at each from one spot and renders
+  `/tmp/impacts_range.png` + close-ups → `docs/reference/front_m5/`.
+
+### Tests
+| Scene | Result |
+|---|---|
+| **test_impacts** `classify` | the open field is mud; a flooded hole's bottom is water; 160 trench cells × 4 walls: wood 45, sandbag 89, wattle 36, metal 11, mud 222; a bunker's walls concrete ×48 |
+| **test_impacts** `bullets` | one round → 1 hit, 1 mark, its debris dispatched; **400 rounds in one frame: 240 marks (ring), 258 aggregated past the 6-a-frame cap, 8.6 ms**; the next floor starts clean |
+| **test_impacts** `walk` | 12 Maxim rounds walked along the ground → 12 marks in order |
+| **test_impacts** `enemy` | a soldier's miss lands and marks the ground |
+| **test_impacts** `blast` | a shell into a flooded hole → water; into the field → mud |
+| **test_impacts** `range render` | every panel answers as itself; 42 rounds; shots written |
+| test_front `geo cover wire crossing game atmos` | 0 failed |
+| test_objective | 0 failed |
+| test_trench | 0 failed |
+| test_game, test_events | no FAIL (observations as before) |
+| test_grenade | 0 failed ×2 after one failed run ("the closest come apart") — ragdoll randomness, seen before |
+
+### Honest list
+- The marks are drawn in code (48 px, three of each) — fine at play distance, soft close up. Real
+  textured decals would be an art drop-in (`_tex[surface]`).
+- Metal "dent" on props is not done (package: optional).
+- Persistent marks are bounded by the ring (240); a long fight recycles the oldest. Blood has the same
+  rule.
+- Cosmetic far gunfire (the horizon battle) is separate already and does not go through this; only
+  real rays do.
+- Impact-driven AI reactions (flinch/duck on a near impact) are deferred to M6 as the package says
+  ("in a later integration step").
+- Mac perf unmeasured (PENDING) — the budgets are by design, not by measurement.
+
+### Files
+- new `scripts/fx/surface_impacts.gd`, `shaders/ripple.gdshader`, `scripts/dev/test_impacts.gd`,
+  `scenes/test_impacts.tscn`, `docs/reference/front_m5/`; `project.godot` (autoload `Impacts`).
+- touched (additive, legacy output unchanged): `scripts/world/trench_art.gd` (`_collide` surface
+  param + 12 call sites), `scripts/world/level_art.gd` (`_collider` surface param, 4 sites, body meta),
+  `scripts/player/fps_player.gd` (world branch), `scripts/clown/clown_brain.gd` (`_miss_lands`),
+  `scripts/clown/battle_duty.gd` (marksman miss), `scripts/clown/rattlejack.gd` (world hit),
+  `scripts/events/mounted_gun.gd` (old dust steps aside), `scripts/fx/explosion.gd` (blast hook),
+  `scripts/fx/sfx_synth.gd` (7 `imp_*` placeholders), `scripts/game/game.gd` (`Impacts.clear()`).
+  `archive/.../check.sh --live` will list trench_art.gd, mud_terrain.gdshader and the others as
+  changed: this record is why.
+
+(Milestones 6–13: scope as in the package; detailed when authorised.)

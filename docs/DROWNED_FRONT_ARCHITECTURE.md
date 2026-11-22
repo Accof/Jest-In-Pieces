@@ -144,6 +144,10 @@ linings are thin `StaticBody3D` boxes made by `TrenchArt`; bunker walls are boxe
 mounted gun, classifies by (a) meta on the collider set by the dressers, (b) `surface_at` for the
 heightfield, (c) a fallback by material, and budgets its own particles and decals.
 
+**(M5, as built):** the autoload `Impacts` (`scripts/fx/surface_impacts.gd`) is that manager; see
+the tracker's M5 record and D-07 for the surfaces, hooks and budgets. The soldiers' rifles still
+roll to hit; a miss now also casts on into the world so the round lands somewhere real.
+
 ## 7. Atmosphere (Milestone 4 baseline)
 
 `TrenchArt.make_environment()`: custom `overcast_sky` shader sky (storm clouds, hidden sun

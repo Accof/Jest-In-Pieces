@@ -311,6 +311,8 @@ func _mark_fire(head: Vector3, d: float) -> void:
 		mark_hits += 1
 		end = head
 		pl.take_damage(MARK_DAMAGE, (head - from).normalized())
+	else:
+		brain._miss_lands(from, (end - from).normalized(), d + 12.0)
 	brain._tracer(from, from + (end - from).normalized() * (d + 3.0))
 
 

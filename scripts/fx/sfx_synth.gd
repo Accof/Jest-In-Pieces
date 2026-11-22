@@ -210,6 +210,21 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _thump(0.12, 110.0, 60.0, 0.035, 0.5, rng, 0.03, 0.35)
 		"splash":
 			data = _splash(0.6, rng)
+		# bullet impacts by surface (Impacts, M5; placeholders: no recordings yet)
+		"imp_mud":
+			data = _mix(_thump(0.09, 120.0, 55.0, 0.03, 0.7, rng, 0.02, 0.3), _squelch(0.12, rng))
+		"imp_earth":
+			data = _thump(0.07, 160.0, 70.0, 0.02, 0.6, rng, 0.03, 0.5)
+		"imp_wood":
+			data = _mix(_crack(0.05, rng, 0.8), _thump(0.06, 380.0, 150.0, 0.012, 0.6, rng, 0.015, 0.4))
+		"imp_stone":
+			data = _mix(_crack(0.04, rng, 1.0), _chirp(0.08, 2600.0, 1900.0, 0.25))
+		"imp_metal":
+			data = _mix(_chirp(0.22, 3100.0, 2700.0, 0.35), _crack(0.025, rng, 0.7))
+		"imp_bag":
+			data = _thump(0.08, 140.0, 60.0, 0.03, 0.5, rng, 0.04, 0.3)
+		"imp_water":
+			data = _mix(_thump(0.05, 200.0, 90.0, 0.015, 0.3, rng, 0.01, 0.1), _splash(0.22, rng))
 		"carnival_tune":
 			data = _tune(rng)
 		# the stick grenade (placeholders: no recordings yet)

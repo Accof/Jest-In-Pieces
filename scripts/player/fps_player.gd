@@ -765,6 +765,10 @@ func shoot_ray(from: Vector3, dir: Vector3, w: Dictionary, shot_id: int, also_ig
 		var pierce: int = w.get("pierce", 0)
 		if pierce > 0:
 			_pierce(c.get_meta(&"clown"), hit.position, from, dir, w, shot_id, pierce, ex)
+		return hit
+	if not (c is PhysicalBone3D):
+		# the world: the round's mark, debris and sound for what it hit (M5, D-07)
+		Impacts.bullet(hit, dir, w, clampf(float(w.get("damage", 30.0)) / 40.0, 0.5, 1.8))
 	return hit
 
 

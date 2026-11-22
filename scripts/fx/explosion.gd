@@ -106,6 +106,9 @@ func _go() -> void:
 	else:
 		_fragments(int(profile.frags))
 	_scorch()
+	# (M5) what the ground under it is made of: a plume of mud, a sheet of water, dust off concrete
+	if get_node_or_null("/root/Impacts"):
+		Impacts.blast(global_position, radius * 0.4)
 	_shake_player()
 	_hurt_player()
 	if String(profile.sound) != "":
