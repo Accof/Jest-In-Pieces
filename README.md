@@ -156,6 +156,15 @@ The war stays far off: nothing out there can hurt you.
 
 Settings on the game: `trench_every`, `trench_enemy_scale`, `trench_soldier_share`.
 
+## Operation Drowned Front (in progress)
+
+The Drowned Trenches are being rebuilt as a survival crossing (starting trenches → No Man's Land →
+enemy trenches → H.Q.), one authorised milestone at a time. The plan, architecture, decisions and
+progress are in `docs/DROWNED_FRONT_*.md`; the brief itself is `docs/DROWNED_FRONT_PACKAGE_v1.0.md`.
+The trench level as it was before the rebuild is archived in `archive/legacy_drowned_trenches/`
+(`RESTORE.md`, `check.sh --live`, `restore.sh`; git tag `legacy-drowned-trenches-baseline`) and can
+be played on its own: `godot --path . res://scenes/legacy_drowned_trenches.tscn -- [seed=N] [floor=N] [god]`.
+
 ## Steel doors
 
 Every steel door in the bunkers (up to four a floor) leads somewhere. A red sign means a set piece; amber means something odd. [E] to go in: the screen fades, the door bolts behind you, and the exit stays shut until the room is done. Rewards are tickets, health and sometimes an upgrade; doing badly just means no prize.
