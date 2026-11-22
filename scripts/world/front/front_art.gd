@@ -55,13 +55,13 @@ func ground_material() -> ShaderMaterial:
 	if front and not had:
 		mat.set_shader_parameter("dry_ground", 0.12)
 		mat.set_shader_parameter("puddles", 0.95)
-		mat.set_shader_parameter("earth_darkness", 0.28)
+		mat.set_shader_parameter("earth_darkness", 0.34)
 		mat.set_shader_parameter("wall_tint", Color(0.6, 0.5, 0.42))         # brown, not olive
-		mat.set_shader_parameter("firm_tint", Color(0.8, 0.66, 0.54))        # the field's firm ground browned (reference mud: R > G > B)
+		mat.set_shader_parameter("firm_tint", Color(0.88, 0.75, 0.63))       # the field's firm ground browned (reference mud: R > G > B)
 		mat.set_shader_parameter("floor_tint", Color(0.78, 0.68, 0.58))
 		mat.set_shader_parameter("floor_darkness", 0.4)
 		mat.set_shader_parameter("rock_darkness", 0.5)
-		mat.set_shader_parameter("brightness", 0.76)
+		mat.set_shader_parameter("brightness", 0.92)
 		mat.set_shader_parameter("water_col", Color(0.26, 0.26, 0.22))
 		mat.set_shader_parameter("puddle_col", Color(0.07, 0.07, 0.06))
 	return mat

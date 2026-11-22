@@ -53,9 +53,13 @@ static func make_environment() -> Environment:
 	var env := Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_sky_contribution = 1.0
-	env.ambient_light_energy = 0.5
+	env.ambient_light_sky_contribution = 0.3
+	# (pass 6) a fixed ambient, not the sky's: with the sky taken down to the
+	# image's weight the ambient it gave fell with it, and on the Mac the
+	# ground went black (Andrew: "really so hard to see where I'm going")
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.70, 0.68, 0.62)
+	env.ambient_light_energy = 0.85
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 0.9
@@ -84,7 +88,7 @@ static func make_environment() -> Environment:
 	env.fog_depth_begin = FOG_BEGIN
 	env.fog_depth_end = FOG_END
 	env.fog_depth_curve = 1.0
-	env.fog_aerial_perspective = 0.6
+	env.fog_aerial_perspective = 0.85    # the far posts fade into the sky behind them, not into a darker grey
 	env.fog_sky_affect = 0.6
 	# the ground mist's volume (FrontArt._mist) still needs the volumetric fog
 	env.volumetric_fog_enabled = true
@@ -145,7 +149,7 @@ static func make_camera_attributes() -> CameraAttributesPractical:
 	ca.auto_exposure_scale = 0.22
 	ca.auto_exposure_speed = 0.5
 	ca.auto_exposure_min_sensitivity = 90.0
-	ca.auto_exposure_max_sensitivity = 130.0
+	ca.auto_exposure_max_sensitivity = 190.0   # (pass 6) the eye opens more for the dark ground
 	return ca
 
 
@@ -153,7 +157,7 @@ static func make_camera_attributes() -> CameraAttributesPractical:
 ## only enough to give the ground its relief and the parapets a face.
 static func setup_sun(sun: DirectionalLight3D) -> void:
 	sun.light_color = Color(0.86, 0.88, 0.80)
-	sun.light_energy = 0.55
+	sun.light_energy = 0.8
 	sun.light_specular = 0.0             # hidden behind cloud: no glint on the water (its reflection sat right where you look down into a trench and blinded)
 	sun.light_angular_distance = 6.0
 	sun.light_volumetric_fog_energy = 0.25
