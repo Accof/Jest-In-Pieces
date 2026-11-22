@@ -211,8 +211,10 @@ func _run() -> void:
 						textured = true
 				gib_tex.append(textured)
 	_check(gib_tex.size() >= 2 and not (false in gib_tex), "every gib textured (%s)" % str(gib_tex))
-	var hm := b._helmet.get_surface_override_material(0) as BaseMaterial3D
-	_check(hm != null and hm.albedo_texture != null and hm.roughness_texture != null and hm.normal_texture != null, "the dark helmet wears the body's colour, metal/roughness and normal maps")
+	# (under his own dust and mud: Clown._grime_helmet)
+	var hm := b._helmet.get_surface_override_material(0) as ShaderMaterial
+	_check(hm != null and hm.get_shader_parameter("use_tex") and hm.get_shader_parameter("use_mr") and hm.get_shader_parameter("use_normal") \
+			and hm.get_shader_parameter("albedo_tex") == b.body_material().albedo_texture, "the dark helmet wears the body's colour, metal/roughness and normal maps")
 	var sm := b.mesh.get_surface_override_material(0) as ShaderMaterial
 	_check(sm.get_shader_parameter("use_mr") and sm.get_shader_parameter("use_normal"), "the dark body draws its metal/roughness and normal maps")
 	var sa := a.mesh.get_surface_override_material(0) as ShaderMaterial

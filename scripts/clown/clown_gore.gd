@@ -54,11 +54,16 @@ func setup(c: Clown) -> void:
 	clown = c
 	_rng.randomize()
 	# trench mud on the uniform, each man his own (the soldiers only)
+	# (Clown._roll_grime: his own amounts, matched to his helmet)
 	var mud := 0.0
 	var mud_seed := 0.0
-	if clown.spec.get("muddy", false):
-		mud = _rng.randf_range(0.55, 1.0)
-		mud_seed = _rng.randf_range(0.0, 100.0)
+	var dust := 0.0
+	var fade := Color(1, 1, 1)
+	if not clown.grime.is_empty():
+		mud = clown.grime.mud
+		mud_seed = clown.grime.seed
+		dust = clown.grime.dust
+		fade = clown.grime.fade
 	mud_level = mud
 	var m := clown.mesh.mesh
 	for i in m.get_surface_count():
@@ -92,6 +97,8 @@ func setup(c: Clown) -> void:
 			sm.set_shader_parameter("mud_amount", mud)
 			sm.set_shader_parameter("mud_seed", mud_seed)
 			sm.set_shader_parameter("mud_hem", clown.spec.get("mud_hem", 0.66))
+			sm.set_shader_parameter("dust_amount", dust)
+			sm.set_shader_parameter("cloth_fade", fade)
 		if clown.mechanical:
 			_mech_surface(sm, src)
 		clown.mesh.set_surface_override_material(i, sm)

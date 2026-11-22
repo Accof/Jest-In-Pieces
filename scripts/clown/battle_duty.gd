@@ -142,7 +142,7 @@ func tick(delta: float) -> bool:
 			if detour.is_empty():
 				crossed += 1
 		else:
-			_walk_to(detour[0], delta, brain.move_speed * (0.75 if kind == Kind.RUNNER else 0.6))
+			_walk_to(detour[0], delta, brain.move_speed * (1.0 if kind == Kind.RUNNER else 0.8))
 			# not getting there: give it up
 			if _last_pos != Vector3.INF and clown.global_position.distance_to(_last_pos) < 0.2 * delta:
 				_stuck += delta
@@ -161,22 +161,24 @@ func tick(delta: float) -> bool:
 		Kind.RUNNER:
 			_travel(delta, brain.run_speed * 0.8, 2.5, 6.0)
 		Kind.PATROL:
-			_travel(delta, brain.move_speed * 0.42, 3.0, 8.0)
+			_travel(delta, brain.move_speed * 0.58, 3.0, 8.0)
 		Kind.TRENCH_PATROL:
 			if leader != null and is_instance_valid(leader) and is_instance_valid(leader.clown) and not leader.clown.dead and leader.brain.mind == ClownBrain.Mind.IDLE:
 				_follow(delta)
 			else:
-				_travel(delta, brain.move_speed * 0.4, 2.0, 6.0)
+				_travel(delta, brain.move_speed * 0.55, 2.0, 6.0)
 		Kind.MARKSMAN:
 			_marksman(delta)
 	return true
 
 
+# (the fractions of move_speed here are set for a ~2 m/s walk: a patrol
+# ambles at ~1.2 m/s)
 # --- the duties ----------------------------------------------------------------
 func _go_back(delta: float) -> bool:
 	if _flat(post - clown.global_position).length() > 0.35:
 		clown.aim_amount = move_toward(clown.aim_amount, 0.0, delta * 3.0)
-		_walk_to(post, delta, brain.move_speed * 0.55)
+		_walk_to(post, delta, brain.move_speed * 0.75)
 		return true
 	return false
 
@@ -368,7 +370,7 @@ func _follow(delta: float) -> void:
 	var gap := _flat(spot - clown.global_position).length()
 	if gap > 0.6:
 		# falling behind: hurry
-		_walk_to(spot, delta, brain.move_speed * (0.5 if gap < 2.5 else 0.95))
+		_walk_to(spot, delta, brain.move_speed * (0.7 if gap < 2.5 else 1.25))
 	else:
 		brain._settle(delta)
 		brain._face(back, delta, 2.0)

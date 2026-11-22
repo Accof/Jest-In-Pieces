@@ -1275,8 +1275,8 @@ func officer() -> void:
 	is_officer = true
 	use_cover = false
 	can_run = false
-	move_speed = 1.8
-	run_speed = 1.8
+	move_speed = 1.5
+	run_speed = 1.5
 	gun_damage = 14.0
 	gun_range = 20.0
 	aim_time = 1.0

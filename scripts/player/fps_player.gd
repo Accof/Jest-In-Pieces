@@ -77,8 +77,16 @@ signal died
 signal fired(weapon: int)
 signal ammo_changed
 
-@export var speed := 4.5
-@export var sprint_speed := 6.4
+## A man in kit in a trench: a steady walk, a heavy run (m/s). The way the
+## enemies move is set to match (walk ~2, run ~4: see game.gd).
+@export var speed := 3.2
+@export var sprint_speed := 4.9
+## How quickly he gets going and pulls up (m/s per second): a moment of weight
+## either way, not instant.
+@export var accel := 13.0
+@export var decel := 16.0
+## Aimed down the sights he only creeps.
+@export var ads_slow := 0.55
 @export var mouse_sensitivity := 0.0022
 ## Set false when a game mode draws its own HUD text.
 @export var show_help := true
@@ -364,9 +372,14 @@ func _physics_process(delta: float) -> void:
 	if mount:
 		input = Vector3.ZERO                     # hands on the gun
 	var dir := (global_basis * input.normalized())
-	var s: float = (sprint_speed if Input.is_key_pressed(KEY_SHIFT) else speed) * stats.speed * (0.75 if weapon == MAXIM else 1.0)
-	velocity.x = dir.x * s
-	velocity.z = dir.z * s
+	var s: float = (sprint_speed if Input.is_key_pressed(KEY_SHIFT) and ads < 0.5 else speed) * stats.speed * (0.75 if weapon == MAXIM else 1.0)
+	s *= lerpf(1.0, ads_slow, ads)
+	var want := Vector2(dir.x, dir.z) * s
+	var flat := Vector2(velocity.x, velocity.z)
+	var rate := accel if want.length() > flat.length() + 0.01 else decel
+	flat = flat.move_toward(want, rate * delta)
+	velocity.x = flat.x
+	velocity.z = flat.y
 	velocity.y = velocity.y - 9.8 * delta if not is_on_floor() else 0.0
 	move_and_slide()
 

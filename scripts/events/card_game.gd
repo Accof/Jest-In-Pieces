@@ -160,9 +160,9 @@ func _react() -> void:
 			b.mode = "rifle"
 			var behind := Vector3(randf_range(-1.0, 1.0), 0, -3.8)
 			b.waypoints = [to_global(behind)] as Array[Vector3]
-			b.run_speed = 3.5
+			b.run_speed = 3.0
 		else:
-			b.run_speed = randf_range(4.5, 5.5)
+			b.run_speed = randf_range(3.9, 4.6)
 
 
 ## Sitting at the table: hips on the chair, knees bent, hands on the table.

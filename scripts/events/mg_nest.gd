@@ -220,9 +220,9 @@ func _spawn_runner(kind: String) -> void:
 		"shamble":
 			b.run_speed = randf_range(1.6, 2.4)
 		"run":
-			b.run_speed = randf_range(4.6, 6.2)
+			b.run_speed = randf_range(4.0, 5.0)
 		"soldier":
-			b.run_speed = randf_range(3.6, 4.4)
+			b.run_speed = randf_range(3.2, 3.8)
 			b.gun_damage = 9.0
 			b.accuracy = 0.32
 			b.shot_gap = Vector2(2.4, 3.6)
@@ -243,7 +243,7 @@ func _breach(c: Clown) -> void:
 	b.floor_y = global_position.y
 	b.mode = "room"
 	b.hunting = true
-	b.run_speed = 4.0
+	b.run_speed = 3.6
 	var sd := -1.0 if c.position.x < 0.0 else 1.0
 	c.global_position = global_position + Vector3(sd * 3.7, 0.4, randf_range(0.2, 1.6))
 	c.look_at(global_position + Vector3(0, 0.4, -0.5), Vector3.UP, true)

@@ -328,8 +328,11 @@ func _spawn_clown(soldier: bool, gun: bool) -> Clown:
 	brain.maze = maze
 	brain.player = player
 	brain.others = clowns
-	brain.move_speed = rng.randf_range(2.8, 3.5) + 0.06 * floor_number
-	brain.run_speed = minf(rng.randf_range(4.9, 5.8) + 0.1 * floor_number, 6.8)
+	# a walk and a run, not a jog and a sprint: about where the mocap walk
+	# (1.8 m/s) and rifle run (4.5 m/s) cycles sit, and a little under the
+	# player's own (3.2 walk, 4.9 run), so a run can just about be outrun
+	brain.move_speed = rng.randf_range(1.8, 2.3) + 0.03 * floor_number
+	brain.run_speed = minf(rng.randf_range(3.9, 4.6) + 0.05 * floor_number, 5.3)
 	if clubber:
 		brain.clubman()
 	elif soldier:
@@ -351,7 +354,7 @@ func spawn_klapper() -> Klappersoldat:
 	brain.maze = maze
 	brain.player = player
 	brain.others = clowns
-	brain.move_speed = rng.randf_range(2.8, 3.5) + 0.06 * floor_number
+	brain.move_speed = rng.randf_range(2.8, 3.5) + 0.06 * floor_number     # times its own speed_mult (0.45): already a slow clockwork walk
 	brain.run_speed = minf(rng.randf_range(4.9, 5.8) + 0.1 * floor_number, 6.8)
 	c.setup_brain(brain)
 	brain.name = "Brain"
@@ -371,8 +374,8 @@ func spawn_rattlejack() -> Rattlejack:
 	brain.maze = maze
 	brain.player = player
 	brain.others = clowns
-	brain.move_speed = rng.randf_range(2.6, 3.2) + 0.06 * floor_number      # carrying 12 kg of gun
-	brain.run_speed = minf(rng.randf_range(4.4, 5.2) + 0.1 * floor_number, 6.2)
+	brain.move_speed = rng.randf_range(1.6, 2.0) + 0.03 * floor_number      # carrying 12 kg of gun
+	brain.run_speed = minf(rng.randf_range(3.4, 4.0) + 0.05 * floor_number, 4.6)
 	c.setup_brain(brain)
 	brain.name = "Brain"
 	c.add_child(brain)
@@ -392,7 +395,7 @@ func spawn_zornhauptmann() -> Zornhauptmann:
 	brain.player = player
 	brain.others = clowns
 	c.setup_brain(brain)
-	brain.move_speed += 0.04 * floor_number
+	brain.move_speed += 0.02 * floor_number
 	brain.run_speed = brain.move_speed
 	brain.name = "Brain"
 	c.add_child(brain)

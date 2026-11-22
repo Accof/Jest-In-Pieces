@@ -225,8 +225,8 @@ func animate(delta: float, speed: float, look: Vector2) -> void:
 	_flash.light_energy = move_toward(_flash.light_energy, 0.0, delta * 90.0)
 	if _since_shot > 0.045:
 		_flash_mesh.visible = false
-	_bob_amount = move_toward(_bob_amount, clampf(speed / 4.5, 0.0, 1.4), delta * 6.0)
-	_bob += delta * (5.0 + speed * 1.3)
+	_bob_amount = move_toward(_bob_amount, clampf(speed / 3.2, 0.0, 1.4), delta * 6.0)
+	_bob += delta * (4.6 + speed * 1.35)
 	_sway = _sway.lerp(Vector2(clampf(-look.x * 0.0009, -0.05, 0.05), clampf(look.y * 0.0009, -0.05, 0.05)), clampf(delta * 9.0, 0.0, 1.0))
 	if _reload_t >= 0.0:
 		_reload_t += delta

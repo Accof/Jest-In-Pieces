@@ -61,6 +61,13 @@ uniform float mud_seed = 0.0;
 uniform float mud_hem = 0.66;            // rest-pose height of the coat's hem
 uniform vec3 mud_wet : source_color = vec3(0.085, 0.062, 0.04);
 uniform vec3 mud_dry : source_color = vec3(0.3, 0.255, 0.19);
+// Dust over the uniform (the same men): a dry pale film settled on whatever
+// faces up as he stands (shoulders, the tops of the arms, the pack, the
+// helmet's strap), dulling the cloth. 0 none .. 1 heavy.
+uniform float dust_amount = 0.0;
+uniform vec3 dust_color : source_color = vec3(0.42, 0.38, 0.31);
+// His uniform's own shade: faded by sun and washing, or still new and dark.
+uniform vec3 cloth_fade = vec3(1.0);
 uniform vec3 cut_min = vec3(1.0);
 uniform vec3 cut_max = vec3(0.0);
 
@@ -123,6 +130,25 @@ void fragment() {
 		// damp tide-mark up the legs from standing in its own seepage
 		float tide = (1.0 - smoothstep(0.35, 0.6, rest_pos.y + (noise3(rest_pos * 12.0) - 0.5) * 0.12)) * decay;
 		col = mix(col, vec3(0.16, 0.08, 0.04), tide * 0.6);
+	}
+	col *= cloth_fade;
+	float dusted = 0.0;
+	if (dust_amount > 0.0) {
+		// the rest-pose face normal (the mesh is skinned: work it out from
+		// how the rest position changes across the pixel), turned to face
+		// the same way as the drawn normal
+		vec3 rn = cross(dFdx(rest_pos), dFdy(rest_pos));
+		vec3 vn = cross(dFdx(VERTEX), dFdy(VERTEX));
+		rn = normalize(rn + 1e-7) * sign(dot(vn, NORMAL) + 1e-7);
+		float up = smoothstep(-0.1, 0.8, rn.y);
+		vec3 q = rest_pos + vec3(mud_seed * 1.9, mud_seed * 0.7, mud_seed * 2.6);
+		float m1 = noise3(q * 11.0);
+		float m2 = noise3(q * 47.0);
+		// more of it up top (shoulders, chest kit) than down the legs, where mud takes over
+		float high = smoothstep(0.5, 1.3, rest_pos.y);
+		dusted = dust_amount * (0.25 + 0.75 * up) * (0.5 + 0.5 * high) * (0.6 + 0.55 * m1) * (0.8 + 0.3 * m2);
+		dusted = clamp(dusted, 0.0, 1.0);
+		col = mix(col, dust_color * (0.9 + 0.2 * m2), dusted * 0.7);
 	}
 	float mud = 0.0;
 	float mud_drying = 0.0;
@@ -275,6 +301,9 @@ void fragment() {
 	// mud is not metal, and wet mud has a dull sheen where dried mud is chalky
 	metal *= 1.0 - mud;
 	dry_rough = mix(dry_rough, mix(0.55, 0.95, mud_drying), mud);
+	// dust dulls whatever sheen the dry cloth or leather had
+	metal *= 1.0 - dusted * 0.8;
+	dry_rough = mix(dry_rough, 0.95, dusted * 0.8);
 	if (use_normal && FRONT_FACING) {
 		NORMAL_MAP = texture(normal_tex, UV).rgb;
 		// the weave's relief fades under thick blood, and is gone in a hole
@@ -283,5 +312,5 @@ void fragment() {
 	ALBEDO = col;
 	ROUGHNESS = mix(mix(dry_rough, 0.6, damp), 0.3, wet);
 	METALLIC = metal;
-	SPECULAR = mix(mix(specular_amount, 0.38, damp), 0.6, wet);
+	SPECULAR = mix(mix(specular_amount * (1.0 - dusted * 0.6), 0.38, damp), 0.6, wet);
 }

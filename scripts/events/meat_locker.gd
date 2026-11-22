@@ -36,7 +36,7 @@ func begin() -> void:
 			c.extra_pose = _hang_pose.bind(c)
 			var b: RoomBrain = c.get_node("Brain")
 			b.sight_range = 0.0            # not until it is close
-			b.run_speed = 5.2
+			b.run_speed = 4.4
 			_live.append(c)
 		else:
 			_hang(p)

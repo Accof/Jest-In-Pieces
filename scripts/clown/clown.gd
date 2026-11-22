@@ -59,6 +59,7 @@ const BODIES := {
 		model = "res://art/rattlejack/rattlejack.glb", gibs = "res://art/rattlejack/rattlejack_gibs.glb",
 		rest_min = Vector3(-0.94802, -0.00508, -0.24266), rest_size = Vector3(1.90023, 1.89008, 0.48997),
 		helmet = "res://art/rattlejack/rattlejack_helmet.glb",
+		muddy = true,
 		surface = Vector2(0.93, 0.22),            # wool serge and webbing: roughness, specular
 		helmet_roughness = 0.72,
 		helmet_center = Vector3(-0.00046, 1.80501, 0.04647), helmet_size = Vector3(0.312, 0.210, 0.325),
@@ -72,6 +73,8 @@ const BODIES := {
 		model = "res://art/zornhauptmann/zornhauptmann.glb", gibs = "res://art/zornhauptmann/zornhauptmann_gibs.glb",
 		rest_min = Vector3(-0.95944, -0.00494, -0.21322), rest_size = Vector3(1.92491, 1.81963, 0.43054),
 		helmet = "res://art/zornhauptmann/zornhauptmann_helmet.glb",
+		muddy = true,
+		grime_cap = 1,                            # an officer: dusty at worst, never caked
 		surface = Vector2(0.82, 0.3),             # wool tunic, leather belts and boots
 		helmet_roughness = 0.32,                  # boiled, lacquered leather
 		innards_scale = {&"head": 0.75},          # a smaller skull under the Pickelhaube (crown at 1.69 m)
@@ -201,6 +204,7 @@ func _ready() -> void:
 	ragdoll.build(skeleton, spec.shapes)
 	for pb: PhysicalBone3D in ragdoll.bones.values():
 		pb.set_meta(&"clown", self)
+	_roll_grime()
 	if spec.has("helmet"):
 		_put_on_helmet()
 	gore = ClownGore.new()
@@ -3158,6 +3162,7 @@ func _put_on_helmet() -> void:
 			hm.roughness = spec.helmet_roughness
 			_helmet.set_surface_override_material(0, hm)
 	src.free()
+	_grime_helmet()
 	var att := BoneAttachment3D.new()
 	att.bone_name = "Head"
 	skeleton.add_child(att)
@@ -3174,6 +3179,80 @@ func _put_on_helmet() -> void:
 		_helmet_hitbox.position = spec.helmet_center - ragdoll.centres[&"Neck"]
 		neck.add_child(_helmet_hitbox)
 	has_helmet = true
+
+
+## How worn this one is: his own roll, so no two in a trench look alike.
+## {helmet_dust, helmet_mud, mud, dust, fade, seed}; empty for a body that
+## gets none (spec.muddy off: clowns, the Klappersoldat). Kept clean, dusty,
+## splashed or caked over; an officer (spec.grime_cap) is never worse than
+## dusty. Set before the helmet and the body's materials are made.
+var grime := {}
+## Force how worn he is (0 clean, 1 dusty, 2 splashed, 3 caked); -1 rolls it.
+@export var grime_kind := -1
+const GRIME_HELMET := preload("res://shaders/helmet_grime.gdshader")
+
+
+func _roll_grime() -> void:
+	grime = {}
+	if not spec.get("muddy", false) or mechanical:
+		return
+	# its own dice: the game's rolls (levels, spawns) come out as they always did
+	var g := RandomNumberGenerator.new()
+	g.randomize()
+	var cap: int = spec.get("grime_cap", 3)
+	var r := g.randf()
+	# clean 18%, dusty 32%, splashed 32%, caked 18%
+	var kind := 0 if r < 0.18 else (1 if r < 0.5 else (2 if r < 0.82 else 3))
+	if grime_kind >= 0:
+		kind = grime_kind
+	kind = mini(kind, cap)
+	match kind:
+		0:
+			grime = {helmet_dust = g.randf_range(0.0, 0.15), helmet_mud = 0.0, mud = g.randf_range(0.15, 0.4), dust = g.randf_range(0.0, 0.2)}
+		1:
+			grime = {helmet_dust = g.randf_range(0.4, 0.85), helmet_mud = g.randf_range(0.0, 0.12), mud = g.randf_range(0.3, 0.7), dust = g.randf_range(0.35, 0.75)}
+		2:
+			grime = {helmet_dust = g.randf_range(0.2, 0.55), helmet_mud = g.randf_range(0.3, 0.62), mud = g.randf_range(0.55, 0.9), dust = g.randf_range(0.2, 0.5)}
+		_:
+			grime = {helmet_dust = g.randf_range(0.1, 0.4), helmet_mud = g.randf_range(0.88, 1.0), mud = g.randf_range(0.8, 1.0), dust = g.randf_range(0.1, 0.35)}
+	grime.kind = kind
+	grime.seed = g.randf_range(0.0, 100.0)
+	# the cloth itself: faded by sun and washing, or still dark and new
+	var f := g.randf_range(0.86, 1.1)
+	grime.fade = Color(f * g.randf_range(0.97, 1.03), f, f * g.randf_range(0.94, 1.02))
+
+
+## The helmet's surfaces as they are, with his dust and mud over them.
+func _grime_helmet() -> void:
+	if grime.is_empty() or _helmet == null:
+		return
+	var aabb := _helmet.mesh.get_aabb()
+	for i in _helmet.mesh.get_surface_count():
+		var src := _helmet.get_surface_override_material(i) as BaseMaterial3D
+		if src == null:
+			src = _helmet.mesh.surface_get_material(i) as BaseMaterial3D
+		if src == null:
+			continue
+		var sm := ShaderMaterial.new()
+		sm.shader = GRIME_HELMET
+		sm.set_shader_parameter("albedo_color", src.albedo_color)
+		sm.set_shader_parameter("roughness", src.roughness)
+		sm.set_shader_parameter("metallic", src.metallic)
+		if src.albedo_texture:
+			sm.set_shader_parameter("albedo_tex", src.albedo_texture)
+			sm.set_shader_parameter("use_tex", true)
+		if spec.get("pbr", false) and src.roughness_texture and not spec.has("helmet_roughness"):
+			sm.set_shader_parameter("mr_tex", src.roughness_texture)
+			sm.set_shader_parameter("use_mr", true)
+		if src.normal_enabled and src.normal_texture:
+			sm.set_shader_parameter("normal_tex", src.normal_texture)
+			sm.set_shader_parameter("use_normal", true)
+		sm.set_shader_parameter("dust", grime.helmet_dust)
+		sm.set_shader_parameter("mud", grime.helmet_mud)
+		sm.set_shader_parameter("seed", grime.seed)
+		sm.set_shader_parameter("half_height", maxf(aabb.size.y * 0.5, 0.05))
+		sm.set_shader_parameter("mid_y", aabb.get_center().y)
+		_helmet.set_surface_override_material(i, sm)
 
 
 ## Send the helmet spinning off. `dir` is the way the bullet was travelling.
