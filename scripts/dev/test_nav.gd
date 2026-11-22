@@ -26,6 +26,9 @@ func _run() -> void:
 			game.floor_number = 2 + fl * 3        # next_floor makes it 3, 6, 9: the Drowned Trenches
 		game.next_floor()
 		await get_tree().physics_frame
+		# (a trench floor is SURVIVAL: its exit is open from the start, and the
+		# player hopping onto it would bring up the upgrades and pause the floor)
+		game.exit_open = false
 		var m: Maze = game.maze
 		var p: FpsPlayer = game.player
 		for c: Clown in game.clowns:

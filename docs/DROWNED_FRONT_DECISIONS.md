@@ -18,6 +18,13 @@ Add a record whenever a choice closes a door.
   think in commits).
 - **Why.** Hashes make "is the legacy level still intact?" a one-line check (`check.sh --live`);
   the tag makes any byte recoverable; the snapshot restores the code without touching git history.
+- **Recoverability verified (22 Nov, at Andrew's request).** `git archive legacy-drowned-trenches-baseline
+  art/trench …` extracted 139 MB into a scratch directory and all 57 art files hashed identical to
+  `ORIGINALS.sha256`; `git fsck` clean. The baseline commit `0772251` is also on GitHub
+  (`origin/main` = `0772251` at the time of checking), so the bytes exist in two places. The **tag**
+  had not been pushed yet: `git push origin main --tags`. Restore command: `git checkout
+  legacy-drowned-trenches-baseline -- art/trench art/level/fx_billow.png art/level/fx_fire.png
+  art/level/fx_smoke.png art/level/wall_conc.png`.
 
 ### D-02 · The new front is new code; the legacy classes stay untouched — decided (prototype may refine)
 - **Decision.** The crossing is built as new classes (working names `FrontMaze extends TrenchMaze`
@@ -37,14 +44,16 @@ Add a record whenever a choice closes a door.
   `Maze` (cleaner, but those checks need an interface). Leaning: extend `TrenchMaze`, override
   `generate()` and `_carve()`.
 
-### D-03 · Objective modes on `Game` — decided (Milestone 1)
+### D-03 · Objective modes on `Game` — decided, confirmed by Andrew 22 Nov (Milestone 1)
 - **Decision.** `enum Objective { ELIMINATION, SURVIVAL }`, `var objective` set in `next_floor()`
   (SURVIVAL on trench floors). On SURVIVAL: `exit_open` is true from the start, the exit light is
   green/the H.Q. marked, the HUD shows the objective ("REACH THE ENEMY H.Q.") instead of
   `Clowns left`, `_on_clown_died` never starts the floor finale (no final-kill camera, no brutality
   report, no `EXIT OPEN` banner), kills/headshots/tickets/curse/records/perks still count. Bunker
-  floors are unchanged. The legacy scene plays SURVIVAL too? **No:** `legacy_drowned_trenches.tscn`
-  will pass a flag so the legacy level keeps ELIMINATION (it is the archive of the old experience).
+  floors are unchanged. The legacy scene keeps ELIMINATION (`Game.survival_trenches = false`): it is
+  the archive of the old experience. Implemented as `Game.Objective`, `Game.objective`,
+  `Game.survival_trenches`, `Game._open_exit()`; the HUD shows `Kills: n` and `REACH THE ENEMY H.Q.`
+  on SURVIVAL floors.
 - **Alternatives.** A per-maze flag (`maze.objective`) — rejected: the objective is a floor rule the
   game owns, not a layout property. Keeping a soft kill target for a bonus — out of scope.
 - **Why.** Smallest change that separates the two modes; every other system hangs off
@@ -96,12 +105,21 @@ Add a record whenever a choice closes a door.
   movement, both Witzsoldat looks (50/50), Rattlejack, officer. Any milestone that must touch one of
   these files lists the exact hunk in the tracker and runs that system's test.
 
-### D-10 · Performance budget — proposed, needs the user
-- Target hardware is the user's Mac (model and resolution to confirm). Proposal: **60 fps at the
-  user's native resolution in the heaviest crossing seed, ≤ 4 ms CPU for AI+director on the floor**,
-  measured with the game's own frame-time print and the Mac's Activity Monitor. The container's
-  llvmpipe numbers are not a budget.
+### D-10 · Performance budget — decided by Andrew 22 Nov
+- **60 fps at Andrew's normal development resolution on his Mac.** The baseline is measured on the
+  Mac first, not assumed: `godot --path . res://scenes/legacy_drowned_trenches.tscn -- perf=30`
+  prints machine, renderer, window, average fps, 1% low, worst frame and dropped-frame counts every
+  30 s of play (`scripts/dev/frame_probe.gd`). No performance claims without those numbers; no
+  optimising ahead of them. Container (llvmpipe) numbers are never quoted as performance.
 
 ### D-11 · Documents, not conversation, carry state — decided
 - `docs/DROWNED_FRONT_*.md` are read at the start of every session and updated at the end of every
   milestone; the project knowledge docs (`claude/*.md`) get a summary pointer only.
+
+### D-12 · No Man's Land starts at ~90 m — decided by Andrew 22 Nov
+- A prototype dimension for Milestone 2, tuned after Andrew can play the crossing.
+
+### D-13 · Field soldiers stay cosmetic — decided by Andrew 22 Nov
+- `TrenchField`'s men remain background dressing (never fight, not on the kill list). The director
+  introduces **separate** real, combat-capable soldiers using the existing `Clown`/`ClownBrain`/
+  `BattleDuty` AI. The two populations are never the same actor.

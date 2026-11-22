@@ -7,8 +7,8 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 
 | # | Milestone | Status | Checkpoint | Approval |
 |---|---|---|---|---|
-| 0 | Preservation and planning | **done, awaiting review** | commit `a5376f1`; tag `legacy-drowned-trenches-baseline` (= `0772251`) | user review |
-| 1 | Objective separation (`ELIMINATION` / `SURVIVAL`) | not started | | user review |
+| 0 | Preservation and planning | **approved 22 Nov** | commits `a5376f1`, `4a5f5a1`; tag `legacy-drowned-trenches-baseline` (= `0772251`) | approved |
+| 1 | Objective separation (`ELIMINATION` / `SURVIVAL`) | **done, awaiting review** | commit (see M1 below) | user review |
 | 2 | New battlefield geometry (two networks, No Man's Land, H.Q. exit) | not started | | **user playtest** |
 | 3 | Terrain and functional cover (craters, wire, routes, enemy navigation) | not started | | user review |
 | 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | not started | | **HARD VISUAL APPROVAL — STOP** |
@@ -22,17 +22,19 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 12 | Performance and polish | not started | | user review |
 | 13 | Final integration | not started | | final approval |
 
-**Next action:** user reviews Milestone 0 (this document, `DROWNED_FRONT_ARCHITECTURE.md`,
-`DROWNED_FRONT_DECISIONS.md`, `archive/legacy_drowned_trenches/RESTORE.md`), answers the open
-questions below, and authorises Milestone 1.
+**Next action:** user reviews Milestone 1 (below), runs the Mac performance baseline
+(`godot --path . res://scenes/legacy_drowned_trenches.tscn -- perf=30`, play for a minute, paste the
+`PERF` lines), and authorises Milestone 2.
 
-### Open questions for the user (before Milestone 1–2)
-1. **Performance budget** (D-10): which Mac, what resolution, and is 60 fps the bar?
-2. **Legacy level objective** (D-03): the legacy scene keeps the old kill-all rule, yes?
-3. **Crossing length** (C2): start at ~90 m of No Man's Land and tune after the first playtest?
-4. **Should the field soldiers** (today cosmetic, never fight) become real combatants in the new
-   front, or stay as battlefield dressing with the director adding real ones? (Leaning: dressing
-   stays cosmetic; the director spawns real ones with duties.)
+### Decisions taken by Andrew on 22 Nov (answers to Session Zero's questions)
+1. Performance: 60 fps at his normal development resolution; measure the real baseline on the Mac
+   first; no unverified claims, no premature optimisation (D-10).
+2. The legacy trenches keep kill-all (ELIMINATION); the Drowned Front is SURVIVAL; bunkers stay
+   ELIMINATION (D-03).
+3. No Man's Land starts at ~90 m, a prototype dimension (D-12).
+4. Field soldiers stay cosmetic dressing; the director adds separate real soldiers on the existing AI (D-13).
+5. Added requirement: the 138 MB of scanned art must be recoverable from git or another independent
+   backup, not just hashed — verified, see D-01.
 
 ---
 
@@ -42,7 +44,7 @@ questions below, and authorises Milestone 1.
 - [x] Repository inspected: Git clean at `0772251`, no stash, no untracked user work; `.godot/` ignored.
 - [x] Full baseline: tag `legacy-drowned-trenches-baseline` → `0772251`.
 - [x] `archive/legacy_drowned_trenches/` with snapshot (34 files, 828 KB), `files.tsv`, two hash
-      manifests (34 snapshot files; 89 originals incl. 81 art files), `check.sh`, `restore.sh`, `RESTORE.md`.
+      manifests (34 snapshot files; 89 originals: 32 code files and 57 art files), `check.sh`, `restore.sh`, `RESTORE.md`.
 - [x] Runnable legacy scene: `scenes/legacy_drowned_trenches.tscn` (`seed=`, `floor=`, `god`,
       `LEGACY_QUIT_AFTER` for a headless smoke test).
 - [x] Baseline tests run and recorded (below); rendered legacy check (below).
@@ -147,14 +149,79 @@ navigation over open ground (D-05).
 
 ---
 
-## Milestone 1 — Objective separation (not started)
-**Scope:** `Game.objective` (D-03); SURVIVAL on trench floors; HUD/banners/exit light; no finale
-on SURVIVAL; legacy scene keeps ELIMINATION via a flag. **Files:** `scripts/game/game.gd` (the
-hunks in Architecture §2), `scripts/dev/legacy_drowned_trenches.gd`, new `scripts/dev/test_objective.gd`
-+ scene. **Tests:** new objective test (bunker floor still needs all kills and runs the killcam once;
-trench floor exit usable with enemies alive, no killcam, tickets/kills/curse still counted, death and
-return to base, upgrades offered at the exit); re-run `test_killcam`, `test_game`, `test_curse`,
-`test_base`, `test_trench_level game`. **Acceptance:** package F, row 1.
+## Milestone 1 — Objective separation (22 Nov 2026)
+
+### Acceptance (package F, row 1)
+- [x] `ELIMINATION` on bunker floors, unchanged: exit shut while anyone lives; the last kill opens it
+      and runs the final-kill camera once, with its brutality report; upgrades at the exit.
+- [x] `SURVIVAL` on trench floors: the exit (H.Q.) is open and lit green from the first moment with
+      every enemy alive; the exit works with enemies alive; no final-kill camera, no report, no
+      `EXIT OPEN` banner, ever on that floor, even with every enemy dead.
+- [x] Kills, headshots, tickets, the Carnival Curse, the records (`total_kills`), lifesteal, slow-mo,
+      upgrades, death, history, best floor: the same code paths on both modes (nothing reads
+      `remaining` except the ELIMINATION branch and the HUD).
+- [x] Enemy counts and the battle unchanged on trench floors (15 + the guaranteed officer on floor 3;
+      24 on floor 6; `TrenchBattle` hands out duties as before).
+- [x] Floor transitions 1 → 6: bunker/bunker/trench/bunker/bunker/trench with the right objective,
+      exit state and light at the start of each, and the finale state reset each floor.
+- [x] Save compatibility: no new key; the in-memory save's keys are identical before and after a
+      SURVIVAL floor and the written file reads back with the same keys; floors/best floor/history
+      recorded as before.
+- [x] The legacy scene (`survival_trenches = false`) keeps ELIMINATION on its trench floor.
+
+### Files
+- `scripts/game/game.gd` (5 hunks, +69/−0 lines against the archived copy): `enum Objective`,
+  `objective`, `@export survival_trenches`; `next_floor()` sets the objective and opens the exit on
+  SURVIVAL, banner adds `REACH THE ENEMY H.Q.`; `_on_clown_died()` wraps the finale/exit block in
+  `if objective == Objective.ELIMINATION`; new `_open_exit()` (shared by both); `_refresh_hud()`
+  shows `Kills: n` + `REACH THE ENEMY H.Q. - the green door` on SURVIVAL, `Clowns left: n` +
+  `EXIT OPEN` otherwise.
+- `scripts/dev/legacy_drowned_trenches.gd`: `game.survival_trenches = false`; prints the objective;
+  `perf=SECONDS` attaches the frame probe.
+- `scripts/dev/frame_probe.gd` (new): frame-time recorder for the Mac baseline (D-10).
+- `scripts/dev/test_objective.gd` + `scenes/test_objective.tscn` (new): sections `bunker`,
+  `survival`, `survival_clear`, `legacy`, `save`, `transitions` (63 checks).
+- `scripts/dev/test_trench_level.gd` and `scripts/dev/test_nav.gd`: both drive the player over the
+  whole route; on a SURVIVAL floor that walks him onto the open H.Q. door, which brings up the upgrade
+  screen and pauses the tree (`_set_state(UPGRADE)` pauses). Both fixtures now shut the exit for the
+  drive (the walker restores it). These were the only regressions the change caused, both in tests.
+- `docs/DROWNED_FRONT_DECISIONS.md` (D-01 verification, D-03, D-10, D-12, D-13), this tracker,
+  `DROWNED_FRONT_ARCHITECTURE.md` §2, `README.md`.
+- Not touched: weapons, enemies, gore, ragdolls, killcam code itself (`kill_cam.gd`), curse,
+  events, base, saves' format, the legacy trench classes. `check.sh --live` now reports exactly two
+  files: `scripts/game/game.gd` (a shared-reference file; the objective hunks above) and
+  `scripts/dev/test_trench_level.gd` (the additive walker fixture). Both are listed here as D-02
+  requires; the legacy level's own behaviour is unchanged (the legacy scene forces ELIMINATION).
+
+### Tests (headless, container, `godot --headless --fixed-fps 60 --path . res://scenes/<scene>.tscn`)
+| Scene | Result | Against the M0 baseline |
+|---|---|---|
+| **test_objective** (new) | **0 failed** (63 checks), 31 s; run twice | — |
+| test_killcam | 1 failed: `low_side` shot variety in `fall` | same single failure as baseline; the `floor`, `double`, `interrupt`, `event`, `report` sections (the ones this change could affect) all pass |
+| test_game | observations as before: 6 clowns, all shot → `remaining=0 exit_open=true`, upgrade offered, floor 2, death saves | same |
+| test_curse | 0 failed (the `kind` script error as before) | baseline had 2 neck-angle failures; passes now (that check is physics-flaky) |
+| test_base | 0 FAIL | same |
+| test_events | all rooms played, event-room upgrades still offered | same |
+| test_trench | 0 failed | same |
+| test_trench_level `game battle suspense nav` | 0 failed after the walker fix (first run: 1 failed, the walker stopped at the open H.Q.) | same |
+| test_locker, test_cover | 0 FAIL | same |
+| test_nav -- trench | first run: 15,876 "stuck" frames (the test hops the player onto random route cells, the open H.Q. door paused the floor in the upgrade state); the test now shuts the exit for its 30 s runs → `stuck >3s 0`, in a wall 0, same as baseline | fixture fixed, same |
+| legacy scene smoke | `floor 3, TrenchMaze, 15 enemies, seed 1916, objective ELIMINATION / ok (trench)` | — |
+
+### Known and noted
+- On a SURVIVAL floor the upgrade screen comes up the moment the player is within 1.3 m of the H.Q.
+  door, as it always did once an exit was open. With the door open from the start a player could
+  trigger it by brushing past. On the legacy layout the door is at the far end of the fire trench,
+  so this is unlikely; on the new front the H.Q. will be the destination. Revisit the trigger
+  (an [E] prompt, or a "go in?" step) when Milestone 2 places the exit.
+- The HUD on SURVIVAL shows the run's kill total, not a per-floor count.
+- Mac performance baseline: **not yet measured** (needs Andrew to run the probe); nothing claimed.
+
+### Recoverability of the scanned art (Andrew's added requirement)
+`git archive legacy-drowned-trenches-baseline art/trench art/level/fx_*.png art/level/wall_conc.png`
+extracted 139 MB into a scratch directory; all 57 art files hashed identical to `ORIGINALS.sha256`;
+`git fsck` clean; `origin/main` on GitHub was at `0772251` (the baseline commit), so the bytes are
+also off-machine. The tag itself was not on GitHub yet: `git push origin main --tags`.
 
 ## Milestone 2 — New battlefield geometry (not started)
 **Scope:** `FrontMaze` + builders (D-02, D-04): two networks, No Man's Land strip, H.Q. exit in the

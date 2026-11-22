@@ -43,9 +43,11 @@ sets `exit_open = true` and turns the exit light green. `_process()` offers upgr
 asserts "ordinary kills leave it alone, the last kill runs it once". The Carnival Curse, tickets,
 `Records`, perks and saves hang off `_on_clown_died`/`_offer_upgrades`, not off `remaining`.
 
-→ **Milestone 1 touches exactly:** `remaining`/`exit_open`/`_floor_finale` logic in `_on_clown_died`,
-`_refresh_hud`, `_build_exit` (light colour), `_flash("FLOOR …")`, and `_process`'s exit check.
-Nothing else reads `remaining` (grep: only `game.gd` and `test_game.gd`/`test_killcam.gd`).
+→ **Milestone 1 (done, 22 Nov):** `enum Objective { ELIMINATION, SURVIVAL }`, `Game.objective`
+(set in `next_floor()`: SURVIVAL when `is_trench_floor()` and `survival_trenches`), `_open_exit()`.
+On SURVIVAL the exit is opened in `next_floor()`, `_on_clown_died()` skips the finale/exit block, and
+`_refresh_hud()` shows the objective. `_process()`'s exit check, `_offer_upgrades()`, `_pick_upgrade()`
+→ `next_floor()` are unchanged and serve both modes. Nothing else reads `remaining`.
 
 ## 3. The legacy trench system (real files)
 

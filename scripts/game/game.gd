@@ -61,9 +61,23 @@ var state := State.MENU
 @export var trench_enemy_scale := 1.5
 ## Trench floors: the share of riflemen and other soldiers (the rest plain clowns).
 @export var trench_soldier_share := 0.75
+## What a floor asks of you.
+##   ELIMINATION  the bunkers: every enemy must die before the exit opens; the
+##                last kill is shown by the final-kill camera, with its report.
+##   SURVIVAL     the Drowned Front: the exit (the enemy H.Q.) is open from the
+##                start; kill whom you must, or no one. No final-kill camera, no
+##                report. Kills, headshots, tickets, the Curse and the records
+##                count the same as anywhere.
+enum Objective { ELIMINATION, SURVIVAL }
+var objective := Objective.ELIMINATION
+## Trench floors are SURVIVAL. Off, they keep the old kill-all rule (the
+## legacy Drowned Trenches, scenes/legacy_drowned_trenches.tscn).
+@export var survival_trenches := true
 var floor_number := 0
 var kills := 0
 var run_tickets := 0
+## Enemies still alive on this floor. Counted on every floor; what it means
+## depends on the objective (ELIMINATION: the exit opens at 0).
 var remaining := 0
 var exit_open := false
 var taken: Array[String] = []
@@ -228,6 +242,7 @@ func next_floor() -> void:
 	_world.process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_child(_world)
 	var outdoor := is_trench_floor(floor_number)
+	objective = Objective.SURVIVAL if outdoor and survival_trenches else Objective.ELIMINATION
 	maze = TrenchMaze.new() if outdoor else Maze.new()
 	_world.add_child(maze)
 	var size := mini(5 + floor_number / 2, 9)
@@ -306,8 +321,16 @@ func next_floor() -> void:
 	if kill_cam:
 		kill_cam.stop("new floor")
 	exit_open = false
+	if objective == Objective.SURVIVAL:
+		# the way out is open from the first moment: get there
+		_open_exit()
 	_set_state(State.PLAYING)
-	_flash("FLOOR %d%s" % [floor_number, "  -  THE DROWNED TRENCHES" if outdoor else ""])
+	var banner := "FLOOR %d" % floor_number
+	if outdoor:
+		banner += "  -  THE DROWNED TRENCHES"
+	if objective == Objective.SURVIVAL:
+		banner += "  -  REACH THE ENEMY H.Q."
+	_flash(banner)
 
 
 func _spawn_clown(soldier: bool, gun: bool) -> Clown:
@@ -504,19 +527,27 @@ func _on_clown_died(c: Clown) -> void:
 	if headshot and player.stats.slowmo:
 		Engine.time_scale = 0.3
 		_slow_until = Time.get_ticks_msec() + 450
-	if remaining <= 0 and not _floor_finale:
-		# the last of them: show it go down (once per floor)
-		_floor_finale = true
-		_slow_until = 0
-		if kill_cam and kill_cam.play(c):
-			_exit_banner_due = true       # shown once the camera and the report are done
-		else:
-			_flash("EXIT OPEN")
-	if remaining <= 0:
-		exit_open = true
-		_exit_light.light_color = Color(0.3, 1.0, 0.4)
-		_exit_light.light_energy = 4.0
+	if objective == Objective.ELIMINATION:
+		if remaining <= 0 and not _floor_finale:
+			# the last of them: show it go down (once per floor)
+			_floor_finale = true
+			_slow_until = 0
+			if kill_cam and kill_cam.play(c):
+				_exit_banner_due = true       # shown once the camera and the report are done
+			else:
+				_flash("EXIT OPEN")
+		if remaining <= 0:
+			_open_exit()
+	# (SURVIVAL: the exit was open from the start; no last kill, no camera)
 	_refresh_hud()
+
+
+## The way out is usable: the door's light goes green.
+func _open_exit() -> void:
+	exit_open = true
+	if is_instance_valid(_exit_light):
+		_exit_light.light_color = Color(0.3, 1.0, 0.4)
+		_exit_light.light_energy = 4.0 if objective == Objective.ELIMINATION else 2.0
 
 
 ## Gunshots carry along the corridors; clowns close enough come looking.
@@ -943,8 +974,16 @@ func _refresh_hud() -> void:
 		_health_bar.value = player.health
 		return
 	var w: Dictionary = FpsPlayer.WEAPONS[player.weapon]
-	_hud.text = "Floor %d     Clowns left: %d     Tickets: %d     %s %d/%d%s" % [floor_number, maxi(remaining, 0), run_tickets, w.get("label", w.name), player.ammo[player.weapon], player.mag_of(player.weapon),
-		("     EXIT OPEN - find the green door" if exit_open else "") + ("     GOD MODE" if FpsPlayer.god_mode else "")]
+	var goal: String
+	var way_out: String
+	if objective == Objective.SURVIVAL:
+		goal = "Kills: %d" % kills
+		way_out = "     REACH THE ENEMY H.Q. - the green door"
+	else:
+		goal = "Clowns left: %d" % maxi(remaining, 0)
+		way_out = "     EXIT OPEN - find the green door" if exit_open else ""
+	_hud.text = "Floor %d     %s     Tickets: %d     %s %d/%d%s" % [floor_number, goal, run_tickets, w.get("label", w.name), player.ammo[player.weapon], player.mag_of(player.weapon),
+		way_out + ("     GOD MODE" if FpsPlayer.god_mode else "")]
 	_health_bar.max_value = player.stats.max_health
 	_health_bar.value = player.health
 
