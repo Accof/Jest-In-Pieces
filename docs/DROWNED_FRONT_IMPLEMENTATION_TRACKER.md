@@ -12,7 +12,7 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 2 | New battlefield geometry (two networks, No Man's Land, H.Q. exit) | **done**; Andrew: "continue with the plan" (22 Nov) — his own playtest still to come | commits `663727e`, `4667339` | **user playtest** (pending) |
 | 3 | Terrain and functional cover (craters, wire, routes, enemy navigation) | **done**; Andrew: "continue" (22 Nov) — his own playtest still to come | commit `104a80e`, `5d9baaa` | user review (pending) |
 | 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | **APPROVED 22 Nov 22:09** — after five gate iterations on Andrew's live feedback (glint, sky, fog banks, litter, colour match, ground readability), his word: "you were right. i needed to reload the scene. Continue with the master plan" | commits `f13e92c` … `12ca5c7`; tag `drowned_front_approved_atmosphere`; `docs/reference/approved_atmosphere/` | approved |
-| 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | **done, awaiting review** | commit `M5COMMIT` | user review |
+| 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | **done, awaiting review** | commits `bcde05b`, `ee8c88d` | user review |
 | 6 | Core combat hazards (MG nests, suppression, artillery) | not started | | user playtest |
 | 7 | Director foundation (tension/alertness, event points, budgets, overlay) | not started | | user review |
 | 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | not started | | user playtest |
@@ -655,7 +655,8 @@ Authorised by Andrew's "Continue with the master plan" after the M4 approval (ta
 - Mac perf unmeasured (PENDING) — the budgets are by design, not by measurement.
 
 ### Files
-- new `scripts/fx/surface_impacts.gd`, `shaders/ripple.gdshader`, `scripts/dev/test_impacts.gd`,
+- new `scripts/fx/surface_impacts.gd`, `shaders/impact_ripple.gdshader` (the first M5 commit had
+  overwritten the legacy footstep `ripple.gdshader`; restored byte for byte in `ee8c88d`), `scripts/dev/test_impacts.gd`,
   `scenes/test_impacts.tscn`, `docs/reference/front_m5/`; `project.godot` (autoload `Impacts`).
 - touched (additive, legacy output unchanged): `scripts/world/trench_art.gd` (`_collide` surface
   param + 12 call sites), `scripts/world/level_art.gd` (`_collider` surface param, 4 sites, body meta),
