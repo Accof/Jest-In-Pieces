@@ -434,8 +434,9 @@ limitations, and ask for explicit approval; nothing further until it is given.
 | Grade | saturation 0.76, contrast 1.06, LUT: shadows ×(1.04, 0.99, 0.90) (brown), mids ×(0.98, 1.0, 0.96), lights ×(1.02, 1.0, 0.91); glow 0.28, HDR threshold 1.1 |
 | SSR / SSAO / SSIL | on / 1.5 (radius 1.4) / 0.5 |
 | Ground | dry_ground 0.12, puddles 0.95, earth_darkness 0.3, floor_darkness 0.4, rock_darkness 0.55, brightness 0.82, wall_tint (0.60, 0.54, 0.47), floor_tint (0.78, 0.70, 0.62), water (0.26, 0.26, 0.22), puddle (0.07, 0.07, 0.06); field wetness 0.5 + up to 0.35 in the low ground; crater water colour (0.085, 0.08, 0.07) / deep (0.045, 0.043, 0.04) |
-| Mist volume | tint (0.64, 0.68, 0.58), density 0.08, ×2 over No Man's Land |
-| Drifting smoke | 5 patches, 7 m quads, 10 billows each, 18 s life, wind (0.55, 0, 0.18); each counts as a 7 m sphere of optical density 0.06 |
+| Mist volume | tint (0.66, 0.70, 0.61), density 0.12, e-fold 1.4 m, ×2.6 over No Man's Land; bank tint (0.78, 0.80, 0.72) |
+| Drifting smoke | 8 patches, 8 m quads, 16 billows each, 22 s life, wind (0.55, 0, 0.18); each counts as an 8 m sphere of optical density 0.06 |
+| Fog banks (`FrontFog`) | radius 15–24 m, 3.5–6 m high, peak density 0.45–0.75, ≤3 at once, every 28–60 s, 1.0–1.6 m/s at our lines; puffs (0.72, 0.75, 0.66) |
 | Far smoke columns | half the billows, scale ×0.75, colour ×1.25 / alpha ×0.7 of the legacy day's |
 | Visibility | k = −ln 0.3 / 55 m: **0.65 at 20 m, 0.30 at 55 m, 0.14 at 90 m** (test bounds: < 0.31 at 55, < 0.16 at 90) |
 
@@ -528,6 +529,18 @@ third against the same bands of (b) and (c)):
   the field has holes + water, the wire belts, 9 dead trees, 2 wrecked limbers, smoke. Proposed as
   the next gate iteration: near-field dressing at the reference's density, then re-shoot. Awaiting
   his word.
+
+- **22 Nov, Andrew:** "I don't see a lot of rolling fog / mist or smoke." Right: the Front had the
+  uniform haze, a thin mist volume and five small smoke patches, and none of the legacy day's
+  **fog banks** (`TrenchFog`, which `TrenchBattle` makes and the Front does not run). Fix:
+  `FrontFog extends TrenchFog` (`scripts/world/front/front_fog.gd`) — the same banks (billowing
+  puffs that pour into the trenches + density in the mist volume + sight cut both ways), spawned
+  off their side and the flanks for the Front's geometry, drifting at our lines, every 28–60 s
+  instead of 70–150, two already on the field at load; not in the `fog` group — `FrontAtmosphere`
+  multiplies its `visibility()` in, so there is still one model (test: a line through a bank
+  gets 0.08 of the way). Base mist 0.08 → 0.12, e-folding height 0.9 → 1.4 m, ×2.6 over the field;
+  drifting smoke 5 → 8 patches, 16 billows each, 8 m. Shots with a bank crossing:
+  `gate_b_panorama_fogbank.png`, `gate_d_silhouettes_fogbank.png`. Legacy `TrenchFog` untouched.
 
 ### Acceptance (package F, row 4)
 - [x] Green-grey lighting, fog, smoke, wet surfaces, silhouettes built as separate profile.

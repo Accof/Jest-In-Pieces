@@ -171,6 +171,9 @@ static func setup_sun(sun: DirectionalLight3D) -> void:
 ## The haze alone: exp(-k d), with k set so SIGHT_M reads 0.3. Smoke patches
 ## (FrontArt's) add their own optical depth.
 var smoke_patches: Array = []        # {pos: Vector3, radius: float, density: float}
+## The rolling fog banks (FrontFog, made by FrontArt): their visibility is
+## multiplied in, so there is still one answer.
+var front_fog: TrenchFog
 var _k := -log(0.3) / SIGHT_M
 
 
@@ -190,7 +193,10 @@ func visibility(a: Vector3, b: Vector3) -> float:
 		var r: float = s.radius
 		if off < r:
 			tau += 2.0 * sqrt(r * r - off * off) * float(s.density)
-	return exp(-tau)
+	var v := exp(-tau)
+	if front_fog:
+		v *= front_fog.visibility(a, b)
+	return v
 
 
 ## How far one can make a man out in this haze (where visibility falls to 0.3).

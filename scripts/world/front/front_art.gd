@@ -25,6 +25,12 @@ func build(m: TrenchMaze) -> void:
 		atmosphere.name = "Atmosphere"
 		add_child(atmosphere)
 		_drift_smoke()
+		# the rolling fog: the legacy day's banks, for the Front's geometry
+		var fog := FrontFog.new()
+		fog.name = "Fog"
+		add_child(fog)
+		fog.setup_front(front, self, rng.randi())
+		atmosphere.front_fog = fog
 		# (M4) the far battle's smoke columns: half as many billows, paler, so
 		# they are shapes in the haze and not the picture
 		for c in get_children():
@@ -70,7 +76,7 @@ func _drift_smoke() -> void:
 	var z_near := (front.their_row0 + TrenchMaze.GRID_D) * maze.cell + 6.0
 	var z_far := front.our_row0 * maze.cell - 6.0
 	var wind := Vector3(0.55, 0.0, 0.18)
-	for i in 5:
+	for i in 8:
 		var at := Vector3(rng.randf_range(2.0, maze.w * maze.cell - 2.0), 0, rng.randf_range(z_near, z_far))
 		# from a shell hole where there is one near
 		var best := Vector4.ZERO
@@ -82,12 +88,12 @@ func _drift_smoke() -> void:
 		at.y = height_at(at.x, at.z) - 0.3
 		var p := CPUParticles3D.new()
 		var q := QuadMesh.new()
-		q.size = Vector2.ONE * 7.0
+		q.size = Vector2.ONE * 8.0
 		q.material = mat
 		p.mesh = q
-		p.amount = 10
-		p.lifetime = 18.0
-		p.preprocess = 10.0
+		p.amount = 16
+		p.lifetime = 22.0
+		p.preprocess = 14.0
 		p.direction = Vector3(wind.x, 0.12, wind.z).normalized()
 		p.spread = 18.0
 		p.initial_velocity_min = 0.5
@@ -115,7 +121,7 @@ func _drift_smoke() -> void:
 		p.visibility_aabb = AABB(Vector3(-30, -5, -30), Vector3(60, 20, 60))
 		p.emitting = true
 		add_child(p)
-		atmosphere.smoke_patches.append({pos = at + wind * 6.0 + Vector3.UP * 1.5, radius = 7.0, density = 0.06})
+		atmosphere.smoke_patches.append({pos = at + wind * 7.0 + Vector3.UP * 1.5, radius = 8.0, density = 0.06})
 
 
 func _fdir(c: Vector2i) -> Vector2i:
@@ -383,8 +389,10 @@ func _mist() -> void:
 	fm.set_shader_parameter("noise_tex", tex("noise"))
 	fm.set_shader_parameter("nml_z", (front.our_row0 + TrenchMaze.FIRE_ROW) * maze.cell - 2.5)
 	# (M4) the mist in the reference's colour, a little thicker
-	fm.set_shader_parameter("tint", Color(0.64, 0.68, 0.58))
-	fm.set_shader_parameter("density", 0.08)
-	fm.set_shader_parameter("nml_boost", 2.0)
+	fm.set_shader_parameter("tint", Color(0.66, 0.70, 0.61))
+	fm.set_shader_parameter("density", 0.12)
+	fm.set_shader_parameter("height", 1.4)
+	fm.set_shader_parameter("nml_boost", 2.6)
+	fm.set_shader_parameter("bank_tint", Color(0.78, 0.80, 0.72))
 	mist.material = fm
 	add_child(mist)

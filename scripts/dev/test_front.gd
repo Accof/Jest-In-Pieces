@@ -758,6 +758,15 @@ func _atmos() -> void:
 	var atm: FrontAtmosphere = get_tree().get_first_node_in_group(&"fog")
 	_check(atm != null and atm.visibility(Vector3.ZERO, Vector3(0, 0, 20)) > 0.5 and atm.visibility(Vector3.ZERO, Vector3(0, 0, FrontAtmosphere.SIGHT_M)) < 0.31 and atm.visibility(Vector3.ZERO, Vector3(0, 0, 90)) < 0.16,
 		"one visibility model: clear at 20 m (%.2f), the brains' limit at %.0f m (%.2f), all but gone by 90 m (%.2f)" % [atm.visibility(Vector3.ZERO, Vector3(0, 0, 20)) if atm else -1.0, FrontAtmosphere.SIGHT_M, atm.visibility(Vector3.ZERO, Vector3(0, 0, FrontAtmosphere.SIGHT_M)) if atm else -1.0, atm.visibility(Vector3.ZERO, Vector3(0, 0, 90)) if atm else -1.0])
+	# the rolling fog: banks already on the field, and a sight line through one is cut
+	var ffog: FrontFog = atm.front_fog as FrontFog if atm else null
+	var cut := 1.0
+	if ffog and not ffog.banks.is_empty():
+		var bk: TrenchFog.Bank = ffog.banks[0]
+		var from := bk.pos + Vector3(-bk.radius - 2.0, 1.5, 0)
+		var to := bk.pos + Vector3(bk.radius + 2.0, 1.5, 0)
+		cut = ffog.visibility(from, to)
+	_check(ffog != null and ffog.banks.size() >= 2 and cut < 0.6, "the rolling fog: %d banks on the field at load, a line through the first gets %.2f of the way" % [ffog.banks.size() if ffog else 0, cut])
 	game.next_floor()
 	await _frames(2)
 	_check(not (game.maze is TrenchMaze) and game._world_env.environment == game._bunker_env, "the next floor, a bunker, has the bunker environment back")
