@@ -110,7 +110,7 @@ static func make_environment() -> Environment:
 	# and the baked sky visibility takes it away lower down
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_sky_contribution = 1.0
-	env.ambient_light_energy = 1.0 if bounce_light else 0.85   # (0.75 hid the floor; 1.05 took the gloom away)
+	env.ambient_light_energy = 1.0 if bounce_light else 0.75   # (as it was: brighter took the grit and gloom away)
 	if bounce_light:
 		env.sdfgi_enabled = true
 		env.sdfgi_use_occlusion = true
@@ -204,10 +204,10 @@ static func make_camera_attributes() -> CameraAttributesPractical:
 	ca.auto_exposure_enabled = true
 	# only a little: the trench is meant to be darker than the sky, and a free
 	# auto exposure would lift it back to grey
-	ca.auto_exposure_scale = 0.3
+	ca.auto_exposure_scale = 0.2
 	ca.auto_exposure_speed = 0.5
 	ca.auto_exposure_min_sensitivity = 95.0
-	ca.auto_exposure_max_sensitivity = 280.0 if bounce_light else 180.0   # looking down into the trench, the eye opens up a little
+	ca.auto_exposure_max_sensitivity = 280.0 if bounce_light else 125.0
 	return ca
 
 

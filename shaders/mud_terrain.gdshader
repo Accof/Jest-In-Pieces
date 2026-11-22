@@ -45,7 +45,7 @@ uniform float floor_depth = 0.045;          // parallax: the deepest hollow belo
 uniform float floor_parallax_range = 14.0;  // parallax fades out by this distance (m)
 uniform float floor_normal_strength = 1.15;
 uniform vec3 floor_tint : source_color = vec3(0.82, 0.76, 0.7);   // darker, browner than the scan
-uniform float floor_darkness = 0.62;   // (was 0.4: the floor read as black from eye height)
+uniform float floor_darkness = 0.52;   // (was 0.4: the floor read as black; only the floor mud itself is lifted)
 uniform float floor_saturation = 1.2;
 uniform float floor_water = 0.36;           // height below which hollows hold water, where wet enough
 uniform vec3 floor_water_col : source_color = vec3(0.13, 0.12, 0.11);
@@ -74,8 +74,8 @@ uniform float puddle_amount = 1.0;
 uniform vec3 puddle_col : source_color = vec3(0.075, 0.068, 0.058);   // dark muddy water
 // how dry the open ground away from the trenches is: rougher, a little lighter, in patches
 uniform float dry_ground = 0.6;
-uniform float sky_occlusion = 0.8;   // how much the baked sky visibility (UV2.x) takes from the ambient light
-uniform float sky_floor = 0.2;       // never darker than this: deep, not crushed (was 0.12)
+uniform float sky_occlusion = 1.0;   // how much the baked sky visibility (UV2.x) takes from the ambient light
+uniform float sky_floor = 0.12;      // never darker than this: deep, not crushed
 
 void vertex() {
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;

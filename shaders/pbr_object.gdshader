@@ -47,8 +47,8 @@ uniform sampler2D sky_tex : filter_linear, repeat_disable;
 uniform bool sky_on = false;
 uniform vec2 sky_origin = vec2(0.0);
 uniform vec2 sky_size = vec2(1.0);
-uniform float sky_floor = 0.2;
-uniform float sky_occlusion = 0.8;   // how much of the darkening down in the trench is taken (as the ground's)
+uniform float sky_floor = 0.12;
+uniform float sky_occlusion = 1.0;   // how much of the darkening down in the trench is taken (as the ground's)
 uniform bool vary = true;                     // each instance its own part of the texture (off for tests)
 uniform int debug_view = 0;                   // 1: show the shading normal (world, 0.5 + n/2)
 
