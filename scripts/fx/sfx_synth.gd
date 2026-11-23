@@ -125,6 +125,13 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _creak(1.1, rng)
 		"shout":                                  # a man calling out, muffled through a gas mask
 			data = _shout(0.62, rng)
+		# --- (M10) signs of life in a dugout: placeholders, no recordings yet
+		"cough":                                  # two short barks through a mask, a wheeze after
+			data = _cough(rng)
+		"mutter":                                 # a few low syllables, half a sentence, through a mask
+			data = _mutter(rng)
+		"tin_cup":                                # a tin mug set down on a board
+			data = _mix(_thump(0.06, 1900.0, 1500.0, 0.004, 0.4, rng, 0.002, 0.8), _thump(0.1, 320.0, 240.0, 0.02, 0.4, rng, 0.01, 0.4))
 		"scream":                                 # a man screaming somewhere out there, through a mask
 			data = _scream(1.5, rng)
 		"bridge_step":                            # a boot on a footbridge's planks: a knock and a give
@@ -479,6 +486,70 @@ static func _shout(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array
 		var v := y1 * 0.6 + y2 * 0.4
 		lp += (v - lp) * 0.3                     # the mask takes the top off
 		out[i] = lp * env * 0.5
+	return out
+
+
+## A cough: two hard bursts of breath, the throat's low resonance in them,
+## a wheeze drawn in after; the mask dulls it.
+static func _cough(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var len := 0.9
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var b1 := [0.0, 0.0]
+	var lp := 0.0
+	var f0 := rng.randf_range(110.0, 150.0)
+	var ph := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var env := 0.0
+		for k in 2:
+			var t0 := 0.05 + 0.22 * k
+			var d := t - t0
+			if d >= 0.0 and d < 0.16:
+				env = maxf(env, exp(-d * 22.0) * clampf(d * 120.0, 0.0, 1.0))
+		var dd := t - 0.58
+		var wheeze := exp(-absf(dd - 0.1) * 9.0) * 0.25 if dd > 0.0 else 0.0
+		ph = fmod(ph + f0 / RATE, 1.0)
+		var voiced := (ph * 2.0 - 1.0) * 0.5 + rng.randf_range(-1.0, 1.0) * 0.8
+		var y := _reson(voiced, 620.0, 6.0, b1)
+		var x := rng.randf_range(-1.0, 1.0)
+		lp += (x - lp) * 0.12
+		out[i] = (y * env * 0.55 + (x - lp) * wheeze * 0.3)
+	return out
+
+
+## Muttering: three to five low syllables at a man's speaking pitch, the
+## formants wandering, the ends swallowed; through a mask, so mostly the hum.
+static func _mutter(rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var syls := rng.randi_range(3, 5)
+	var len := 0.22 * syls + 0.15
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var b1 := [0.0, 0.0]
+	var b2 := [0.0, 0.0]
+	var lp := 0.0
+	var ph := 0.0
+	var f0 := rng.randf_range(95.0, 125.0)
+	var fa_s: Array = []
+	var fb_s: Array = []
+	for k in syls:
+		fa_s.append(rng.randf_range(380.0, 760.0))
+		fb_s.append(rng.randf_range(1000.0, 1700.0))
+	for i in n:
+		var t := float(i) / RATE
+		var k := mini(int(t / 0.22), syls - 1)
+		var su := (t - k * 0.22) / 0.22
+		var env := clampf(su * 10.0, 0.0, 1.0) * clampf((0.85 - su) * 6.0, 0.0, 1.0) * (1.0 - 0.3 * float(k == syls - 1))
+		var f := f0 * (1.0 + 0.05 * sin(su * PI + k) - 0.04 * float(k) / syls)
+		ph = fmod(ph + f / RATE, 1.0)
+		var src := ph * 2.0 - 1.0
+		var y1 := _reson(src, fa_s[k], 8.0, b1)
+		var y2 := _reson(src, fb_s[k], 10.0, b2)
+		var v := y1 * 0.7 + y2 * 0.3
+		lp += (v - lp) * 0.18
+		out[i] = lp * env * 0.45
 	return out
 
 

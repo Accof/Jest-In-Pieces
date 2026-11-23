@@ -31,6 +31,15 @@ var _wind: AudioStreamPlayer
 var _rumble: AudioStreamPlayer
 ## The battle's pacing (TrenchBattle.calm): above 1 the guns go quieter.
 var calm := 1.0
+## (M10, the Front's director) In the enemy's trenches the war goes muffled
+## and the foreground comes up: `muffle` 0..1 takes the far guns and the
+## rumble down and spaces them out; `foreground` 0..1 brings the drips,
+## creaks and rattles closer together and from further off. Both eased by
+## whoever sets them. Counters for the tests.
+var muffle := 0.0
+var foreground := 0.0
+var near_sounds := 0
+var far_sounds := 0
 var _t_boom := 3.0
 var _t_mg := 8.0
 var _t_rifle := 4.0
@@ -51,6 +60,7 @@ var _flash_mat: StandardMaterial3D
 func setup(m: TrenchMaze, a: TrenchArt) -> void:
 	maze = m
 	art = a
+	add_to_group(&"ambience")
 	rng.seed = m.rng.seed + 31
 	_rng_b.seed = m.rng.seed + 53
 	_wind = _loop("wind", -17.0)
@@ -102,25 +112,32 @@ func _process(delta: float) -> void:
 	_t_rattle -= delta
 	_t_slosh -= delta
 	_t_whistle -= delta
+	var spaced := calm * (1.0 + 1.6 * muffle)
+	var hush := -11.0 * muffle
+	if _rumble:
+		_rumble.volume_db = -21.0 - 7.0 * muffle
 	if _t_boom <= 0.0:
-		_t_boom = rng.randf_range(5.0, 16.0) * calm
+		_t_boom = rng.randf_range(5.0, 16.0) * spaced
 		_shell(at)
 	if _t_mg <= 0.0:
-		_t_mg = rng.randf_range(9.0, 26.0) * calm
-		_far_sound("mg_far", at, rng.randf_range(120.0, 400.0), -14.0)
+		_t_mg = rng.randf_range(9.0, 26.0) * spaced
+		_far_sound("mg_far", at, rng.randf_range(120.0, 400.0), -14.0 + hush)
 	if _t_rifle <= 0.0:
-		_t_rifle = rng.randf_range(3.0, 10.0) * calm
-		_far_sound("rifle_far", at, rng.randf_range(80.0, 300.0), -12.0)
+		_t_rifle = rng.randf_range(3.0, 10.0) * spaced
+		_far_sound("rifle_far", at, rng.randf_range(80.0, 300.0), -12.0 + hush)
+	var closer := 1.0 - 0.55 * foreground
 	if _t_creak <= 0.0:
-		_t_creak = rng.randf_range(8.0, 22.0)
-		var near := _nearest(art.creak_spots, at, 14.0)
+		_t_creak = rng.randf_range(8.0, 22.0) * closer
+		var near := _nearest(art.creak_spots, at, 14.0 + 10.0 * foreground)
 		if near != Vector3.INF:
-			SfxSynth.play(self, "timber_creak", near, -16.0, rng.randf_range(0.8, 1.2))
+			SfxSynth.play(self, "timber_creak", near, -16.0 + 3.0 * foreground, rng.randf_range(0.8, 1.2))
+			near_sounds += 1
 	if _t_drip <= 0.0:
-		_t_drip = rng.randf_range(0.6, 2.2)
-		var near := _nearest(art.drip_spots, at, 12.0)
+		_t_drip = rng.randf_range(0.6, 2.2) * closer
+		var near := _nearest(art.drip_spots, at, 12.0 + 8.0 * foreground)
 		if near != Vector3.INF:
-			SfxSynth.play(self, "drip", near + Vector3(rng.randf_range(-0.3, 0.3), 0, rng.randf_range(-0.3, 0.3)), -12.0, rng.randf_range(0.85, 1.25))
+			SfxSynth.play(self, "drip", near + Vector3(rng.randf_range(-0.3, 0.3), 0, rng.randf_range(-0.3, 0.3)), -12.0 + 2.0 * foreground, rng.randf_range(0.85, 1.25))
+			near_sounds += 1
 	if _t_tune <= 0.0:
 		_t_tune = rng.randf_range(35.0, 70.0)
 		if art.music_box != Vector3.INF and art.music_box.distance_to(at) < 14.0:
@@ -132,10 +149,11 @@ func _process(delta: float) -> void:
 		_far_sound("carnival_tune", at, 30.0, -30.0)
 		tunes += 1
 	if _t_rattle <= 0.0:
-		_t_rattle = _rng_b.randf_range(16.0, 40.0)
+		_t_rattle = _rng_b.randf_range(16.0, 40.0) * closer
 		var near := _nearest(art.rattle_spots, at, 30.0)
 		if near != Vector3.INF:
-			SfxSynth.play(self, "metal_rattle", near, -20.0, _rng_b.randf_range(0.85, 1.15))
+			SfxSynth.play(self, "metal_rattle", near, -20.0 + 3.0 * foreground, _rng_b.randf_range(0.85, 1.15))
+			near_sounds += 1
 	if _t_slosh <= 0.0:
 		_t_slosh = _rng_b.randf_range(9.0, 24.0)
 		for k in 6:
@@ -188,6 +206,7 @@ func _flash(where: Vector3, r: float) -> void:
 ## A sound from far away in a direction: a 3D player well out from the
 ## listener (so it comes from somewhere), its loudness set by hand.
 func _far_sound(name_: String, at: Vector3, dist: float, db: float) -> void:
+	far_sounds += 1
 	var a := rng.randf() * TAU
 	var p := AudioStreamPlayer3D.new()
 	p.stream = SfxSynth.stream(name_)

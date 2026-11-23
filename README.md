@@ -204,6 +204,11 @@ from you; a salvo called down near soldiers you can watch (the frontline man bes
 to another bay); a smoke bank rolled across the field on your lane when you're out there; and the
 aftermath of a hit post — the marks, two bodies, two men running for it. Groups are squads now: the
 word passes between them, and half down with contact lost they fall back or hold.
+Milestone 10: **their trenches** — once you're in the enemy's lines the far war goes muffled and the
+foreground comes up (drips, creaks, rattles, closer and from further off); the loud events are held
+back and two new ones come: an occupied dugout (two guards inside, facing the door, coughing and
+muttering and setting a cup down — heard before seen) and, once a floor, a Klappersoldat standing
+its ground round a corner, ticking louder than its kind. Every soldier's boots are heard within 38 m.
 
 Floors now have an objective (`Game.Objective`): bunker floors are **ELIMINATION** (every enemy must die
 before the exit opens; the last kill runs the final-kill camera), trench floors are **SURVIVAL** (the

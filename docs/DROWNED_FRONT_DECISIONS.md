@@ -293,3 +293,12 @@ Add a record whenever a choice closes a door.
   it never drives a man's legs or eyes.
 - Aftermath bodies are real corpses, not props; their cap is the floor's.
 
+### D-22 · Suspense in their trenches is the ambience's and the catalogue's, not a mode switch — decided (Milestone 10)
+- The player's sector drives two ambience knobs (muffle, foreground) and scales the catalogue's
+  weights; nothing is disabled, so a fight in their lines still brings the war back (COMBAT lifts
+  the muffle).
+- The dugout's occupants are real guards who make real noise within earshot; sound precedes sight.
+- The Klappersoldat is placed once a floor, in their lines only, and announced by its own tick made
+  louder — no scripted scare.
+- Soldiers' footsteps are a general change (every floor): heard within 38 m, by surface.
+

@@ -17,7 +17,7 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 7 | Director foundation (tension/alertness, event points, budgets, overlay) | **done, awaiting review** | commit `c7c548a` | user review |
 | 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | **done, awaiting playtest** | commit `b76ea70` | user playtest |
 | 9 | Expanded battlefield activity (catalogue 4–6, 9–10, squad) | **done, awaiting review** | commit `f3bc059` | user review |
-| 10 | Enemy trench suspense | not started | | user playtest |
+| 10 | Enemy trench suspense (catalogue 7–8, region pacing, audio foreground) | **done, awaiting playtest** | commit M10 | user playtest |
 | 11 | Procedural variants | not started | | user review |
 | 12 | Performance and polish | not started | | user review |
 | 13 | Final integration | not started | | final approval |
@@ -1047,4 +1047,55 @@ lost → "holds (2 down)" on this seed (the 40 % branch) — the withdraw branch
   `scripts/world/front/front_fog.gd` (`roll_across`), `scripts/clown/battle_duty.gd` (`relocate`),
   `scripts/dev/test_director.gd` (activity).
 
-(Milestones 10–13: scope as in the package; detailed when authorised.)
+## Milestone 10 — Enemy trench suspense (23 Nov 2026) — DONE, AWAITING PLAYTEST
+
+Authorised by Andrew's "continue with the rest of the plan" (taken as M10 only; one milestone per word).
+
+### What was built (package C4 catalogue 7–8, C6, C7; D-22)
+- **Region pacing (`FrontDirector._pace_region`, every tick):** the player's sector sets the ambience —
+  in THEIRS and not in a fight, `muffle` → 1 and `foreground` → 1; on the field neither; in OURS a
+  little foreground (0.3); eased at 0.25/s. `TrenchAmbience` (additive knobs, legacy defaults 0):
+  `muffle` takes the far guns down 11 dB and the rumble loop 7 dB and spaces booms/MG/rifle ×(1+1.6m);
+  `foreground` brings drips, creaks and rattles 55 % closer together, from further off (+8–10 m) and
+  2–3 dB up. In THEIRS the loud events' weights (parapet, mg_sector, shellfire, reinforce) are scaled
+  ×0.35 (`_weight()`), the dugout's rises (0.3× elsewhere), the Klappersoldat is offered only there.
+  Overlay line `region:`.
+- **7. Occupied dugout** (2 men, 110 s): a hidden dugout cell in their lines (ours as a fallback) 18 m+
+  off; two WitzSoldats on GUARD inside it facing the door (the cell's linked neighbour), sharp ears
+  (the guard duty's). **Signs of life:** while unaware and the player within 28 m, each 0.5 s tick has
+  a 7 % chance of a cough, a few muttered syllables, a tin cup set down or a rattle from one of them
+  (`_voices`; `voices_played`; log `voice`). New SfxSynth placeholders `cough`, `mutter`, `tin_cup`
+  (formant-filtered pulses through a mask; **synthesised, not recordings**). A squad.
+- **8. The Klappersoldat** (1, once a floor, cooldown ∞; weight 0.08 quiet / 0.06 recovery, only with
+  the player in THEIRS): `Game.spawn_klapper()` at a hidden dugout / OP / trench point in their lines
+  25–60 m off, on GUARD facing along the trench; its idle tick-tock raised from −18 to −9 dB
+  (`Klappersoldat.idle_tick_db`, new export) so it is heard round the corner before the eyes are
+  seen. Everything else is the Klappersoldat's own.
+- **Footsteps around corners (`Clown._soldier_footsteps`):** every soldier (not the Klappersoldat,
+  whose steps are its clockwork) plays `fs_<surface>` each stride (0.7 m walking, 0.95 running) by
+  the maze's `surface_at`, at −17 dB, only within 38 m of the player; `steps_played` counts.
+
+### Tests (`test_director suspense`, 26 checks, 0 failed)
+weights by region (parapet 0.20 → 0.07 in THEIRS, dugout 0.10 → 0.35, klapper 0 → 0.08) · 12 s in
+their trenches: muffle/foreground 1.00, the ambience follows; in COMBAT the muffle lifts · dugout:
+two GUARDs in a dugout cell facing its open neighbour, out of sight; 6 signs of life in 60 s within
+earshot, none from 60 m · Klappersoldat in their lines 46 m off, out of sight, on guard, −9 dB, a
+second refused "once a floor" and no longer offered · a soldier walking 2.4 m within earshot: 3
+footsteps; none from 80 m. Whole `test_director` (0 failed), `test_trench` (legacy ambience untouched by the default
+knobs; 0 failed), `test_front crossing game` (0), `test_objective` (0), `test_klapper` (1 failed: "still has
+meat and bone inside" — the same single failure as every baseline run since 21 Nov, pre-existing).
+
+### Honest list
+- The voices are synthesised placeholders (as every sound in the game); replaceable slots by name.
+- "Occupied" means two guards standing inside the dugout: the bodies do not sit or sleep (no clip).
+- The Klappersoldat beat is a placement and a louder tick; its approach, eyes and clockwork are
+  as before — whether it reads as horror is Andrew's ear.
+- Region pacing keys on the z-band sectors (M7); a soldier's footsteps are by distance, not occluded
+  by walls (Godot's 3D attenuation only).
+
+### Files
+- touched: `scripts/world/front/front_director.gd`, `scripts/world/trench_ambience.gd` (knobs,
+  counters, `ambience` group), `scripts/clown/clown.gd` (footsteps), `scripts/clown/klappersoldat.gd`
+  (`idle_tick_db`), `scripts/fx/sfx_synth.gd` (cough, mutter, tin_cup), `scripts/dev/test_director.gd`.
+
+(Milestones 11–13: scope as in the package; detailed when authorised.)

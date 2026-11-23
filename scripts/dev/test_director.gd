@@ -42,6 +42,15 @@ extends Node3D
 ##             not in game.clowns, two men running 15-30 m to a GUARD post);
 ##             squad (the word passes from an alerted man to his group; half
 ##             down and contact lost -> withdraw to the origin or hold)
+##   suspense  (Milestone 10) the enemy's trenches: with the player in THEIRS
+##             the ambience goes muffled and the foreground comes up (eased),
+##             the loud events' weights drop and the dugout's rises; the
+##             Klappersoldat is offered only there and only once; a dugout
+##             event puts two guards in a dugout cell facing its door, hidden,
+##             and their signs of life play within earshot (counted); the
+##             Klappersoldat event spawns one at a hidden place in their lines
+##             with its tick raised, a second is refused; a walking soldier
+##             within earshot plays footsteps
 ##   walk      brains on, 75 s of game time: the reinforcements' leader walks
 ##             his beat toward the bay (legs finished, metres covered), the
 ##             silhouette finishes legs of his route, the parapet men fire
@@ -69,7 +78,7 @@ func _frames(n: int) -> void:
 
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
-	var secs := ["tension", "local", "points", "budget", "seeded", "overlay", "events", "walk", "activity"]
+	var secs := ["tension", "local", "points", "budget", "seeded", "overlay", "events", "walk", "activity", "suspense"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -776,3 +785,117 @@ func _activity() -> void:
 			_check(lead.kind == BattleDuty.Kind.GUARD and lead.post == sq.origin, "the survivor falls back to the origin and holds")
 	else:
 		_check(false, "squad: no reinforce to test with (%s)" % r.why)
+
+
+# --- suspense (Milestone 10) -------------------------------------------------------------
+func _suspense() -> void:
+	print("-- suspense")
+	await _new_game(1916)
+	var d := _dir()
+	d.auto_events = false
+	d.despawn_far = 10000.0
+	_brains_off()
+	var m := game.maze as FrontMaze
+	var p: FpsPlayer = game.player
+	var amb: Node = get_tree().get_first_node_in_group(&"ambience")
+	_check(amb != null and "muffle" in amb, "the Front's ambience is there with the M10 knobs")
+	# weights by region: at our rear
+	_check(d.sector_of(p.global_position) == d.Sector.OURS, "the player starts in OURS")
+	var w_par_ours: float = d._weight("parapet")
+	var w_dug_ours: float = d._weight("dugout")
+	_check(d._weight("klapper") == 0.0, "the Klappersoldat is not offered in OURS")
+	# into their lines
+	var their_bay: Dictionary = {}
+	for b: Dictionary in d.pick_points("bay", d.Sector.THEIRS, 0.0, 1000.0, false):
+		their_bay = b
+		break
+	p.global_position = d._stand(their_bay.pos) + Vector3.UP * 0.1
+	await _frames(2)
+	_check(d.sector_of(p.global_position) == d.Sector.THEIRS, "and is now in THEIRS")
+	var w_par_theirs: float = d._weight("parapet")
+	var w_dug_theirs: float = d._weight("dugout")
+	_check(w_par_theirs < w_par_ours * 0.5, "the parapet firefight's weight held back in THEIRS (%.2f -> %.2f)" % [w_par_ours, w_par_theirs])
+	_check(w_dug_theirs > w_dug_ours, "the dugout's weight up in THEIRS (%.2f -> %.2f)" % [w_dug_ours, w_dug_theirs])
+	_check(d._weight("klapper") > 0.0, "the Klappersoldat offered in THEIRS (%.2f)" % d._weight("klapper"))
+	_tick(d, 12.0)
+	_check(d.region_muffle > 0.9 and d.region_foreground > 0.9, "12 s in their trenches: muffle %.2f, foreground %.2f" % [d.region_muffle, d.region_foreground])
+	_check(absf(float(amb.muffle) - d.region_muffle) < 0.01 and absf(float(amb.foreground) - d.region_foreground) < 0.01, "the ambience follows")
+	d.mode = d.Mode.COMBAT
+	d.tension = 100.0
+	_tick(d, 6.0)
+	_check(d.mode == d.Mode.COMBAT and d.region_muffle < 0.9, "in COMBAT the muffle lifts (%.2f)" % d.region_muffle)
+	d.mode = d.Mode.UNEASY_QUIET
+	d.tension = 0.0
+
+	# the dugout
+	d._since_event = 999.0
+	var r: Dictionary = d.run_event("dugout")
+	_check(r.ok, "dugout placed (%s)" % r.why)
+	if r.ok:
+		_check(r.soldiers.size() == 2, "two men")
+		var site: Dictionary = r.point
+		_check(m.kind.get(site.cell, "") == "dugout", "in a dugout cell (%s)" % str(m.kind.get(site.cell, "")))
+		var ok_all := true
+		for c: Clown in r.soldiers:
+			var duty := c.get_node("Duty") as BattleDuty
+			if duty.kind != BattleDuty.Kind.GUARD or m.cell_of(c.global_position) != site.cell or d.visible_to_player(c.global_position):
+				ok_all = false
+		_check(ok_all, "both on guard inside the cell, out of sight")
+		var door: Vector3 = (r.soldiers[0].get_node("Duty") as BattleDuty).face
+		var nb: Vector2i = site.cell + Vector2i(int(round(door.x)), int(round(door.z)))
+		_check(m.open_cells.has(nb) and m.linked(site.cell, nb), "facing the door (the open neighbour %s)" % str(nb))
+		# the signs of life: within earshot, over 60 s of ticks
+		p.global_position = d._stand(m.cell_center(nb)) + Vector3(0, 0.1, 0) + door * m.cell * 2.0
+		await _frames(2)
+		var v0: int = d.voices_played
+		_tick(d, 60.0)
+		_check(d.voices_played > v0, "%d signs of life in 60 s within earshot" % (d.voices_played - v0))
+		p.global_position = d._stand(m.cell_center(nb)) + Vector3(0, 0.1, 0) + door * 60.0
+		await _frames(2)
+		v0 = d.voices_played
+		_tick(d, 30.0)
+		_check(d.voices_played == v0, "none from 60 m away")
+
+	# the Klappersoldat
+	p.global_position = d._stand(their_bay.pos) + Vector3.UP * 0.1
+	await _frames(2)
+	d._since_event = 999.0
+	var n_before: int = game.clowns.size()
+	r = d.run_event("klapper")
+	_check(r.ok, "Klappersoldat placed (%s)" % r.why)
+	if r.ok:
+		var k: Clown = r.soldiers[0]
+		_check(k is Klappersoldat and game.clowns.has(k) and game.clowns.size() == n_before + 1, "a Klappersoldat, in game.clowns")
+		_check(d.sector_of(k.global_position) == d.Sector.THEIRS and not d.visible_to_player(k.global_position), "in their lines, out of sight, %.0f m off" % k.global_position.distance_to(p.global_position))
+		_check((k.get_node("Duty") as BattleDuty).kind == BattleDuty.Kind.GUARD, "standing its ground")
+		_check(k.get("idle_tick_db") != null and float(k.get("idle_tick_db")) > -12.0, "ticking louder than its kind (%.0f dB)" % float(k.get("idle_tick_db")))
+		d._since_event = 999.0
+		d.cooldowns.clear()
+		var r2: Dictionary = d.run_event("klapper")
+		_check(not r2.ok and r2.why == "once a floor", "a second one refused: %s" % r2.why)
+		_check(d._weight("klapper") == 0.0, "and no longer offered")
+
+	# footsteps: a soldier walking within earshot
+	var walker: Clown = null
+	for c: Clown in game.clowns:
+		if c.body == "witzsoldat" and not c.dead:
+			walker = c
+			break
+	if walker:
+		walker.global_position = p.global_position + Vector3(0, 0, -6.0)
+		var brain := walker.get_node("Brain") as ClownBrain
+		brain.set_physics_process(false)
+		var s0: int = walker.steps_played
+		walker.set_process(true)
+		for i in 120:
+			walker.global_position += Vector3(0.02, 0, 0)     # 1.2 m/s, 2.4 m
+			await get_tree().process_frame
+		_check(walker.steps_played >= 2, "a soldier walking 2.4 m within earshot: %d footsteps" % (walker.steps_played - s0))
+		walker.global_position = p.global_position + Vector3(0, 0, -80.0)
+		s0 = walker.steps_played
+		for i in 120:
+			walker.global_position += Vector3(0.02, 0, 0)
+			await get_tree().process_frame
+		_check(walker.steps_played == s0, "none from 80 m")
+	else:
+		_check(false, "no soldier to walk")

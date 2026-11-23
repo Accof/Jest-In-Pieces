@@ -2088,6 +2088,8 @@ func _process(delta: float) -> void:
 	_shot_t += delta
 	if executing:
 		return
+	if spec.get("soldier", false) and not dead and body != "klappersoldat":
+		_soldier_footsteps(delta)          # (the Klappersoldat's steps are its own clockwork)
 	if bleeding_out:
 		_throat_process(delta)
 		return
@@ -2969,6 +2971,45 @@ func make_corpse() -> void:
 	dead = true
 	set_process(false)
 	ragdoll.start(ClownRagdoll.profile_limp(), Vector3.ZERO, Vector3.ZERO)
+
+
+## (M10) A soldier's boots: a footstep sound every stride by what he walks
+## on (the maze's surface_at: mud, water, duckboards, earth), only within
+## earshot of the player, so a patrol is heard coming round a corner before
+## it is seen. Counted in `steps_played` for the tests.
+const STEP_EARSHOT := 38.0
+var steps_played := 0
+var _step_acc := 0.0
+var _step_last := Vector3.INF
+var _step_player: Node3D
+
+
+func _soldier_footsteps(delta: float) -> void:
+	var at := global_position
+	if _step_last == Vector3.INF:
+		_step_last = at
+		return
+	var moved := Vector2(at.x - _step_last.x, at.z - _step_last.z).length()
+	_step_last = at
+	if moved > 1.0 or moved < 0.0005:
+		return
+	_step_acc += moved
+	var stride := 0.7 if moved / maxf(delta, 0.001) < 3.2 else 0.95
+	if _step_acc < stride:
+		return
+	_step_acc = 0.0
+	if _step_player == null or not is_instance_valid(_step_player):
+		_step_player = get_tree().get_first_node_in_group(&"player") as Node3D
+	if _step_player == null or _step_player.global_position.distance_to(at) > STEP_EARSHOT:
+		return
+	var surf := "earth"
+	var b: Node = get_node_or_null("Brain")
+	if b != null and b.get("maze") != null and b.get("maze").has_method("surface_at"):
+		surf = b.get("maze").surface_at(at)
+	if not surf in ["mud", "water", "wood", "earth"]:
+		surf = "earth"
+	steps_played += 1
+	SfxSynth.play(self, "fs_" + surf, at + Vector3.UP * 0.05, -17.0 if surf != "water" else -15.0, randf_range(0.85, 1.05), 4.0, 40.0)
 
 
 ## Where a rifleman is aiming (world space), set by its brain while aiming.

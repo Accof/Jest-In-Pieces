@@ -155,6 +155,9 @@ var _last_head_vy := 0.0
 var _twitches: Array = []
 var _idle_next := 2.0
 var _tick_t := 0.0
+## How loud the idle tick-tock is (the director's horror beat raises it so
+## it is heard round the corner before the eyes are seen).
+@export var idle_tick_db := -18.0
 var _tock := false
 var _jaw_t := -1.0
 # attack sounds already played this swing
@@ -685,7 +688,7 @@ func _idle(d: float, attacking: bool) -> void:
 	if _tick_t <= 0.0:
 		_tick_t = 0.5
 		_tock = not _tock
-		MechFx.sound(self, "tock" if _tock else "tick", _chest_pos(), -18.0)
+		MechFx.sound(self, "tock" if _tock else "tick", _chest_pos(), idle_tick_db)
 	if attacking:
 		return
 	_idle_next -= d * (0.4 if _moving else 1.0)

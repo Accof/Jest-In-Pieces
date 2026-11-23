@@ -86,7 +86,19 @@ const CATALOGUE := {
 	shellfire = {weights = [0.15, 0.35, 0.0, 0.25], men = 0, cooldown = 80.0},
 	smoke = {weights = [0.2, 0.4, 0.0, 0.3], men = 0, cooldown = 100.0},       # only by the field
 	aftermath = {weights = [0.25, 0.15, 0.0, 0.35], men = 2, cooldown = 120.0},
+	# (M10) catalogue 7-8: the enemy's trenches
+	dugout = {weights = [0.35, 0.15, 0.0, 0.3], men = 2, cooldown = 110.0},      # mostly in their lines
+	klapper = {weights = [0.08, 0.0, 0.0, 0.06], men = 1, cooldown = 1e9},        # rare: once a floor, in their lines
 }
+## (M10) Region pacing: with the player in the enemy's trenches the loud
+## events are held back (their weights scaled by this) and the ambience
+## goes muffled with the foreground up; the dugout and the Klappersoldat
+## are offered there.
+const THEIRS_LOUD_SCALE := 0.35
+const LOUD_EVENTS := ["parapet", "mg_sector", "shellfire", "reinforce"]
+var region_muffle := 0.0           ## what the director is asking of the ambience now (eased)
+var region_foreground := 0.0
+var voices_played := 0
 const INVESTIGATE_ALERT := 15.0        ## a sector this alert, with a fresh last-known, sends men to look
 const INVESTIGATE_FRESH := 40.0        ## ...seconds
 const SHELL_RELOCATE := 12.0           ## a shell this near a frontline man moves him to another bay
@@ -240,6 +252,7 @@ func _evaluate(dt: float) -> void:
 	if mode != was:
 		_log("mode", "%s -> %s (tension %.0f, threats %d)" % [Mode.keys()[was], Mode.keys()[mode], tension, threats])
 	_lifecycle()
+	_pace_region(dt)
 	_select()
 
 
@@ -406,14 +419,10 @@ func _select() -> void:
 	var options: Array = []
 	for name_ in CATALOGUE.keys():
 		var e: Dictionary = CATALOGUE[name_]
-		var w: float = e.weights[mode]
+		var w: float = _weight(name_)
 		if w <= 0.0:
 			continue
 		if not can_spawn(e.men, name_).ok:
-			continue
-		if name_ == "investigate" and _alerted_sector() < 0:
-			continue
-		if name_ == "smoke" and not _by_the_field():
 			continue
 		options.append([name_, w])
 		total += w
@@ -425,6 +434,30 @@ func _select() -> void:
 		if r <= 0.0:
 			run_event(o[0])
 			return
+
+
+## An event's weight now: the pacing mode's, scaled by where the player is
+## (the loud ones held back in the enemy's trenches; the dugout and the
+## Klappersoldat offered there and hardly anywhere else) and by what the
+## event needs (a sector alerted, the field).
+func _weight(name_: String) -> float:
+	var e: Dictionary = CATALOGUE[name_]
+	var w: float = e.weights[mode]
+	if w <= 0.0:
+		return 0.0
+	var sec := sector_of(player.global_position) if is_instance_valid(player) else Sector.OURS
+	if name_ == "investigate" and _alerted_sector() < 0:
+		return 0.0
+	if name_ == "smoke" and not _by_the_field():
+		return 0.0
+	if name_ == "klapper":
+		if sec != Sector.THEIRS or int(events_run.get("klapper", 0)) >= 1:
+			return 0.0
+	if name_ == "dugout" and sec != Sector.THEIRS:
+		w *= 0.3
+	if sec == Sector.THEIRS and name_ in LOUD_EVENTS:
+		w *= THEIRS_LOUD_SCALE
+	return w
 
 
 ## Run `name` now, if the floor offers a place for it out of the player's
@@ -443,13 +476,15 @@ func run_event(name_: String) -> Dictionary:
 		"shellfire": r = _ev_shellfire()
 		"smoke": r = _ev_smoke()
 		"aftermath": r = _ev_aftermath(e.men)
+		"dugout": r = _ev_dugout(e.men)
+		"klapper": r = _ev_klapper()
 	if not r.ok:
 		_log("no-event", "%s: %s" % [name_, r.why])
 		return r
 	var soldiers: Array = r.soldiers
 	for c: Clown in soldiers:
 		c.set_meta(&"director_event", name_)
-	var ev := {name = name_, soldiers = soldiers, born = clock, point = r.point, cosmetic = r.get("cosmetic", false), unseen_for = 0.0, lasts = float(r.get("lasts", 0.0)), squad = r.get("squad", null)}
+	var ev := {name = name_, soldiers = soldiers, born = clock, point = r.point, cosmetic = r.get("cosmetic", false), unseen_for = 0.0, lasts = float(r.get("lasts", 0.0)), squad = r.get("squad", null), voices = r.get("voices", false)}
 	active.append(ev)
 	if ev.squad != null:
 		squads.append(ev.squad)
@@ -484,6 +519,8 @@ func _lifecycle() -> void:
 			var said: String = (ev.squad as Squad).tick(rng, maze)
 			if said != "":
 				_log("squad", "%s: %s" % [ev.name, said])
+		if ev.get("voices", false):
+			_voices(ev, alive)
 		_arrivals(ev)
 		var far_unseen := true
 		for c: Clown in alive:
@@ -1032,6 +1069,128 @@ func _on_shell_landed(at: Vector3) -> void:
 			_log("relocate", "%s: %s moves %.0f m to another bay after a shell" % [ev.name, c.name, best_d])
 
 
+# --- (M10) the enemy's trenches: suspense -----------------------------------------------
+## The ambience follows the player's sector: in THEIRS (and not in a fight)
+## the far war goes muffled and the foreground comes up; on the field
+## neither; in OURS a little foreground. Eased over a few seconds.
+func _pace_region(dt: float) -> void:
+	var sec := sector_of(player.global_position) if is_instance_valid(player) else Sector.OURS
+	var want_m := 0.0
+	var want_f := 0.0
+	if sec == Sector.THEIRS and mode != Mode.COMBAT:
+		want_m = 1.0
+		want_f = 1.0
+	elif sec == Sector.OURS:
+		want_f = 0.3
+	region_muffle = move_toward(region_muffle, want_m, dt * 0.25)
+	region_foreground = move_toward(region_foreground, want_f, dt * 0.25)
+	var amb := get_tree().get_first_node_in_group(&"ambience")
+	if amb and "muffle" in amb:
+		amb.muffle = region_muffle
+		amb.foreground = region_foreground
+
+
+## 7. An occupied dugout: two men inside a dugout in their lines (ours as a
+## fallback), 18 m or more off and out of sight, on guard facing the door
+## with sharp ears, and now and then a cough, a few words, a tin cup set
+## down - heard before they are seen. Real men: go in and find them.
+func _ev_dugout(n: int) -> Dictionary:
+	var sites: Array = pick_points("dugout", Sector.THEIRS, 18.0, 200.0, true)
+	if sites.is_empty():
+		sites = pick_points("dugout", Sector.OURS, 18.0, 200.0, true)
+	if sites.is_empty():
+		return {ok = false, why = "no hidden dugout 18 m off", soldiers = [], point = null}
+	var site: Dictionary = sites[0]
+	var cell: Vector2i = site.cell
+	# the door: the open neighbour (a dugout is a dead end off the trench)
+	var door := Vector3.FORWARD
+	for d: Vector2i in Maze.DIRS:
+		var nb: Vector2i = cell + d
+		if maze.open_cells.has(nb) and maze.linked(cell, nb):
+			door = Vector3(float(d.x), 0, float(d.y))
+			break
+	var at := _stand(site.pos)
+	var men: Array = []
+	for i in n:
+		var d := BattleDuty.new(BattleDuty.Kind.GUARD)
+		d.post = at + Vector3(rng.randf_range(-0.35, 0.35), 0, rng.randf_range(-0.35, 0.35)) * (1 if i > 0 else 0) - door * 0.3 * i
+		d.face = door
+		d.face_b = door.rotated(Vector3.UP, 1.4 * (1.0 if i == 0 else -1.0))
+		var man := _make_man(d.post, door, d)
+		if man == null:
+			break
+		men.append(man)
+	if men.is_empty():
+		return {ok = false, why = "no soldier", soldiers = [], point = null}
+	_log("spawn", "dugout x%d at %s (%s), %.0f m off, facing the door %s" % [men.size(), at.snapped(Vector3.ONE), Sector.keys()[site.sector], at.distance_to(player.global_position), door])
+	var sq := Squad.new("dugout", _duties_of(men), at, door)
+	return {ok = true, why = "", soldiers = men, point = site, squad = sq, voices = true}
+
+
+## The signs of life: while a dugout's men are unaware and the player is
+## within earshot, one of them coughs, mutters or sets a cup down every
+## so often (a chance per tick). Through the dugout's door it carries.
+const VOICE_EARSHOT := 28.0
+const VOICE_CHANCE := 0.07          ## per 0.5 s tick, while in earshot
+func _voices(ev: Dictionary, alive: Array) -> void:
+	if alive.is_empty() or not is_instance_valid(player):
+		return
+	var c: Clown = alive[rng.randi() % alive.size()]
+	var b := c.get_node_or_null("Brain") as ClownBrain
+	if b == null or b.mind != ClownBrain.Mind.IDLE:
+		return
+	if c.global_position.distance_to(player.global_position) > VOICE_EARSHOT:
+		return
+	if rng.randf() > VOICE_CHANCE:
+		return
+	var kinds := ["mutter", "mutter", "cough", "tin_cup", "metal_rattle"]
+	var kind: String = kinds[rng.randi() % kinds.size()]
+	var at: Vector3 = c.global_position + Vector3.UP * (1.4 if kind != "tin_cup" else 0.9)
+	SfxSynth.play(c, kind, at, -8.0 if kind == "mutter" else -6.0, rng.randf_range(0.9, 1.1), 3.0, 34.0)
+	voices_played += 1
+	_log("voice", "%s: %s from %s" % [ev.name, kind, c.name])
+
+
+## 8. The Klappersoldat: once a floor at most, in their lines only, 25-60 m
+## off and out of sight, at a dugout, an OP or a trench point: it stands
+## its ground (GUARD) and ticks, the eyes burning, the ticking louder than
+## its kind's usual so it is heard before it is seen. Everything else
+## about it is the Klappersoldat's own (klappersoldat.gd).
+func _ev_klapper() -> Dictionary:
+	if int(events_run.get("klapper", 0)) >= 1:
+		return {ok = false, why = "once a floor", soldiers = [], point = null}
+	if not game.has_method("spawn_klapper"):
+		return {ok = false, why = "no spawner", soldiers = [], point = null}
+	var sites: Array = pick_points("dugout", Sector.THEIRS, 25.0, 60.0, true) + pick_points("op", Sector.THEIRS, 25.0, 60.0, true) + pick_points("patrol", Sector.THEIRS, 25.0, 60.0, true)
+	if sites.is_empty():
+		return {ok = false, why = "no hidden place in their lines 25-60 m off", soldiers = [], point = null}
+	var site: Dictionary = sites[0]
+	var c: Clown = game.spawn_klapper()
+	if c == null:
+		return {ok = false, why = "no Klappersoldat", soldiers = [], point = null}
+	var brain := c.get_node("Brain") as ClownBrain
+	var d := BattleDuty.new(BattleDuty.Kind.GUARD)
+	var at := _stand(site.pos)
+	var face: Vector3 = site.dir if site.dir.length() > 0.1 else (player.global_position - at)
+	face.y = 0.0
+	face = face.normalized() if face.length() > 0.01 else Vector3.FORWARD
+	d.post = at
+	d.face = face
+	d.face_b = face.rotated(Vector3.UP, 2.0)
+	d.name = "Duty"
+	c.add_child(d)
+	d.attach(brain)
+	c.global_position = at
+	c.rotation.y = atan2(face.x, face.z)
+	brain._wander_to = Vector3.INF
+	if "idle_tick_db" in c:
+		c.idle_tick_db = -9.0
+	c.set_meta(&"director_event", "klapper")
+	watch(c)
+	_log("spawn", "klapper at %s (%s), %.0f m off" % [at.snapped(Vector3.ONE), site.kind, at.distance_to(player.global_position)])
+	return {ok = true, why = "", soldiers = [c], point = site}
+
+
 # --- the overlay (development only, hidden by default; F3) -----------------------------
 func _make_overlay() -> void:
 	_overlay = CanvasLayer.new()
@@ -1080,6 +1239,7 @@ func overlay_text() -> String:
 		+ "enemies alive %d  (near %d / mid %d / far %d)   director live %d   pool %d/%d\n" % [alive, tiers.near, tiers.mid, tiers.far, live.size(), spawned_total, FLOOR_POOL]
 		+ "spawn: %s   cooldowns: %s\n" % ["yes" if cs.ok else cs.why, cd if cd != "" else "-"]
 		+ "events: %s\n" % _events_text()
+		+ "region: %s  muffle %.2f  foreground %.2f  voices %d\n" % [Sector.keys()[sector_of(player.global_position)] if is_instance_valid(player) else "-", region_muffle, region_foreground, voices_played]
 		+ "frame %.1f ms   fps %d   exit %s   points %d\n" % [_frame_ms, Engine.get_frames_per_second(), exit_state, points.size()]
 		+ "F3 overlay  F4 director on/off  F5 force the next event")
 
