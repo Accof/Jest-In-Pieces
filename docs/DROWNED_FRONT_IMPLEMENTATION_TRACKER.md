@@ -823,7 +823,9 @@ default is a player's choice, not a project-wide fact; video memory at 0.93–1.
 **Andrew's amendment (14:16):** having played the Front with the `nofog` knob, he prefers it — "looks
 better, I can see more detail, and the rolling smoke banks already add that misty look" — so the
 Front's volumetric layer is off (`FrontAtmosphere.VOLUMETRIC`; D-16 amended, SETTINGS.md noted).
-The bunkers keep theirs.
+The bunkers' dusty volumetric air went the same way at 14:23 ("yeah turn it off"), after a `nofog`
+run of a floor-2 bunker: `Game._bunker_env` volumetric off; the thin depth fog stays. The legacy
+trench day keeps its own fog (its scene is unchanged).
 
 **Look-neutrality:** every change above except FSR 1 at 0.75 is invisible by construction (shadows
 that were in the haze, bulbs' fog glow two rooms away, culling); the before/after shots for the bags

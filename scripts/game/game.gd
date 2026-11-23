@@ -803,7 +803,10 @@ func _build_environment() -> void:
 	env.fog_light_color = Color(0.09, 0.085, 0.08)
 	env.fog_density = 0.012
 	env.fog_sky_affect = 0.3
-	env.volumetric_fog_enabled = true
+	# (23 Nov, Andrew, after playing a bunker with and without it) the dusty
+	# volumetric air is off: crisper, more detail, and it was the bunkers'
+	# biggest cost. The bulbs light surfaces only now; the thin depth fog stays.
+	env.volumetric_fog_enabled = false
 	env.volumetric_fog_density = 0.035
 	env.volumetric_fog_albedo = Color(0.62, 0.58, 0.52)
 	env.volumetric_fog_anisotropy = 0.55
