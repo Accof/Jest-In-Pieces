@@ -17,7 +17,7 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 7 | Director foundation (tension/alertness, event points, budgets, overlay) | **done, awaiting review** | commit `c7c548a` | user review |
 | 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | **done, awaiting playtest** | commit `b76ea70` | user playtest |
 | 9 | Expanded battlefield activity (catalogue 4–6, 9–10, squad) | **done, awaiting review** | commit `f3bc059` | user review |
-| 10 | Enemy trench suspense (catalogue 7–8, region pacing, audio foreground) | **done, awaiting playtest** | commit M10 | user playtest |
+| 10 | Enemy trench suspense (catalogue 7–8, region pacing, audio foreground) | **done, awaiting playtest** | commit `1c98bed` | user playtest |
 | 11 | Procedural variants | not started | | user review |
 | 12 | Performance and polish | not started | | user review |
 | 13 | Final integration | not started | | final approval |
