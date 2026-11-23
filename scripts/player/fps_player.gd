@@ -932,6 +932,8 @@ var suppress_events := 0
 func suppress(amount: float, at: Vector3 = Vector3.INF) -> void:
 	suppression = clampf(suppression + amount, 0.0, 1.0)
 	suppress_events += 1
+	if is_inside_tree():
+		get_tree().call_group(&"director", "note", "near_miss", global_position, amount)   # (M7)
 	if at != Vector3.INF and is_inside_tree():
 		SfxSynth.play(self, "crack", at, -4.0 + 6.0 * amount, randf_range(1.3, 1.7), 3.0, 30.0)
 
@@ -943,6 +945,8 @@ func shake(amount: float) -> void:
 func take_damage(amount: float, from_dir: Vector3 = Vector3.ZERO) -> void:
 	if dead:
 		return
+	if is_inside_tree():
+		get_tree().call_group(&"director", "note", "hurt", global_position, clampf(amount / 20.0, 0.2, 2.0))   # (M7)
 	if god_mode:
 		_hurt.color.a = clampf(0.08 + amount * 0.005, 0.0, 0.2)     # still see you were hit
 		return

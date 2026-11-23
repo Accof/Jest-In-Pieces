@@ -316,6 +316,7 @@ func next_floor() -> void:
 		z.global_position = maze.cell_center(zc)
 	battle = null
 	threats = null
+	director = null
 	if maze is FrontMaze:
 		# (M6) the Front's hazards: their machine guns on the parapet, their
 		# guns behind the lines
@@ -327,6 +328,13 @@ func next_floor() -> void:
 			if not g.has_rifle:
 				g.give_rifle()
 			return g)
+		# (M7) the director: tension, local alertness, pacing, event points, budgets
+		director = FrontDirector.new()
+		director.name = "Director"
+		_world.add_child(director)
+		director.setup(maze as FrontMaze, player, self, rng.randi())
+		for mg in threats.nests:
+			mg.fired.connect(func(from: Vector3, _to: Vector3) -> void: director.note("mg_round", from, 1.0))
 	if outdoor and not (maze is FrontMaze):
 		# the battle going on round you: the soldiers at their posts, the enemy
 		# over there. (The Front gets its battlefield director in Milestones
@@ -582,10 +590,14 @@ func _on_player_fired(weapon: int) -> void:
 			var b := c.get_node_or_null("Brain") as ClownBrain
 			if b:
 				b.hear(player.global_position, 1 if weapon in [FpsPlayer.SHOTGUN, FpsPlayer.REVOLVER, FpsPlayer.TRENCH, FpsPlayer.RIFLE] else 0)   # the shotguns, the revolver and the .303 carry further
+	if director:
+		director.note("player_shot", player.global_position, 1.0)
 
 
 ## A loud noise anywhere (an explosion): clowns within `cells` come looking.
 func noise_at(where: Vector3, cells: int) -> void:
+	if director:
+		director.note("blast", where, 1.0)
 	for c: Clown in clowns:
 		if is_instance_valid(c) and not c.dead:
 			var b := c.get_node_or_null("Brain") as ClownBrain
@@ -840,6 +852,7 @@ func _build_environment() -> void:
 ## The trench floor's battle (soldiers' duties, the far side's fire); null indoors.
 var battle: TrenchBattle
 var threats: FrontThreats           ## (M6) the Front's machine guns and artillery
+var director: FrontDirector         ## (M7) the Front's battlefield director
 
 
 func is_trench_floor(n: int) -> bool:

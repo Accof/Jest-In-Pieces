@@ -1357,6 +1357,8 @@ func _miss_lands(from: Vector3, dir: Vector3, reach: float) -> void:
 
 
 func _tracer(from: Vector3, to: Vector3) -> void:
+	if clown.is_inside_tree():
+		clown.get_tree().call_group(&"director", "note", "enemy_shot", from, 1.0)   # (M7) tension
 	var im := ImmediateMesh.new()
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED

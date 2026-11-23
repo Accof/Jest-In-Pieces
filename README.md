@@ -187,6 +187,10 @@ Milestone 6: **the hazards** — two enemy Maxims on their parapet with real arc
 the fog (crouch counts), bursts and pauses, belts and boil-overs, a gunner you can shoot and a gun you
 can then take; shells that whistle for 2.4 s and never land on where you stand; rounds cracking past
 press on the camera, nothing more.
+Milestone 7: **the director's foundation** — tension (yours) and alertness (each sector's own, from
+what its soldiers saw or heard), pacing that closes spawning while a fight resolves, event points from
+the geometry kept out of your sight, budgets, a seeded log. **F3** shows it, **F4** switches it off.
+No events yet (M8).
 
 Floors now have an objective (`Game.Objective`): bunker floors are **ELIMINATION** (every enemy must die
 before the exit opens; the last kill runs the final-kill camera), trench floors are **SURVIVAL** (the
@@ -539,6 +543,7 @@ godot --headless --fixed-fps 60 res://scenes/test_killcam.tscn  # final-kill cam
 godot --headless --fixed-fps 60 res://scenes/test_curse.tscn   # Carnival Curse: charging (counted once, not friendly or curse kills, full waits), the HUD text; aim checks (not charged, nothing under the crosshair, immune, a body on the floor); a real hex in a level (a wall, a target that died in flight, running out of time: all keep the charge; one in the air; a hit executes, others carry on, no cinematic); the execution on five bodies (phases in order, arms jerk into place and stay, neck snaps, still in the pause, hand-over pose error, no fling, cracks, blood or oil, nothing left behind); walls on each side; one arm gone, a blast mid-curse, freed mid-curse; ten in a row (sections: charge aim play bodies walls edges repeat; "render [front] [only=kind]" for frames; "closeup render" for the broken neck held still from three sides)
 godot --headless --fixed-fps 60 res://scenes/leak_probe.tscn   # does anything survive a floor? 8 floors of play, then every persistent holder's size per floor (a growing one is a leak)
 godot --headless --fixed-fps 60 res://scenes/census.tscn -- floors=2,3,8   # what a floor is made of: lights (with shadows), mesh instances and triangles, multimeshes, particles, bones
+godot --headless --fixed-fps 60 res://scenes/test_director.tscn  # the director's foundation (M7): tension and pacing, local alertness (no omniscience), event points on the graph and out of the player's sight, budgets with reasons, seeded determinism, the F3 overlay
 godot --headless --fixed-fps 60 res://scenes/test_threats.tscn  # the Front's hazards (M6): the Maxims on their parapet (placement, arc, real rays at a man in the open, lost when he crouches in a hole, pauses/belt/boil-over, a dead gunner silences it, the mechanism jams), the salvos (whistle lead, never on the player, fair zone, a lull), the brains read the crouch (-- look render: /tmp/threats_*.png)
 godot --headless --fixed-fps 60 res://scenes/test_impacts.tscn  # surface-aware impacts (M5): the field is mud, a flooded hole water, linings by their kind, bunker walls concrete; 400 rounds in a frame stay in budget; a burst walks; a soldier's miss lands; a shell over water throws water (-- range render: the material range, /tmp/impacts_*.png)
 godot --headless --fixed-fps 60 res://scenes/test_front.tscn  # the Drowned Front: 40 seeds (two networks, No Man's Land, a route up, over and down), parapets/fire steps/ramps/wire on each side's front, shell-hole cover, the wire, a rifleman's crossing, the atmosphere's isolation and visibility curve, the player walks start to H.Q. and goes in with [E] (-- views render for /tmp/front_*.png; -- atmos render for the M4 gate shots /tmp/front_gate_*.png)

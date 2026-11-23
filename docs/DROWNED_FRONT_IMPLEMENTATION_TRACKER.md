@@ -13,8 +13,8 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 3 | Terrain and functional cover (craters, wire, routes, enemy navigation) | **done**; Andrew: "continue" (22 Nov) — his own playtest still to come | commit `104a80e`, `5d9baaa` | user review (pending) |
 | 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | **APPROVED 22 Nov 22:09** — after five gate iterations on Andrew's live feedback (glint, sky, fog banks, litter, colour match, ground readability), his word: "you were right. i needed to reload the scene. Continue with the master plan" | commits `f13e92c` … `12ca5c7`; tag `drowned_front_approved_atmosphere`; `docs/reference/approved_atmosphere/` | approved |
 | 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | **done**; Andrew: "continue" (22 Nov 23:26) — his own shoot-around still to come | commits `bcde05b`, `ee8c88d`, `30c7c2d` | user review (pending) |
-| 6 | Core combat hazards (MG nests, suppression, artillery) | **done, awaiting playtest** (built 23 Nov 00:15; the Mac was offline at the time — bundle `m6.tgz` delivered in chat, committed when it is back) | commit pending | user playtest |
-| 7 | Director foundation (tension/alertness, event points, budgets, overlay) | not started | | user review |
+| 6 | Core combat hazards (MG nests, suppression, artillery) | **done**; Andrew: "i like it. continue" (23 Nov 15:55, after the D-18 re-cut) | commits `31aba63`, `593648e` | playtest (his) |
+| 7 | Director foundation (tension/alertness, event points, budgets, overlay) | **done, awaiting review** | commit `M7COMMIT` | user review |
 | 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | not started | | user playtest |
 | 9 | Expanded battlefield activity | not started | | user review |
 | 10 | Enemy trench suspense | not started | | user playtest |
@@ -24,11 +24,11 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 
 **Performance baseline on the Mac: MEASURED 23 Nov** (Apple M2, ~1900 × 1000, Metal/Forward+): bunker 27 → 60 fps, Front 12–22 → 58 fps standing still, after the light, fog, batching and shadow fixes and FSR 1 at 0.75 recorded in the performance note below; combat not yet measured (M12).
 
-**Next action:** Andrew **playtests Milestone 6** — cross the Front under the two Maxims
-(`play_front -- god` first, then without god: are the arcs legible, is the dead ground and the
-flank there, do the bursts and belt changes give windows, does crouching in a hole save you, do the
-shells telegraph fairly), and shoots a gunner off his gun and takes it. Milestone 7 (the director
-foundation) only on his word. Still his: the M2/M3 and M5 judgements, and whether FSR 0.75 reads fine.
+**Next action:** Andrew reviews **Milestone 7** — press **F3** on the Front for the director overlay and
+watch tension/alertness as he plays (shoot, get shot at, cross into their lines; note that their
+lines' alertness only moves when one of theirs sees or hears something). Milestone 8 (the first three
+events: lone silhouette, bridge reinforcements, parapet firefight) only on his word. Still his: the
+brightness of the cold grey (D-18) by eye, the M6 feel under fire, whether FSR 0.75 reads fine.
 
 ### Decisions taken by Andrew on 22 Nov (answers to Session Zero's questions)
 1. Performance: 60 fps at his normal development resolution; measure the real baseline on the Mac
@@ -844,4 +844,60 @@ stand the player on flat ground the gun can see, with the banks and smoke cleare
 `test_trench` 0 failed (legacy unchanged), `test_objective` 0 failed. Renders (first pass, before a
 small pull-back of the wash): `docs/reference/front_d18/`. **Andrew to judge live; M6 playtest still open.**
 
-(Milestones 7–13: scope as in the package; detailed when authorised.)
+## Milestone 7 — Director foundation (23 Nov 2026) — DONE, AWAITING REVIEW
+
+Authorised by Andrew's "i like it. continue" after D-18 (taken as M7 only).
+
+### What was built (package C4 / E4; D-19)
+- **`FrontDirector`** (`scripts/world/front/front_director.gd`), made by `Game` on a Front floor after
+  the threats; `Game.director`; group `director`. It spawns nothing yet — the catalogue is M8.
+- **Tension (0–100), the player's own weather:** notes from `Game._on_player_fired` (player_shot 4),
+  every enemy tracer (`ClownBrain._tracer`, enemy_shot 3), the Maxims' rounds (`FrontMg.fired`, 1.2),
+  blasts (`Game.noise_at`, 14), damage (`FpsPlayer.take_damage`, 10 × amount/20), near misses
+  (`suppress`, 2.5 × amount); weighted by nearness to the player (full within 8 m, ×0.15 at 58 m);
+  held up by hunters within 22 m (18 each); decays 5/s after 4 quiet seconds.
+- **Alertness, local:** one value per sector — OURS / FIELD / THEIRS by z — fed **only** by a soldier's
+  own `alerted` signal (28 if he saw, 12 if he heard: and he learns the *shot's* place when he heard,
+  not the player's), and by a body found (a live soldier within 4 m of a kill: +10 toward the body).
+  `last_known[sector]` is where that sector last saw or heard — it does not follow the player. Decays
+  1.6/s after 20 s without contact in that sector. No global "player is here".
+- **Pacing:** UNEASY_QUIET (<20) → RISING (≥20) → COMBAT (≥50 or ≥2 hunters close) → RECOVERY (tension
+  < 35 and no hunters; 12 s and < 20 back to quiet). **In COMBAT `can_spawn` is closed.**
+- **Event points** from the geometry at build (seed 1916: 102 — 22 patrol runs along named trenches,
+  3 bridges, 6 assault ramps, 34 fire bays facing the field, 4 OPs, 24 dugout cells, 9 shell-hole
+  clusters), each trench point verified on the path graph with a route distance; `pick_points(kind,
+  sector, min_d, max_d, hidden)` filters by distance and by the player's **view cone (±52°) + a clear
+  eye line** (no pop-in), shuffled by the director's seeded RNG.
+- **Budgets:** live cap 6, floor pool 18, 12 s between events, per-event cooldowns, a perf gate at a
+  smoothed 22 ms frame; `can_spawn()` returns the reason it says no; `book()` records an event.
+- **Deterministic:** one `RandomNumberGenerator` seeded from the floor; same seed + same inputs → same
+  orderings (tested ×3); a log of every decision (`log`).
+- **Overlay (E4):** hidden by default, **F3** toggles, **F4** director on/off: seed, region, objective,
+  mode, tension, threats, alertness per sector with last-knowns, enemies alive by distance tier
+  (near < 30 / mid < 80 / far), director live and pool, why spawning is blocked, cooldowns, frame ms,
+  fps, exit state. Evaluates every 0.5 s, not per frame.
+
+### Tests (`test_director`, 36 checks, 0 failed)
+tension (weights, distance, blast+hurt → RISING, firefight → COMBAT and no spawning, 12 s → RECOVERY,
+32 s → quiet, a hunter 8 m away holds 18 with no shots) · local (a sighting raises THEIRS only;
+last_known fixed when the player moves; a heard shot learns the shot's place at less weight; decay
+28 → 0 in 50 s; a body raises the finder's sector) · points (every kind, all on the graph, bays face
+the field, holes on it, ahead-visible/behind-not, pick filters) · budget (every refusal and its reason)
+· seeded · overlay. `test_front game atmos`, `test_objective`, `test_trench`: 0 failed.
+
+### Honest list
+- No events yet: the budgets and points are exercised by the tests and by `book()`, not by play.
+- Sectors are three z-bands; a per-trench-network alertness (ours vs theirs as graphs) can replace
+  it if M8's events need finer locality.
+- The view-cone check uses the player's camera forward and one ray to chest height; a point behind
+  a bank of fog is still "visible" to it (fog is not consulted) — conservative, i.e. it hides more.
+- "Director soldiers never count as required kills": true by construction (SURVIVAL has no required
+  list; J6), to be asserted in M8 when the first ones exist.
+
+### Files
+- new `scripts/world/front/front_director.gd`, `scripts/dev/test_director.gd`, `scenes/test_director.tscn`.
+- touched: `scripts/game/game.gd` (`director`, made after the threats; notes from `_on_player_fired`
+  and `noise_at`; MG rounds), `scripts/player/fps_player.gd` (notes from `take_damage` and
+  `suppress`), `scripts/clown/clown_brain.gd` (a note from `_tracer`).
+
+(Milestones 8–13: scope as in the package; detailed when authorised.)

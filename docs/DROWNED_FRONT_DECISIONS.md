@@ -257,3 +257,14 @@ Add a record whenever a choice closes a door.
   brightness 0.95, contrast 1.1, saturation 0.66; smoke and bank puffs grey. Fires stay warm.
 - **Open:** the brightness is calibrated by Andrew's eye, not by the container's software renders
   (which have run both darker and lighter than his M2). First-pass renders in `docs/reference/front_d18/`.
+
+### D-19 · The director judges locally and chooses deterministically — decided (Milestone 7)
+- Two measures, never merged: **tension** is the player's (what happened near him), **alertness** is a
+  sector's (what a soldier there saw or heard, a body found there). A soldier's sighting raises his
+  own sector; what he heard tells his sector where the *sound* was. `last_known` is a memory, not a
+  tracker. Nothing global says where the player is.
+- Pacing from tension and close hunters; COMBAT closes the spawn budget so a fight resolves.
+- Event points come from the floor's geometry, verified on the path graph; a point is used only
+  outside the player's view cone or hidden from his eye.
+- One seeded RNG for every choice; every decision logged; a 0.5 s tick, not a per-frame scan.
+- The overlay is development-only (F3), off by default; F4 switches the director off entirely.
