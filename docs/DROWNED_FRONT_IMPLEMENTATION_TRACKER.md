@@ -22,15 +22,13 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 12 | Performance and polish | not started | | user review |
 | 13 | Final integration | not started | | final approval |
 
-**Performance baseline on the Mac: PENDING** (Andrew, 22 Nov: deferred; not a blocker for M2; no
-numbers are to be invented). When convenient: `godot --path . res://scenes/legacy_drowned_trenches.tscn
--- perf=30 god`, play a minute, paste the `PERF` lines here.
+**Performance baseline on the Mac: MEASURED 23 Nov** (Apple M2, ~1900 × 1000, Metal/Forward+): bunker 27 → 60 fps, Front 12–22 → 58 fps standing still, after the light, fog, batching and shadow fixes and FSR 1 at 0.75 recorded in the performance note below; combat not yet measured (M12).
 
 **Next action:** Andrew **playtests Milestone 6** — cross the Front under the two Maxims
 (`play_front -- god` first, then without god: are the arcs legible, is the dead ground and the
 flank there, do the bursts and belt changes give windows, does crouching in a hole save you, do the
 shells telegraph fairly), and shoots a gunner off his gun and takes it. Milestone 7 (the director
-foundation) only on his word. Still his: the Mac perf baseline (PENDING), the M2/M3 and M5 judgements.
+foundation) only on his word. Still his: the M2/M3 and M5 judgements, and whether FSR 0.75 reads fine.
 
 ### Decisions taken by Andrew on 22 Nov (answers to Session Zero's questions)
 1. Performance: 60 fps at his normal development resolution; measure the real baseline on the Mac
@@ -232,7 +230,7 @@ gone; this count varies run to run with the chase), `test_trench_level game` →
 
 ### Known and noted
 - The HUD on SURVIVAL shows the run's kill total, not a per-floor count.
-- Mac performance baseline: **PENDING** (deferred by Andrew on 22 Nov); nothing claimed.
+- Mac performance baseline: deferred by Andrew on 22 Nov; **measured 23 Nov** (see the performance note).
 
 ### Recoverability of the scanned art (Andrew's added requirement)
 `git archive legacy-drowned-trenches-baseline art/trench art/level/fx_*.png art/level/wall_conc.png`
@@ -402,7 +400,7 @@ still pending and nothing here forecloses it: No Man's Land's length is one numb
 - Crater water (decorative planes in holes over 0.55 m) now sits in deeper holes: wading, no
   footstep sound change out there yet.
 - Fire-step bays under a bridge or at a sap keep their legacy behaviour; nothing in the trenches changed.
-- Mac performance still **PENDING**.
+- Mac performance: measured 23 Nov (performance note).
 
 ## Milestone 4 — Reference atmosphere (22 Nov 2026) — APPROVED
 
@@ -505,7 +503,7 @@ third against the same bands of (b) and (c)):
   camera does not see them as fog proper; they are particles.
 - **Auto-exposure** is held to a narrow band; a dugout will not go as dark as the legacy day's.
 - **Enemies' own materials** are untouched; they take the light and the grade like everything else.
-- **Performance unmeasured** on the Mac (PENDING). The Front's environment adds the mist
+- Performance: measured 23 Nov (performance note); the Front's environment adds the mist
   volume (as the legacy day) and 5 small emitters; nothing else new is per-frame.
 - `test_zornhauptmann` flakiness on the Front (since M2) still to be looked at.
 
@@ -805,7 +803,27 @@ made the project default (`rendering/scaling_3d/mode=1, scale=0.75`) — the one
 that touches the look (a slight softening), Andrew to judge by eye. Noted for later: physics spikes of
 18–25 ms in some windows on a bunker floor (Jolt; corpses/ragdolls or an event), to be looked at in M12.
 
-**Still needed: the Front at the big window with the defaults, then its own knobs.** The frame probe now prints the load too. In the
+**The Front (23 Nov 14:04–14:14, Andrew, M2, ~1900 × 800–1000):** with the bag mesh, the 2-split sun
+and FSR 1 in: **20–25 fps, still 57 M primitives a frame** on a 2.8 M-triangle floor. Cause: a
+MultiMesh is culled as one box, and the "bags" batch spanned the whole floor, so all 8,600 bags were
+drawn whole in the colour pass, the depth pass, each sun split and **each of the six faces of every
+dugout lamp's shadow** (4 lamps, 4.6 m range). Fixes: `FrontArt._add/_box` key every batch by a 20 m
+tile (79 → 497 batches, the same 15,704 instances; the legacy batching untouched) and the lamps'
+shadows off (`96757a7`) → **5.2 M primitives, 41–49 fps, median 20.4 ms**. `nofog`: 19.4 ms — the
+mist and banks are ~1 ms, left alone. Then the litter batches cast no shadow and the sun in one split
+to 36 m (`772d6df`) → **3.7 M primitives, 1,300 draw calls, 58 fps, median 17.2 ms, 1% low 58.**
+
+**D-10 status:** baseline measured; target met at Andrew's resolution standing still (bunker 60,
+Front 58). Combat (ragdolls, impacts, tracers, the MGs) is not in these numbers. **M12 list:** soldier
+and corpse meshes at 22–33 k triangles each × 30–43 bodies (LOD / a simplified shadow mesh); the ~150
+crater water planes as separate MeshInstances (merge per tile); the bunker physics spikes (18–25 ms);
+a Graphics options page (render scale / upscaler / fog and shadow quality, saved per user) so the FSR
+default is a player's choice, not a project-wide fact; video memory at 0.93–1.1 GB (texture import).
+
+**Look-neutrality:** every change above except FSR 1 at 0.75 is invisible by construction (shadows
+that were in the haze, bulbs' fog glow two rooms away, culling); the before/after shots for the bags
+and the sun are in `docs/reference/front_m6/`. The approved atmosphere (D-16) stands; Andrew to say
+if the 0.75 softening bothers him. The frame probe now prints the load too. In the
 editor, Project Settings → Editor → Run → Main Run Args: `-- god perf=10` with `scenes/play_front.tscn`
 (the Front), `-- god perf=10 bunker floor=2` and `-- god perf=10 bunker floor=8` (bunkers), and read
 the `PERF …` lines in the Output panel: fps / 1% low, then `PERF load: objects drawn … draw calls …`.
