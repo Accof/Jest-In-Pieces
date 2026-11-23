@@ -14,7 +14,7 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | **APPROVED 22 Nov 22:09** — after five gate iterations on Andrew's live feedback (glint, sky, fog banks, litter, colour match, ground readability), his word: "you were right. i needed to reload the scene. Continue with the master plan" | commits `f13e92c` … `12ca5c7`; tag `drowned_front_approved_atmosphere`; `docs/reference/approved_atmosphere/` | approved |
 | 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | **done**; Andrew: "continue" (22 Nov 23:26) — his own shoot-around still to come | commits `bcde05b`, `ee8c88d`, `30c7c2d` | user review (pending) |
 | 6 | Core combat hazards (MG nests, suppression, artillery) | **done**; Andrew: "i like it. continue" (23 Nov 15:55, after the D-18 re-cut) | commits `31aba63`, `593648e` | playtest (his) |
-| 7 | Director foundation (tension/alertness, event points, budgets, overlay) | **done, awaiting review** | commit `M7COMMIT` | user review |
+| 7 | Director foundation (tension/alertness, event points, budgets, overlay) | **done, awaiting review** | commit `c7c548a` | user review |
 | 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | not started | | user playtest |
 | 9 | Expanded battlefield activity | not started | | user review |
 | 10 | Enemy trench suspense | not started | | user playtest |
