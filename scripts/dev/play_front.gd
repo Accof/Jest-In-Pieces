@@ -30,7 +30,7 @@ func _ready() -> void:
 			FpsPlayer.god_mode = true
 		elif a == "bunker":
 			bunker = true                       # play floor_ as a bunker instead (perf comparisons)
-		elif a == "noshadows" or a == "nopost" or a == "nofog" or a.begins_with("scale="):
+		elif a == "noshadows" or a == "nopost" or a == "nofog" or a.begins_with("scale=") or a.begins_with("fsr1=") or a.begins_with("fogsize=") or a == "nossil":
 			knobs.append(a)                     # perf experiments, applied after the floor is built
 	Engine.set_meta(&"test_save", true)
 	game = load("res://scenes/game.tscn").instantiate()
@@ -70,6 +70,18 @@ func _ready() -> void:
 			get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR2
 			get_viewport().scaling_3d_scale = sc
 			print("PERF knob: 3D render scale %.2f (FSR 2)" % sc)
+		elif k.begins_with("fsr1="):
+			var sc := float(k.substr(5))
+			get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR
+			get_viewport().scaling_3d_scale = sc
+			print("PERF knob: 3D render scale %.2f (FSR 1)" % sc)
+		elif k.begins_with("fogsize="):
+			var fs := int(k.substr(8))
+			RenderingServer.environment_set_volumetric_fog_volume_size(fs, fs)
+			print("PERF knob: volumetric fog volume %d x %d x %d (default 64)" % [fs, fs, fs])
+		elif k == "nossil":
+			game._world_env.environment.ssil_enabled = false
+			print("PERF knob: SSIL off")
 	if perf > 0.0:
 		var probe: Node = load("res://scripts/dev/frame_probe.gd").new()
 		probe.seconds = perf
