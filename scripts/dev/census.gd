@@ -70,6 +70,41 @@ func _run() -> void:
 				decals += 1
 			elif n is PhysicalBone3D:
 				bones += 1
+		# the heaviest things: triangles per frame = instances x mesh triangles (shadow passes multiply it again)
+		var heavy: Array = []
+		var stack2: Array = [game._world]
+		while not stack2.is_empty():
+			var n2: Node = stack2.pop_back()
+			stack2.append_array(n2.get_children())
+			var mesh: Mesh = null
+			var inst := 1
+			if n2 is MultiMeshInstance3D and (n2 as MultiMeshInstance3D).multimesh:
+				var mmr := (n2 as MultiMeshInstance3D).multimesh
+				mesh = mmr.mesh
+				inst = mmr.visible_instance_count if mmr.visible_instance_count >= 0 else mmr.instance_count
+			elif n2 is MeshInstance3D:
+				mesh = (n2 as MeshInstance3D).mesh
+			if mesh == null:
+				continue
+			var tris := 0
+			for s2 in mesh.get_surface_count():
+				var arr2 := mesh.surface_get_arrays(s2)
+				if arr2.size() > Mesh.ARRAY_INDEX and arr2[Mesh.ARRAY_INDEX] != null and arr2[Mesh.ARRAY_INDEX].size() > 0:
+					tris += arr2[Mesh.ARRAY_INDEX].size() / 3
+				elif arr2.size() > 0 and arr2[Mesh.ARRAY_VERTEX] != null:
+					tris += arr2[Mesh.ARRAY_VERTEX].size() / 3
+			var casts: bool = (n2 as GeometryInstance3D).cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			heavy.append([tris * inst, n2.name, inst, tris, casts, mesh.get_class()])
+		heavy.sort_custom(func(a: Array, b: Array) -> bool: return a[0] > b[0])
+		var total := 0
+		var total_cast := 0
+		for h: Array in heavy:
+			total += h[0]
+			if h[4]:
+				total_cast += h[0]
+		print("   triangles in the world: %dk total, %dk of them casting shadows. Heaviest:" % [total / 1000, total_cast / 1000])
+		for h: Array in heavy.slice(0, 18):
+			print("      %7dk  %-28s x%-6d %6d tris each  %s  %s" % [h[0] / 1000, h[1], h[2], h[3], "shadows" if h[4] else "no-shadow", h[5]])
 		var kind := "Front" if game.maze is FrontMaze else ("trench" if game.maze is TrenchMaze else "bunker")
 		print("CENSUS floor %d (%s): %d enemies | lights %d (%d with shadows) | MeshInstance3D %d (%dk tris) | MultiMesh %d (%d instances) | particles %d (%d quads) | decals %d | physical bones %d" % [
 			game.floor_number, kind, game.clowns.size(), lights, shadow_lights, mi, mi_tris / 1000, mm, mm_inst, parts, part_amount, decals, bones])

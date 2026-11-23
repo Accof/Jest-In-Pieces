@@ -518,6 +518,37 @@ func _cottage_ruin(at: Vector3, face: Basis, mat: Material) -> void:
 		_box("cottage", mat, q + Vector3.UP * sz * 0.15, Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.3, 0.3)), Vector3(sz, sz * 0.4, sz * 0.7))
 
 
+## The Front's sandbag: the legacy pillow at a third of the triangles. There
+## are ~8,600 bags on a Front floor and each one is drawn up to six times a
+## frame (depth, colour, the sun's shadow splits): 320 triangles each was
+## 2.75 M of the floor's 4.5 M, measured on Andrew's M2 (23 Nov). 10 × 5
+## segments instead of 16 × 9 is ~100; at 0.5 m, in this light, the same bag.
+## The legacy level keeps its own mesh (TrenchArt._bag_mesh is untouched).
+func _bag_mesh() -> Mesh:
+	var m := SphereMesh.new()
+	m.radius = 0.5
+	m.height = 1.0
+	m.radial_segments = 10
+	m.rings = 5
+	var st := SurfaceTool.new()
+	st.create_from(m, 0)
+	var arr := st.commit_to_arrays()
+	var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	for i in v.size():
+		var p := v[i]
+		var q := Vector3(signf(p.x) * pow(absf(p.x) * 2.0, 0.55) * 0.5, signf(p.y) * pow(absf(p.y) * 2.0, 0.8) * 0.5, signf(p.z) * pow(absf(p.z) * 2.0, 0.6) * 0.5)
+		q.y = maxf(q.y, -0.42)
+		q.y -= 0.08 * (1.0 - absf(q.x) * 2.0) * (1.0 if q.y > 0.0 else 0.0)
+		v[i] = q * TrenchArt.BAG
+	arr[Mesh.ARRAY_VERTEX] = v
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	var st2 := SurfaceTool.new()
+	st2.create_from(am, 0)
+	st2.generate_normals()
+	return st2.commit()
+
+
 ## A prop's transform on the open ground: on the field, facing a random way.
 func _ground_xf(at: Vector3) -> Transform3D:
 	at.y = height_at(at.x, at.z)

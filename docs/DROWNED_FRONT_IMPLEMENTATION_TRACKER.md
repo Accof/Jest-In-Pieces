@@ -779,7 +779,21 @@ are Milestone 12's (performance) proper subjects, and the approved atmosphere (D
 touched for them without a new approval; render scale (FSR 2 at 0.77–0.85) is the lever that
 changes nothing in the look.
 
-**Still needed: the Mac baseline (D-10, PENDING).** The frame probe now prints the load too. In the
+**The Mac baseline, first reading (23 Nov 13:18, Andrew; D-10 no longer pending for the Front):**
+Apple M2, window 1958 × 991 @ 60 Hz, Forward+, vsync on. `play_front -- god perf=10`, ten 10-s
+windows standing/looking about at the start: **12.3–21.6 fps avg, 1% lows 7.4–20 fps**, every frame
+over 33 ms; objects drawn 480–2,520, draw calls 341–2,303, **primitives 15.7–73.9 M a frame**,
+video memory 1.02–1.10 GB, physics 3.8–6.7 ms. The census then put the floor's triangles at
+**4.48 M, 4.34 M of them casting shadows — 2.75 M of which were the 8,597 sandbags at 320
+triangles each**, every one drawn up to six times a frame (depth, colour, four shadow splits).
+Fix: `FrontArt._bag_mesh()` override at 10 × 5 segments (120 tris; the legacy mesh untouched) and
+the Front sun's shadow at 40 m in two splits instead of 70 m in four (past 40 m the haze had the
+shadow anyway): floor triangles 4.48 M → 2.76 M, shadow passes halved. Before/after shots (a) and
+(c) in `docs/reference/front_m6/perf_bags_shadows_before_after.png`: the differences are the live
+fog bank and the cloud, not the bags. Second reading awaited. Next on the list (M12): the soldiers
+and corpses at 22–33 k triangles each (30–43 bodies), LOD or a simplified shadow mesh; render scale.
+
+**Still needed: the bunker readings (`bunker floor=2`, `bunker floor=8`).** The frame probe now prints the load too. In the
 editor, Project Settings → Editor → Run → Main Run Args: `-- god perf=10` with `scenes/play_front.tscn`
 (the Front), `-- god perf=10 bunker floor=2` and `-- god perf=10 bunker floor=8` (bunkers), and read
 the `PERF …` lines in the Output panel: fps / 1% low, then `PERF load: objects drawn … draw calls …`.

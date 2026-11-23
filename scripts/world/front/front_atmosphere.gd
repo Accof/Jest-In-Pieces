@@ -164,7 +164,12 @@ static func setup_sun(sun: DirectionalLight3D) -> void:
 	sun.shadow_enabled = true
 	sun.shadow_opacity = 0.65
 	sun.shadow_blur = 3.0
-	sun.directional_shadow_max_distance = 70.0
+	# (23 Nov, Andrew's M2 baseline) the shadow reaches 40 m in two splits, not
+	# 70 m in four: past 40 m the haze has taken the shadow anyway, and every
+	# split re-draws the field's 4.5 M triangles
+	sun.directional_shadow_max_distance = 40.0
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	sun.directional_shadow_split_1 = 0.25
 	sun.look_at_from_position(Vector3.ZERO, -LIGHT_DIR, Vector3.UP)
 	sun.position = Vector3.ZERO
 
