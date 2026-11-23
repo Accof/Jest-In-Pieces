@@ -16,7 +16,7 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 6 | Core combat hazards (MG nests, suppression, artillery) | **done**; Andrew: "i like it. continue" (23 Nov 15:55, after the D-18 re-cut) | commits `31aba63`, `593648e` | playtest (his) |
 | 7 | Director foundation (tension/alertness, event points, budgets, overlay) | **done, awaiting review** | commit `c7c548a` | user review |
 | 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | **done, awaiting playtest** | commit `b76ea70` | user playtest |
-| 9 | Expanded battlefield activity (catalogue 4–6, 9–10, squad) | **done, awaiting review** | commit M9 | user review |
+| 9 | Expanded battlefield activity (catalogue 4–6, 9–10, squad) | **done, awaiting review** | commit `f3bc059` | user review |
 | 10 | Enemy trench suspense | not started | | user playtest |
 | 11 | Procedural variants | not started | | user review |
 | 12 | Performance and polish | not started | | user review |
