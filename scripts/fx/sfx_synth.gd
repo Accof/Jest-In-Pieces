@@ -223,6 +223,10 @@ static func _make(name: String) -> AudioStreamWAV:
 			data = _mix(_chirp(0.22, 3100.0, 2700.0, 0.35), _crack(0.025, rng, 0.7))
 		"imp_bag":
 			data = _thump(0.08, 140.0, 60.0, 0.03, 0.5, rng, 0.04, 0.3)
+		"mg_shot":                                # a heavy machine gun's round, close: a bark with a deep thump under it
+			data = _mix(_crack(0.03, rng, 1.3), _thump(0.09, 160.0, 70.0, 0.02, 0.9, rng, 0.02, 0.6))
+		"shell_whistle":                          # a shell coming in: a falling whistle, louder as it comes
+			data = _whistle_in(2.4, rng)
 		"imp_water":
 			data = _mix(_thump(0.05, 200.0, 90.0, 0.015, 0.3, rng, 0.01, 0.1), _splash(0.22, rng))
 		"carnival_tune":
@@ -255,6 +259,23 @@ static func _wav(data: PackedFloat32Array) -> AudioStreamWAV:
 	w.stereo = false
 	w.data = bytes
 	return w
+
+
+## A shell's whistle: a tone sliding down from high, swelling toward the end,
+## a little breath of noise in it.
+static func _whistle_in(len: float, rng: RandomNumberGenerator) -> PackedFloat32Array:
+	var n := int(len * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / n
+		var f := lerpf(2600.0, 900.0, pow(t, 0.8))
+		phase += TAU * f / RATE
+		var env := pow(t, 1.6) * (1.0 - smoothstep(0.96, 1.0, t))
+		var wob := 1.0 + 0.02 * sin(t * 60.0)
+		out[i] = (sin(phase * wob) * 0.7 + sin(phase * 2.01) * 0.12 + (rng.randf() * 2.0 - 1.0) * 0.08) * env * 0.5
+	return out
 
 
 static func _mix(a: PackedFloat32Array, b: PackedFloat32Array) -> PackedFloat32Array:

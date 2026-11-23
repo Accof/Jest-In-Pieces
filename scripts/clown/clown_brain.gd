@@ -239,7 +239,7 @@ func _can_see_player() -> bool:
 	if dist > 6.0:
 		if _fog == null or not is_instance_valid(_fog):
 			_fog = get_tree().get_first_node_in_group(&"fog")
-		if _fog and _fog.visibility(clown.global_position + Vector3.UP * 1.5, player.global_position + Vector3.UP * 1.5) < 0.3:
+		if _fog and _fog.visibility(clown.global_position + Vector3.UP * 1.5, player.global_position + Vector3.UP * player.eye_height()) < 0.3:
 			return false
 	return _sees_player()
 
@@ -747,7 +747,7 @@ func _lean_side() -> float:
 func _muzzle_clear() -> bool:
 	if player == null:
 		return false
-	return _clear(clown.muzzle_position(), player.global_position + Vector3.UP * 1.25)
+	return _clear(clown.muzzle_position(), player.global_position + Vector3.UP * player.chest_height())
 
 
 ## Look nearby (this cell and the next two along the corridors) for a spot
@@ -1133,7 +1133,7 @@ func near_miss(from: Vector3, closest: float, passed := Vector3.INF) -> void:
 
 func _sees_player() -> bool:
 	var from := clown.global_position + Vector3.UP * 1.5
-	var to := player.global_position + Vector3.UP * 1.3
+	var to := player.global_position + Vector3.UP * player.eye_height()      # (M6) a crouched man shows less
 	var q := PhysicsRayQueryParameters3D.create(from, to, LAYER_WORLD)
 	return clown.get_world_3d().direct_space_state.intersect_ray(q).is_empty()
 
@@ -1332,7 +1332,7 @@ func _fire(dist: float) -> bool:
 		print("fire at %.1fm" % dist)
 	var from := clown.muzzle_position()
 	clown.fired()
-	var aim_at := player.global_position + Vector3.UP * 1.25
+	var aim_at := player.global_position + Vector3.UP * player.chest_height()
 	# Further away, or a player on the move, is harder to hit.
 	var chance := clampf(accuracy.x - dist * accuracy.y, accuracy.z, accuracy.x)
 	if player.velocity.length() > 2.0:

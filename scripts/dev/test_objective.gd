@@ -211,8 +211,10 @@ func _survival() -> void:
 	_check(game.maze is FrontMaze, "floor 3 is the Drowned Front")
 	_check(game.objective == SURVIVAL, "objective SURVIVAL")
 	var n := _living().size()
-	# the enemy count is what it was: mini(int(mini(4 + 3 * 2, 18) * 1.5), 26) = 15, plus an officer if none rolled
-	_check(n >= 15 and n <= 16, "%d enemies (15 as before, 16 with the guaranteed officer)" % n)
+	var gunners: int = game.clowns.filter(func(c: Clown) -> bool: return c.has_meta(&"mg_gunner")).size()
+	# the enemy count is what it was: mini(int(mini(4 + 3 * 2, 18) * 1.5), 26) = 15, plus an
+	# officer if none rolled, plus (M6) a gunner on each of the Front's machine guns
+	_check(n - gunners >= 15 and n - gunners <= 16 and gunners == FrontThreats.NESTS, "%d enemies (15 as before, 16 with the guaranteed officer, + %d MG gunners)" % [n, gunners])
 	_check(game.clowns.any(func(c: Clown) -> bool: return c is Zornhauptmann), "an officer among them")
 	_check(game.remaining == n, "remaining still counts them (%d)" % game.remaining)
 	_check(game.battle == null, "no legacy battle on the Front (its director is Milestones 6-9)")

@@ -347,6 +347,14 @@ func _process(delta: float) -> void:
 	elif camera.h_offset != 0.0:
 		camera.h_offset = 0.0
 		camera.v_offset = 0.0
+	# suppression: a fine tremor, nothing more, easing off over a few seconds
+	if suppression > 0.001:
+		suppression = move_toward(suppression, 0.0, delta * 0.35)
+		var ts := Time.get_ticks_msec() * 0.001
+		var ss := suppression * suppression
+		camera.h_offset += (sin(ts * 31.0) + sin(ts * 71.0) * 0.5) * 0.012 * ss
+		camera.v_offset += (sin(ts * 43.0 + 0.7) + sin(ts * 89.0) * 0.5) * 0.012 * ss
+		camera.rotation.z += sin(ts * 27.0) * 0.006 * ss
 
 
 func _physics_process(delta: float) -> void:
@@ -916,6 +924,18 @@ func dismount() -> void:
 
 
 ## Rattle the view (explosions). 1.0 is a drum going up a few metres away.
+## Rounds cracking close past (M6): a crack at the pass, a small press on the
+## camera that eases off - enough to want cover, never enough to take the
+## aim or the controls away. `suppression` is read by the HUD if it likes.
+var suppression := 0.0
+var suppress_events := 0
+func suppress(amount: float, at: Vector3 = Vector3.INF) -> void:
+	suppression = clampf(suppression + amount, 0.0, 1.0)
+	suppress_events += 1
+	if at != Vector3.INF and is_inside_tree():
+		SfxSynth.play(self, "crack", at, -4.0 + 6.0 * amount, randf_range(1.3, 1.7), 3.0, 30.0)
+
+
 func shake(amount: float) -> void:
 	_shake = clampf(maxf(_shake, amount), 0.0, 1.5)
 

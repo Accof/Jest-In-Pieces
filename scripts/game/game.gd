@@ -315,6 +315,18 @@ func next_floor() -> void:
 		var zc: Vector2i = cells[rng.randi() % cells.size()]
 		z.global_position = maze.cell_center(zc)
 	battle = null
+	threats = null
+	if maze is FrontMaze:
+		# (M6) the Front's hazards: their machine guns on the parapet, their
+		# guns behind the lines
+		threats = FrontThreats.new()
+		threats.name = "Threats"
+		_world.add_child(threats)
+		threats.setup(maze as FrontMaze, player, rng.randi(), func() -> Clown:
+			var g := _spawn_clown(true, false)
+			if not g.has_rifle:
+				g.give_rifle()
+			return g)
 	if outdoor and not (maze is FrontMaze):
 		# the battle going on round you: the soldiers at their posts, the enemy
 		# over there. (The Front gets its battlefield director in Milestones
@@ -824,6 +836,7 @@ func _build_environment() -> void:
 
 ## The trench floor's battle (soldiers' duties, the far side's fire); null indoors.
 var battle: TrenchBattle
+var threats: FrontThreats           ## (M6) the Front's machine guns and artillery
 
 
 func is_trench_floor(n: int) -> bool:

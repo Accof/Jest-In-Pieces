@@ -56,6 +56,14 @@ func _ready() -> void:
 	_muzzle.add_child(_flash)
 
 
+## A round into the gun itself: an enemy nest's piece (M6) can be wrecked.
+func shot(pos: Vector3, dir: Vector3, dmg: float) -> void:
+	if has_meta(&"front_mg"):
+		var nest: Object = get_meta(&"front_mg")
+		if nest and nest.has_method("shot"):
+			nest.shot(pos, dir, dmg)
+
+
 func prompt() -> String:
 	if player and player.mount == self:
 		if overheated:

@@ -12,8 +12,8 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 2 | New battlefield geometry (two networks, No Man's Land, H.Q. exit) | **done**; Andrew: "continue with the plan" (22 Nov) — his own playtest still to come | commits `663727e`, `4667339` | **user playtest** (pending) |
 | 3 | Terrain and functional cover (craters, wire, routes, enemy navigation) | **done**; Andrew: "continue" (22 Nov) — his own playtest still to come | commit `104a80e`, `5d9baaa` | user review (pending) |
 | 4 | Reference atmosphere (green-grey fog, sky, wet mud, silhouettes) | **APPROVED 22 Nov 22:09** — after five gate iterations on Andrew's live feedback (glint, sky, fog banks, litter, colour match, ground readability), his word: "you were right. i needed to reload the scene. Continue with the master plan" | commits `f13e92c` … `12ca5c7`; tag `drowned_front_approved_atmosphere`; `docs/reference/approved_atmosphere/` | approved |
-| 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | **done, awaiting review** | commits `bcde05b`, `ee8c88d` | user review |
-| 6 | Core combat hazards (MG nests, suppression, artillery) | not started | | user playtest |
+| 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | **done**; Andrew: "continue" (22 Nov 23:26) — his own shoot-around still to come | commits `bcde05b`, `ee8c88d`, `30c7c2d` | user review (pending) |
+| 6 | Core combat hazards (MG nests, suppression, artillery) | **done, awaiting playtest** (built 23 Nov 00:15; the Mac was offline at the time — bundle `m6.tgz` delivered in chat, committed when it is back) | commit pending | user playtest |
 | 7 | Director foundation (tension/alertness, event points, budgets, overlay) | not started | | user review |
 | 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | not started | | user playtest |
 | 9 | Expanded battlefield activity | not started | | user review |
@@ -26,11 +26,11 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 numbers are to be invented). When convenient: `godot --path . res://scenes/legacy_drowned_trenches.tscn
 -- perf=30 god`, play a minute, paste the `PERF` lines here.
 
-**Next action:** Andrew reviews Milestone 5 — fire every weapon at everything on the Front and in a
-bunker (`play_front -- god`, then the next floor), the Maxim in the MG-nest event, a grenade into a
-flooded hole; the material range renders in `docs/reference/front_m5/`. Milestone 6 (MG nests,
-suppression, artillery) only on his word. Still his: the Mac perf baseline (PENDING) and the M2/M3
-playtest judgement (No Man's Land's length is one number).
+**Next action:** Andrew **playtests Milestone 6** — cross the Front under the two Maxims
+(`play_front -- god` first, then without god: are the arcs legible, is the dead ground and the
+flank there, do the bursts and belt changes give windows, does crouching in a hole save you, do the
+shells telegraph fairly), and shoots a gunner off his gun and takes it. Milestone 7 (the director
+foundation) only on his word. Still his: the Mac perf baseline (PENDING), the M2/M3 and M5 judgements.
 
 ### Decisions taken by Andrew on 22 Nov (answers to Session Zero's questions)
 1. Performance: 60 fps at his normal development resolution; measure the real baseline on the Mac
@@ -667,4 +667,84 @@ Authorised by Andrew's "Continue with the master plan" after the M4 approval (ta
   `archive/.../check.sh --live` will list trench_art.gd, mud_terrain.gdshader and the others as
   changed: this record is why.
 
-(Milestones 6–13: scope as in the package; detailed when authorised.)
+## Milestone 6 — Core combat hazards (22–23 Nov 2026) — DONE, AWAITING PLAYTEST
+
+Authorised by Andrew's "continue" after M5 (taken as M6 only).
+
+### What was built (package C5; master plan "threat controller")
+- **`FrontThreats`** (`scripts/world/front/front_threats.gd`), made by `Game` on a Front floor after
+  the soldiers: places the nests from the geometry and runs the artillery.
+- **`FrontMg`** (`front_mg.gd`) — an enemy Maxim on their parapet. **Placement:** their fire bays on
+  their fire row facing our lines, the gun on the lip 1.05 m in front of the wall (just past the bag
+  line), a view check from the muzzle at 25 and 50 m (≥ 4 of 6 lines clear), nests ≥ 18 m apart so
+  the field keeps a flank; 2 per floor (seed 1916: x = 27.7 and 9.7, both on the fire row, both with
+  a live gunner 2 m behind). **The gun is `MountedGun`** (the MG-nest event's piece, mesh, tripod,
+  flash, tracer, heat), driven by the nest instead of a player. **Arc:** traverse ±55°, elevation
+  −14°…+18° (`MountedGun`'s constants) — outside it the gun cannot point, and close under it is dead
+  ground. **Sight:** range 115 m, the `fog` group's `visibility` ≥ 0.3 (so banks and smoke hide you
+  from it exactly as from the soldiers), and a clear ray from the muzzle to your chest **or** your
+  eye at your current crouch height. **Fire:** bursts of 7–14 rounds at 0.085 s, pauses 0.8–2.2 s
+  between, a 100-round belt then a 5–7.5 s belt change, heat 0.028/round cooling 0.22/s with a
+  boil-over at 1.0 until 0.35; a burst starts up to 1.4 m off and walks onto the mark; the aim cone
+  is 3.2° on acquisition settling to 0.9° over 2.6 s of continuous tracking (lost sight resets it).
+  **Every round is a ray** (world | player): the player hit → `take_damage` 14 at ≤ 40 m to 8 at
+  115 m; the world hit → `Impacts.bullet` (mud kicks, wire pings); a round within 2.2 m of your chest
+  → `FpsPlayer.suppress`; within 1.3 m of a soldier → his brain's `near_miss`. **States:** IDLE (a
+  short burst across the field at nothing every 35–90 s), TRACK, SEARCH (bursts at where it last saw
+  you ± 4 m every 5–11 s, gives up after 25 s), RELOAD, OVERHEAT, SILENT. **Vulnerable:** the gunner
+  is an ordinary WitzSoldat (shoot him → the nest is silent and the piece becomes usable: [E] on it,
+  `MountedGun.active`); the mechanism takes 420 damage from the player's rounds (`shot()` forwarded
+  from the gun body) and jams with a snap. Not omniscient: no target → no fire except the searching
+  and idle bursts, which are real rays too.
+- **`FrontArtillery`** (`front_artillery.gd`): first salvo 25–45 s in, then salvos of 3–5 shells
+  1.6–3.2 s apart, lulls of 32–70 s between. Each shell: `shell_whistle` (synth, falling, from 18 m
+  up over the fall) **2.4 s before** it lands, then the game's own `Explosion` `shell` profile
+  (damage, fling, gore, scorch as they were) + `Impacts.blast` (mud plume / water sheet). Fair by
+  construction: the salvo's centre is 10–24 m from you (60%) or anywhere on the field (40%); **no
+  shell is aimed within 7.5 m of where you stand when it is fired; at most one of a salvo within
+  16 m; nothing outside z ∈ [their fire row − 1 m, our fire row + 1 m]** (the field and the two front
+  parapets; never the H.Q. or our rear). Soldiers within 14 m get `near_miss` (heads down). The
+  **movement windows** the package asks for are the lulls, the belt changes, the boil-overs and the
+  pauses between bursts — measured, not scripted.
+- **Suppression feedback** (`FpsPlayer.suppress(amount, at)`): a `crack` at the pass point, a fine
+  camera tremor (±1.2 cm, 0.3°) proportional to suppression², easing at 0.35/s. No aim penalty, no
+  control theft, no stun, no vignette. Damage only from rays.
+- **Brains read the crouch** (`ClownBrain`): sight, fog and aim use `player.eye_height()` /
+  `chest_height()` instead of fixed 1.5 / 1.25 — crouched behind a 1.35 m wall you are not seen,
+  standing you are (tested). This closes the M3 note.
+- Sounds (placeholders, synth): `mg_shot`, `shell_whistle`; `crack`, `metal_rattle`, `mag_out`,
+  `metal_snap` reused.
+
+### Tests (`test_threats`, headless)
+| Section | Result |
+|---|---|
+| nests | 2 guns on their fire row, facing +z, on the lip, clear view 30 m out, live gunners 2.2 / 1.8 m behind; 18 m apart; the traverse covers the field ahead, not the flank |
+| fire | a man standing 32 m out is seen at once; 10 rounds in 2 bursts within 2.7 s; misses land in the world (Impacts); hits on him are ray hits (1); suppression 0.13 after 6 near passes, eases to 0 in 3 s; crouched on the floor of a 1.7 m hole 19 m out: not seen, no hits in 6 s |
+| pauses | 75 s under fire: 288 rounds in 29 bursts, 28 pauses, 2 belt changes, longest pause **8.3 s** |
+| crew | gunner shot dead → nest dead, gun silent 5 s, piece takeable; 12 rifle rounds into the second gun → jammed |
+| shells | first salvo held 29 s; a salvo of 5: every whistle ≥ 2.4 s, none within 7.5 m of the player, 1 within 16 m, all in the fair zone; the soldier 3 m from the centre got 5 near misses; next salvo 33 s later |
+| crouch | behind a 1.35 m wall: standing (eye 1.65) seen, crouched (eye 1.05) not |
+| test_front `game` | 0 failed (the Front builds and plays with the threats in) |
+| look render | `docs/reference/front_m6/` |
+
+### Honest list
+- The gunner stands behind the gun with his rifle, looking down the barrel; there is no hands-on-the-
+  grips pose. No relief crew: a dead gunner's gun stays silent until you take it.
+- The idle "burst at nothing" is a real ray and can, rarely, find a player who is in that line —
+  that is the gun doing what guns do, not phantom damage; the chance is small and the cone wide.
+- Suppression's camera feedback is deliberately slight; if it reads as nothing on the Mac, the
+  amplitude is one number (`FpsPlayer`, 0.012 / 0.006).
+- Artillery does not yet pause for a pinned player explicitly — the windows come from the salvo
+  rhythm and the MGs' own pauses; whether that *feels* fair is the playtest's question.
+- Impact-driven AI reactions beyond near-miss suppression (investigate, flank) are director work (M7+).
+- All clocks are game time (not the wall clock), so headless fast runs and the Mac agree.
+
+### Files
+- new `scripts/world/front/front_threats.gd`, `front_mg.gd`, `front_artillery.gd`,
+  `scripts/dev/test_threats.gd`, `scenes/test_threats.tscn`, `docs/reference/front_m6/`.
+- touched: `scripts/game/game.gd` (`threats`, made after the soldiers), `scripts/player/fps_player.gd`
+  (`suppress`, `suppression`, the tremor), `scripts/clown/clown_brain.gd` (crouch heights in sight,
+  fog and aim), `scripts/events/mounted_gun.gd` (`shot()` forwarded to a nest), `scripts/fx/sfx_synth.gd`
+  (`mg_shot`, `shell_whistle`, `_whistle_in`), `scripts/world/front/front_fog.gd` (`clear_banks()`).
+
+(Milestones 7–13: scope as in the package; detailed when authorised.)

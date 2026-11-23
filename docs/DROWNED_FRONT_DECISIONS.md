@@ -214,3 +214,17 @@ Add a record whenever a choice closes a door.
   between them, wind-driven fog banks, flare lighting, the per-region visibility variation the
   package wants — those come with the director (M7+), on this one model. The Mac has not rendered
   it: all screenshots are Forward+ on the container's software Vulkan.
+
+### D-17 · Machine guns and artillery are real rays and real blasts, fair by construction — decided (Milestone 6)
+- An enemy Maxim (`FrontMg`) fires real rays at what it can actually see (arc, range, the one fog
+  visibility model, a clear line to the player's chest or eye at his crouch height); the player is
+  only ever hurt by a ray that hits his body. Bursts, pauses, a belt, a water jacket and a mortal
+  gunner give the windows; the arc and the elevation give the flank and the dead ground. No
+  omniscience, no dice against the player.
+- Artillery (`FrontArtillery`) uses the existing `Explosion` `shell`; every shell whistles 2.4 s
+  first; none is aimed within 7.5 m of the player's position at firing, at most one of a salvo near
+  him, nothing outside the field and the two front parapets; salvos then lulls. "Movement windows"
+  are the rhythm (lulls, belt changes, boil-overs), measured in tests, not a scripted mercy.
+- Suppression on the player is feedback only: a crack and a slight tremor. No aim penalty, no
+  control theft. Soldiers get `near_miss` from MG rounds and shells as they do from the player's.
+- The brains read the crouch from this milestone on (`eye_height` / `chest_height`).

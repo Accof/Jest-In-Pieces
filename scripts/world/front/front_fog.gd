@@ -63,3 +63,12 @@ func _process(delta: float) -> void:
 	# bank rolls; we pull it back in once.
 	if _t_bank > BANK_EVERY.y:
 		_t_bank = rng.randf_range(BANK_EVERY.x, BANK_EVERY.y)
+
+
+## Every bank gone (tests, and the director when it wants a clear field).
+func clear_banks() -> void:
+	for b in banks:
+		if b.mm and is_instance_valid(b.mm):
+			b.mm.queue_free()
+	banks.clear()
+	_upload()
