@@ -29,6 +29,19 @@ extends Node3D
 ##             the gap and cooldowns kept; an event far from the player and
 ##             unseen for 90 s is taken off the floor; none of it is a
 ##             required kill (SURVIVAL)
+##   activity  (Milestone 9) catalogue 4-6, 9-10 and the squad: investigate
+##             (two men from a hidden start 20-45 m from an alerted sector's
+##             last-known, told the place, hunting blind to it; the telling
+##             is not news to the director; only offered with a sector
+##             alerted), mg_sector (an idle Maxim works over a point 25 m+
+##             from the player, bursts counted), shellfire (a salvo centred
+##             8-12 m from a soldier 30-90 m in front of the player; a
+##             frontline man within 12 m of a shell moves to another bay),
+##             smoke (a bank rolled across the field on the player's lane,
+##             only when he is by the field), aftermath (scorch, two bodies
+##             not in game.clowns, two men running 15-30 m to a GUARD post);
+##             squad (the word passes from an alerted man to his group; half
+##             down and contact lost -> withdraw to the origin or hold)
 ##   walk      brains on, 75 s of game time: the reinforcements' leader walks
 ##             his beat toward the bay (legs finished, metres covered), the
 ##             silhouette finishes legs of his route, the parapet men fire
@@ -56,7 +69,7 @@ func _frames(n: int) -> void:
 
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
-	var secs := ["tension", "local", "points", "budget", "seeded", "overlay", "events", "walk"]
+	var secs := ["tension", "local", "points", "budget", "seeded", "overlay", "events", "walk", "activity"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -539,3 +552,227 @@ func _walk() -> void:
 		if is_instance_valid(c) and (c.get_node("Brain") as ClownBrain).mind == ClownBrain.Mind.IDLE:
 			unaware += 1
 	print("         %d of %d director men still unaware" % [unaware, d.live.size()])
+
+
+# --- activity (Milestone 9) --------------------------------------------------------------
+func _brains_off() -> void:
+	for c: Clown in game.clowns:
+		var b: Node = c.get_node_or_null("Brain")
+		if b:
+			b.set_physics_process(false)
+
+
+func _activity() -> void:
+	print("-- activity")
+	await _new_game(1916)
+	var d := _dir()
+	d.auto_events = false
+	d.despawn_far = 10000.0
+	_brains_off()
+	var m := game.maze as FrontMaze
+	var p: FpsPlayer = game.player
+
+	# investigate: only with a sector alerted
+	d._since_event = 999.0
+	var r: Dictionary = d.run_event("investigate")
+	_check(not r.ok and d._alerted_sector() < 0, "investigate with nothing alerted: refused (%s)" % r.why)
+	var lk: Vector3 = Vector3.INF
+	for b: Dictionary in d.pick_points("bay", d.Sector.THEIRS, 0.0, 1000.0, false):
+		lk = d._stand(b.pos)
+		break
+	d.alert[d.Sector.THEIRS] = 30.0
+	d.last_known[d.Sector.THEIRS] = lk
+	d.last_contact[d.Sector.THEIRS] = d.clock
+	_check(d._alerted_sector() == d.Sector.THEIRS, "THEIRS at 30 with a fresh last-known is the sector to send men to")
+	d._since_event = 999.0
+	r = d.run_event("investigate")
+	_check(r.ok, "investigate placed (%s)" % r.why)
+	if r.ok:
+		_check(r.soldiers.size() == 2, "two men")
+		var hunting := 0
+		var hidden := 0
+		for c: Clown in r.soldiers:
+			var b := c.get_node("Brain") as ClownBrain
+			if b.mind != ClownBrain.Mind.IDLE and b._last_known == lk:
+				hunting += 1
+			if not d.visible_to_player(c.global_position):
+				hidden += 1
+		_check(hunting == 2, "both told the place and going to look (hunt-blind to the last-known)")
+		_check(hidden == 2, "both placed out of sight")
+		var st: Vector3 = r.point.pos
+		_check(st.distance_to(lk) >= 20.0 and st.distance_to(lk) <= 45.0 and m.path_cells(r.point.cell, m.cell_of(lk)) < 9999, "from %.0f m away with a path" % st.distance_to(lk))
+		_check(absf(float(d.alert[d.Sector.THEIRS]) - 30.0) < 0.01, "the director's own telling was not news (alert still 30)")
+		_check(r.squad != null and (r.squad as Squad).members.size() == 2, "a squad of two")
+
+	# mg_sector
+	d._since_event = 999.0
+	r = d.run_event("mg_sector")
+	_check(r.ok, "mg_sector placed (%s)" % r.why)
+	if r.ok:
+		var at: Vector3 = r.point.pos
+		_check(at.distance_to(p.global_position) >= 25.0, "the sector %.0f m from the player" % at.distance_to(p.global_position))
+		var engaged := 0
+		var mg_busy: FrontMg = null
+		for mg: FrontMg in game.threats.nests:
+			if mg._engage_left > 0:
+				mg_busy = mg
+		_check(mg_busy != null, "a nest has the bursts queued")
+		for i in 30 * 60:
+			await get_tree().physics_frame
+		for mg: FrontMg in game.threats.nests:
+			engaged += mg.engaged
+		_check(engaged >= 3, "%d bursts fired on the director's word in 30 s" % engaged)
+		_check(d.active.size() >= 1, "the event lasts its while (%s)" % d._events_text())
+
+	# smoke: only by the field
+	d._since_event = 999.0
+	r = d.run_event("smoke")
+	_check(not r.ok, "smoke with the player at our rear: refused (%s)" % r.why)
+	var atmos := get_tree().get_first_node_in_group(&"fog")
+	var fog = atmos.front_fog
+	var banks0: int = fog.banks.size()
+	p.global_position = Vector3(m.w * m.cell * 0.5, 0, (d.z_field_min + d.z_field_max) * 0.5)
+	p.global_position.y = m.ground_height(p.global_position.x, p.global_position.z) + 0.1
+	await _frames(2)
+	fog.clear_banks()
+	d._since_event = 999.0
+	r = d.run_event("smoke")
+	_check(r.ok, "smoke with the player on the field, the banks clear (%s)" % r.why)
+	if r.ok:
+		_check(fog.banks.size() == 1, "a bank rolled (%d)" % fog.banks.size())
+		var bp: Vector3 = r.point.pos
+		var v: Vector3 = r.bank_vel
+		var tt: float = (p.global_position.z - bp.z) / maxf(v.z, 0.01)
+		var heading: Vector3 = bp + v * tt
+		_check(bp.z < p.global_position.z - 25.0 and absf(heading.x - p.global_position.x) < 12.0, "from their side (z %.0f), over his lane in %.0f s (x %.0f -> %.0f vs %.0f)" % [bp.z, tt, bp.x, heading.x, p.global_position.x])
+	# the banks full and thick: the one nearest their side is steered across the lane instead
+	fog.clear_banks()
+	for i in fog.MAX_BANKS:
+		var b = fog.roll_in(0)
+		b.density = b.peak
+		b.age = 40.0
+		b.pos = Vector3(5.0 + 20.0 * i, 0, d.z_field_min + 6.0 + 4.0 * i)
+	d._since_event = 999.0
+	d.cooldowns.clear()
+	var steered0: int = fog.steered
+	r = d.run_event("smoke")
+	_check(r.ok and fog.steered == steered0 + 1 and fog.banks.size() == fog.MAX_BANKS, "banks full and thick: one steered, none added (%s)" % r.why)
+	if r.ok:
+		var bp: Vector3 = r.point.pos
+		var v: Vector3 = r.bank_vel
+		var tt: float = (p.global_position.z - bp.z) / maxf(v.z, 0.01)
+		var heading: Vector3 = bp + v * tt
+		_check(absf(heading.x - p.global_position.x) < 12.0, "and it will pass over his lane in %.0f s (x %.0f -> %.0f vs %.0f)" % [tt, bp.x, heading.x, p.global_position.x])
+	# full, thick and all near: nothing can be done
+	fog.clear_banks()
+	for i in fog.MAX_BANKS:
+		var b = fog.roll_in(0)
+		b.density = b.peak
+		b.age = 40.0
+		b.pos = p.global_position + Vector3(-20.0 + 20.0 * i, 0, -10.0)
+	d._since_event = 999.0
+	d.cooldowns.clear()
+	r = d.run_event("smoke")
+	_check(not r.ok, "banks full, thick and all about him: refused (%s)" % r.why)
+	fog.clear_banks()
+
+	# shellfire: a soldier 30-90 m in front of the player, in the fair zone
+	p.global_position = Vector3(m.w * m.cell * 0.5, 0, d.z_field_max - 1.0)
+	p.global_position.y = m.ground_height(p.global_position.x, p.global_position.z) + 0.1
+	p.rotation.y = 0.0          # facing -z: the field and their line
+	await _frames(2)
+	d._since_event = 999.0
+	d.cooldowns.clear()
+	var rp: Dictionary = d.run_event("parapet")
+	await _frames(2)
+	d._since_event = 999.0
+	var art: FrontArtillery = game.threats.artillery
+	var salvos0: int = art.salvos
+	r = d.run_event("shellfire")
+	_check(r.ok, "shellfire placed (%s)" % r.why)
+	if r.ok:
+		_check(art.salvos == salvos0 + 1 and art._salvo_left > 0, "a salvo called now")
+		var centre: Vector3 = r.point.pos
+		var nearest := INF
+		for c in game.clowns:
+			if is_instance_valid(c) and not c.dead:
+				nearest = minf(nearest, c.global_position.distance_to(centre))
+		_check(nearest <= 12.5, "centred %.1f m from a soldier" % nearest)
+		_check(centre.distance_to(p.global_position) >= 7.5, "%.0f m from the player" % centre.distance_to(p.global_position))
+	# a shell by a frontline man: he moves to another bay
+	if rp.ok:
+		var man: Clown = rp.soldiers[0]
+		var duty := man.get_node("Duty") as BattleDuty
+		var rel0: int = duty.relocations
+		d._on_shell_landed(man.global_position + Vector3(3.0, 0, 0))
+		_check(duty.relocations == rel0 + 1 and duty.post.distance_to(man.global_position) >= 4.0, "a shell 3 m off: he relocates %.0f m to another bay" % duty.post.distance_to(man.global_position))
+		d._on_shell_landed(man.global_position + Vector3(0, 0, -40.0))
+		_check(duty.relocations == rel0 + 1, "a shell 40 m off: he stays")
+
+	# aftermath
+	await _new_game(1917)
+	d = _dir()
+	d.auto_events = false
+	d.despawn_far = 10000.0
+	_brains_off()
+	m = game.maze as FrontMaze
+	p = game.player
+	d._since_event = 999.0
+	var n_clowns: int = game.clowns.size()
+	r = d.run_event("aftermath")
+	_check(r.ok, "aftermath placed (%s)" % r.why)
+	if r.ok:
+		await _frames(2)
+		_check(d.corpses.size() == 2, "%d bodies" % d.corpses.size())
+		var bodies_ok := true
+		for c in d.corpses:
+			if not is_instance_valid(c) or not c.dead or game.clowns.has(c):
+				bodies_ok = false
+		_check(bodies_ok, "the bodies are dead and not in game.clowns")
+		_check(game.clowns.size() == n_clowns + 2, "two living men in game.clowns (%d -> %d)" % [n_clowns, game.clowns.size()])
+		var runners := 0
+		for c: Clown in r.soldiers:
+			if (c.get_node("Duty") as BattleDuty).kind == BattleDuty.Kind.RUNNER and c.has_meta(&"arrive_kind"):
+				runners += 1
+		_check(runners == 2, "both running, to stop and keep their heads down")
+		var start: Vector3 = (r.soldiers[0] as Clown).global_position
+		for i in 40 * 60:
+			await get_tree().physics_frame
+		var moved: float = start.distance_to((r.soldiers[0] as Clown).global_position)
+		var kinds := ""
+		for c: Clown in r.soldiers:
+			kinds += (c.get_node("Duty") as BattleDuty).name_of() + " "
+		_check(moved >= 8.0, "40 s on: the first ran %.1f m (%s)" % [moved, kinds])
+
+	# squad: the word, and the withdrawal
+	await _new_game(1918)
+	d = _dir()
+	d.auto_events = false
+	d.despawn_far = 10000.0
+	_brains_off()
+	m = game.maze as FrontMaze
+	d._since_event = 999.0
+	r = d.run_event("reinforce")
+	if r.ok:
+		var sq := r.squad as Squad
+		var lead: BattleDuty = sq.members[0]
+		var spot: Vector3 = lead.clown.global_position + Vector3(0, 0, 10.0)
+		sq.word_chance = 1.0        # the mechanism; the imperfection is the chance
+		lead.brain.alert(spot, true, true)
+		var said: String = sq.tick(d.rng, m)
+		var told := 0
+		for o: BattleDuty in sq.members:
+			if o != lead and (o.brain.mind != ClownBrain.Mind.IDLE or sq.told.has(o)):
+				told += 1
+		_check(told == 2 and sq.words == 2, "the word passed to the other two (%d told, %d took it): %s" % [told, sq.words, said if said != "" else "-"])
+		# two of three down, the third without contact
+		for o: BattleDuty in sq.members:
+			o.brain.mind = ClownBrain.Mind.IDLE
+		(sq.members[1] as BattleDuty).clown.dead = true
+		(sq.members[2] as BattleDuty).clown.dead = true
+		said = sq.tick(d.rng, m)
+		_check(sq.withdrawn and (said.contains("withdraw") or said.contains("holds")), "two down, contact lost: %s" % said)
+		if said.contains("withdraw"):
+			_check(lead.kind == BattleDuty.Kind.GUARD and lead.post == sq.origin, "the survivor falls back to the origin and holds")
+	else:
+		_check(false, "squad: no reinforce to test with (%s)" % r.why)

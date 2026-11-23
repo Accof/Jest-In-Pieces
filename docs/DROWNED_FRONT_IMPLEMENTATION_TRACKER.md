@@ -16,7 +16,7 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 6 | Core combat hazards (MG nests, suppression, artillery) | **done**; Andrew: "i like it. continue" (23 Nov 15:55, after the D-18 re-cut) | commits `31aba63`, `593648e` | playtest (his) |
 | 7 | Director foundation (tension/alertness, event points, budgets, overlay) | **done, awaiting review** | commit `c7c548a` | user review |
 | 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | **done, awaiting playtest** | commit `b76ea70` | user playtest |
-| 9 | Expanded battlefield activity | not started | | user review |
+| 9 | Expanded battlefield activity (catalogue 4–6, 9–10, squad) | **done, awaiting review** | commit M9 | user review |
 | 10 | Enemy trench suspense | not started | | user playtest |
 | 11 | Procedural variants | not started | | user review |
 | 12 | Performance and polish | not started | | user review |
@@ -973,4 +973,78 @@ budget now runs with `auto_events = false`. `test_objective`, `test_threats`, `t
   closure), `scripts/dev/test_director.gd` (events, walk), `scripts/dev/test_front.gd` (crossing:
   inside-the-wire measure).
 
-(Milestones 9–13: scope as in the package; detailed when authorised.)
+## Milestone 9 — Expanded battlefield activity (23 Nov 2026) — DONE, AWAITING REVIEW
+
+Authorised by Andrew's "ok yes i saw all three events. Continue" (taken as M9 only).
+
+### What was built (package C4 catalogue 4–6, 9–10, the squad coordinator; D-21)
+Five more events in `FrontDirector.CATALOGUE`, the same machinery as M8 (seeded weights per mode,
+`can_spawn`, hidden placement, lifecycle, log, overlay), and `Squad` (`scripts/world/front/squad.gd`).
+4. **Investigate** (2 men, 60 s; offered only while a sector's alertness ≥ 15 with a last-known
+   fresher than 40 s): two men from a hidden trench point 20–45 m from that sector's `last_known`
+   with a real path to it, given a beat there, then **told the place** — `brain.alert(lk, startled
+   false, firsthand false)`: the brains' own hunt-blind to the spot, their search, and the duty again.
+   The director's own telling is not news to it (`director_told` meta: the `alerted` echo is dropped,
+   alertness unchanged). A squad.
+5. **MG sector** (0 men, 50 s): an idle Maxim (`FrontMg.State.IDLE`, not on the player) works over
+   a shell-hole cluster or a stretch of the field in its arc, 25 m or more from the player, 3–5
+   bursts with pauses (`FrontMg.engage(at, n)`; `engaged` counts). **Real rounds** (the gun's own
+   rays) — hence the standoff; the player seen ends it (TRACK wins). Lasts ~3.5 s per burst.
+6. **Shellfire** (0 men, 80 s): a salvo (`FrontArtillery.salvo_now(centre)`) centred 8–12 m from a
+   soldier 30–90 m off, within 70° of the player's look, in the artillery's fair zone. The guns keep
+   their own fairness (never within 7.5 m of the player). The men duck (the brains' `near_miss`),
+   hunt the blast's way, and — new — a **frontline man of the director's within 12 m of a shell
+   moves to another bay** 4–14 m off on his side (`BattleDuty.relocate`; `_on_shell_landed`).
+9. **Smoke** (0 men, 100 s; only with the player on the field or at our parapet): a bank rolled off
+   their side **on the player's lane** toward our line (`FrontFog.roll_across`), 16–22 m radius,
+   peak 0.6–0.8 — the one visibility function, so the Maxims lose him in it. Banks are capped at 3
+   by the mist shader: when full, the bank that matters least (beyond 60 m, or still thin ≤ 0.15) is
+   retired; otherwise the bank nearest their side and ≥ 25 m upfield is **steered** over his lane
+   (`steered` counts); otherwise the event fails and says so.
+10. **Aftermath** (2 men, 120 s): at a hidden bay or OP 30 m+ off: the shell's marks
+   (`Impacts.blast`), two bodies (soldiers spawned, brains freed, out of `game.clowns`,
+   `make_corpse`; capped at 6 on the floor), and two men **running** (RUNNER, suppression 1.0) 15–30
+   m along the trench to a point with a real path, where they stop and keep their heads down (GUARD
+   on arrival: `_arrivals` now takes an `arrive_kind`).
+- **Squad** (`Squad`, RefCounted; `reinforce`, `parapet`, `investigate`, `aftermath` carry one):
+  *word* — an alerted member tells the others within 20 m by path where (once each, 70 % of the
+  time: imperfect); *withdraw* — half or more down and the rest without contact → the rest fall back
+  to the squad's origin and hold (GUARD) 60 % of the time, else hold where they are; *hold*
+  otherwise. Ticked with the events; the director's RNG decides the chances; logged (`squad`).
+- `BattleDuty.relocate(post, face, kind)`; `FrontMg.engage`; `FrontFog.roll_across` (+ `steered`);
+  the director connects `shell_landed`.
+
+### Tests (`test_director activity`, 43 checks; whole scene 0 failed)
+investigate refused with nothing alerted, offered at 30 with a fresh last-known, two men hidden, 31 m
+from it with a path, both hunting blind to the spot, alertness unchanged by the telling, a squad ·
+mg_sector 109 m from the player, bursts queued, 3 fired in 30 s, the event lasting · smoke refused at
+our rear; on the field with the banks clear: one rolled from their side over his lane in 31 s; banks
+full and thick: one steered over his lane, none added; full, thick and all about him: refused ·
+shellfire: a salvo called now, centred 6.3 m from a soldier, 75 m from the player; a shell 3 m from a
+frontline man → he relocates 10 m to another bay; 40 m off → stays · aftermath: 2 bodies dead and
+out of `game.clowns`, 2 living in it, both running; 40 s on the first ran 28 m and both hold as
+guards · squad: the word passed to both (chance 1.0 for the mechanism); two of three down and contact
+lost → "holds (2 down)" on this seed (the 40 % branch) — the withdraw branch is the other roll.
+`test_director` whole scene: 0 failed; `test_threats`, `test_front crossing game`, `test_objective`: 0 failed.
+
+### Honest list
+- Catalogue 7–8 (occupied dugout, the Klappersoldat) are M10's.
+- Shellfire reuses the artillery's fairness and the brains' `near_miss` as they are; the relocation
+  is the one new reaction. A salvo can kill its own men (it is a shell).
+- MG sector rounds are real: the 25 m standoff is the fairness; the gun stops the moment it sees him.
+- Smoke is cosmetic for the brains except through `visibility()` — the same function the Maxims and
+  the brains already read, so a bank genuinely hides him.
+- Aftermath bodies are ordinary `WitzSoldat` corpses (gore, ragdoll); "disturbed equipment" is the
+  blast's decals only — scattered kit props are not placed (M12 polish if wanted).
+- The squad's chances are a first guess (0.7 / 0.6); the withdraw branch is exercised by seed, not
+  forced, in the test.
+- Pre-existing: `Game.next_floor` logs "Signal 'opened' is already connected" when a test makes a
+  second game in one scene (the lockers); harmless in play (one game), noted for M12.
+
+### Files
+- new `scripts/world/front/squad.gd`.
+- touched: `scripts/world/front/front_director.gd`, `scripts/world/front/front_mg.gd` (`engage`),
+  `scripts/world/front/front_fog.gd` (`roll_across`), `scripts/clown/battle_duty.gd` (`relocate`),
+  `scripts/dev/test_director.gd` (activity).
+
+(Milestones 10–13: scope as in the package; detailed when authorised.)

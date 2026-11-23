@@ -281,3 +281,15 @@ Add a record whenever a choice closes a door.
   never counts toward anything owed: SURVIVAL has no required kills (J6).
 - The catalogue's weights follow the pacing mode and are the playtest's to tune.
 
+### D-21 · The expanded activity reuses the systems it dramatises — decided (Milestone 9)
+- An investigating patrol is the brains' own hunt-blind and search, told a place by the director in
+  the same way a comrade's shout tells it; the telling is not fed back into alertness.
+- The Maxims and the guns fire their real rounds and shells at points the director chooses away
+  from the player; fairness stays where it was built (the gun's standoff, the artillery's zone and
+  7.5 m clearance). No cosmetic bullets from real guns.
+- Smoke is the fog system's own bank on the player's lane; with the shader's cap of three, retire
+  the least or steer one, never a fourth.
+- A squad is bookkeeping over duties — word, withdraw, hold — with chances, so groups are imperfect;
+  it never drives a man's legs or eyes.
+- Aftermath bodies are real corpses, not props; their cap is the floor's.
+

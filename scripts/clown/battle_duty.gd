@@ -113,6 +113,27 @@ func attach(b: ClownBrain) -> void:
 	_on_duty_senses()
 
 
+## (M9) A new post: he walks there (the duties' own `_go_back`) and takes it
+## up. A shell near his bay, a squad's word to withdraw.
+func relocate(new_post: Vector3, new_face := Vector3.INF, new_kind := -1) -> void:
+	post = new_post
+	if new_face != Vector3.INF:
+		face = new_face
+		face_b = new_face.rotated(Vector3.UP, 2.4)
+	if new_kind >= 0:
+		kind = new_kind as Kind
+		_on_duty_senses()
+	route.clear()
+	detour.clear()
+	_phase = 0
+	_t = 0.0
+	_stuck = 0.0
+	relocations += 1
+
+
+var relocations := 0
+
+
 ## Extra corridor cells of hearing: the frontline is deafened by the guns, a
 ## guard is listening for it.
 func hearing_bonus() -> int:

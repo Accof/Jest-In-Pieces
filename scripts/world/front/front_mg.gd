@@ -128,6 +128,16 @@ func _physics_process(delta: float) -> void:
 		State.IDLE:
 			if sees:
 				_go(State.TRACK)
+			elif _engage_left > 0:
+				# (M9) the director's: working over a sector away from the player
+				if _in_burst == 0:
+					_t -= delta
+					if _t <= 0.0:
+						_engage_left -= 1
+						_t = _rng.randf_range(PAUSE.x, PAUSE.y) * 1.3
+						var spread := Vector3(_rng.randf_range(-3.0, 3.0), 0, _rng.randf_range(-3.0, 3.0))
+						_start_burst(_engage_at + spread, 0.7)
+						engaged += 1
 			else:
 				_idle_t -= delta
 				if _idle_t <= 0.0:
@@ -250,6 +260,23 @@ func _start_burst(at: Vector3, intent: float) -> void:
 
 
 var _aim_at := Vector3.ZERO
+var _engage_left := 0
+var _engage_at := Vector3.ZERO
+var engaged := 0                     ## bursts fired on the director's word
+
+
+## (M9) Work over `at` with `n` bursts, when idle and the point is in the arc
+## and in range. The player seen puts a stop to it (TRACK wins). Returns false
+## when the gun cannot: silent, busy with him, or the point out of its reach.
+func engage(at: Vector3, n: int) -> bool:
+	if not alive() or state != State.IDLE or _engage_left > 0:
+		return false
+	if not _in_arc(at) or global_position.distance_to(at) > RANGE:
+		return false
+	_engage_at = at
+	_engage_left = n
+	_t = _rng.randf_range(0.3, 1.2)
+	return true
 
 
 func _round() -> void:

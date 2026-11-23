@@ -56,6 +56,54 @@ func roll_in(from_side := -1) -> Bank:
 	return b
 
 
+## (M9) A bank rolled in off their side on the lane at `x`, to cross the
+## field between `z_from` (their side) and `z_to` (ours): the director's
+## concealment. With the banks full, the least of them is retired, or an
+## existing one is steered across the lane (`steered` counts those). Null
+## when nothing can be done.
+var steered := 0
+
+
+func roll_across(x: float, z_from: float, z_to: float, player_at := Vector3.INF) -> Bank:
+	if banks.size() >= MAX_BANKS:
+		# room: the bank that matters least to the player goes - one beyond
+		# his sight, or one still thin (not yet swelled, or fading out)
+		var least: Bank = null
+		var least_s := INF
+		for o: Bank in banks:
+			var d := o.pos.distance_to(player_at) if player_at != Vector3.INF else 1e9
+			var sc := 0.0 if d > 60.0 else o.density
+			if sc < least_s:
+				least_s = sc
+				least = o
+		if least == null or least_s > 0.15:
+			# none to spare: the wind takes the bank nearest their side across
+			# the lane instead (it keeps its shape; only its drift changes)
+			var pick: Bank = null
+			var pz: float = player_at.z if player_at != Vector3.INF else z_to
+			for o: Bank in banks:
+				if o.pos.z < pz - 25.0 and (pick == null or o.pos.z < pick.pos.z):
+					pick = o
+			if pick == null:
+				return null
+			var to := Vector3(x, 0, pz) - pick.pos        # over his lane where he is, then on
+			to.y = 0.0
+			pick.vel = to.normalized() * rng.randf_range(1.3, 1.7)
+			steered += 1
+			return pick
+		if is_instance_valid(least.mm):
+			least.mm.queue_free()
+		banks.erase(least)
+	var b := roll_in(0)
+	if b == null:
+		return null
+	b.radius = rng.randf_range(16.0, 22.0)
+	b.peak = rng.randf_range(0.6, 0.8)
+	b.pos = Vector3(x + rng.randf_range(-4.0, 4.0), 0, z_from - b.radius * 0.6)
+	b.vel = Vector3(rng.randf_range(-0.2, 0.2), 0, signf(z_to - z_from) * rng.randf_range(1.3, 1.7))
+	return b
+
+
 func _process(delta: float) -> void:
 	super._process(delta)
 	# the legacy cadence (70-150 s) is for a day with a battle going on; here
