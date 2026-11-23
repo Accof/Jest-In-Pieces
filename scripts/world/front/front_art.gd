@@ -26,10 +26,17 @@ func build(m: TrenchMaze) -> void:
 		add_child(atmosphere)
 		_drift_smoke()
 		# (23 Nov, M2) the dugout lamps' shadows: each one re-drew the field six
-		# times a frame for a 4.6 m glow; in this daylight they are off
+		# times a frame for a 4.6 m glow; in this daylight they are off. And the
+		# small litter casts no shadow: a picket's or a tin's shadow in this
+		# haze is nothing, but each batch was two more draws in the sun's splits
+		const NO_SHADOW := ["pickets", "wire_pickets", "splinters", "nml_planks", "nml_timber", "db_slats", "db_runners", "tins", "reels", "reel_wire", "blankets", "rifles", "shells", "helmets", "step_planks", "rev_planks", "rev_posts", "rev_iron", "rev_wattle", "tool_steel", "tool_handles"]
 		for c in get_children():
 			if c is OmniLight3D:
 				(c as OmniLight3D).shadow_enabled = false
+			elif c is MultiMeshInstance3D:
+				var base := String(c.name).get_slice("~", 0)
+				if base in NO_SHADOW:
+					(c as MultiMeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		# the rolling fog: the legacy day's banks, for the Front's geometry
 		var fog := FrontFog.new()
 		fog.name = "Fog"
@@ -533,7 +540,7 @@ func _cottage_ruin(at: Vector3, face: Basis, mat: Material) -> void:
 const TILE := 20.0
 
 func _tile(key: String, at: Vector3) -> String:
-	return "%s@%d,%d" % [key, floori(at.x / TILE), floori(at.z / TILE)]
+	return "%s~%d,%d" % [key, floori(at.x / TILE), floori(at.z / TILE)]     # ("@" is not allowed in a node name)
 
 
 func _add(key: String, mesh: Mesh, mat: Material, xf: Transform3D) -> void:

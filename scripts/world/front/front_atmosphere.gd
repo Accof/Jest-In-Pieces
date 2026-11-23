@@ -167,9 +167,8 @@ static func setup_sun(sun: DirectionalLight3D) -> void:
 	# (23 Nov, Andrew's M2 baseline) the shadow reaches 40 m in two splits, not
 	# 70 m in four: past 40 m the haze has taken the shadow anyway, and every
 	# split re-draws the field's 4.5 M triangles
-	sun.directional_shadow_max_distance = 40.0
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	sun.directional_shadow_split_1 = 0.25
+	sun.directional_shadow_max_distance = 36.0
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL       # one split: half the shadow draws again (M2, 23 Nov); in this haze the difference past 10 m is not there
 	sun.look_at_from_position(Vector3.ZERO, -LIGHT_DIR, Vector3.UP)
 	sun.position = Vector3.ZERO
 
