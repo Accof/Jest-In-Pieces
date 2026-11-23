@@ -930,7 +930,9 @@ same brain, rifle, ragdoll and gore as every other — given a `BattleDuty` exac
   ≥150 m from the player **and** out of his sight for 90 s — then taken off the floor (`queue_free`,
   out of `game.clowns` and `live`), never in view. Nothing touches `remaining`: a SURVIVAL floor has
   no required kills (J6) — asserted.
-- **Overlay:** an `events:` line (name × alive, age, live/cosmetic). Log lines `spawn`, `event`,
+- **Overlay:** an `events:` line (name × alive, age, live/cosmetic, nearest man's distance and clock
+  bearing from the player, IN VIEW when one is). **F5** (development) forces the next event now —
+  gap and cooldowns waived, caps and hidden placement kept — cycling the catalogue per press. Log lines `spawn`, `event`,
   `arrive`, `event-over`, `no-event` (why a chosen event found no place).
 - **Game:** `director.setup(..., spawn)` with a closure over `_spawn_clown(true, false)` (always a
   rifle). `auto_events` switch for tests (`run_event(name)` places one by hand). Run arg

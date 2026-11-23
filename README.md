@@ -195,7 +195,8 @@ recovery (never mid-fight), the director places, where you cannot see: a lone si
 the top 30–75 m off; a file of three reinforcements walking a real trench (or footbridge) to the
 nearest fire bays, where they take the parapet; two or three of theirs at adjacent bays firing
 effects-only rounds across the field. Real soldiers, real paths, legacy duties; far-and-unseen events
-are taken off the floor; none is a required kill. The F3 overlay lists the active events; the run arg
+are taken off the floor; none is a required kill. The F3 overlay lists the active events with where
+they are (distance, clock bearing); **F5** forces the next one now so you can go and look; the run arg
 `director_log` prints every director decision to the console.
 
 Floors now have an objective (`Game.Objective`): bunker floors are **ELIMINATION** (every enemy must die

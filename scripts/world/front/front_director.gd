@@ -759,7 +759,7 @@ func overlay_text() -> String:
 		+ "spawn: %s   cooldowns: %s\n" % ["yes" if cs.ok else cs.why, cd if cd != "" else "-"]
 		+ "events: %s\n" % _events_text()
 		+ "frame %.1f ms   fps %d   exit %s   points %d\n" % [_frame_ms, Engine.get_frames_per_second(), exit_state, points.size()]
-		+ "F3 overlay  F4 director on/off")
+		+ "F3 overlay  F4 director on/off  F5 force the next event")
 
 
 func _events_text() -> String:
@@ -771,8 +771,39 @@ func _events_text() -> String:
 		for c in ev.soldiers:
 			if is_instance_valid(c) and not c.dead:
 				alive += 1
-		s += "%s x%d %.0fs%s   " % [ev.name, alive, clock - float(ev.born), " [cosmetic fire]" if ev.cosmetic else " [live]"]
+		s += "%s x%d %.0fs%s %s   " % [ev.name, alive, clock - float(ev.born), " [cosmetic fire]" if ev.cosmetic else " [live]", _where_text(ev)]
 	return s
+
+
+## Where an event's men are from the player: distance and a clock bearing
+## (12 = straight ahead), and whether any is in view.
+func _where_text(ev: Dictionary) -> String:
+	if not is_instance_valid(player):
+		return ""
+	var nearest := INF
+	var np := Vector3.ZERO
+	var seen := false
+	for c in ev.soldiers:
+		if not is_instance_valid(c) or c.dead:
+			continue
+		var d: float = c.global_position.distance_to(player.global_position)
+		if d < nearest:
+			nearest = d
+			np = c.global_position
+		if visible_to_player(c.global_position):
+			seen = true
+	if nearest == INF:
+		return ""
+	var fwd := -player.camera.global_basis.z if player.camera else -player.global_basis.z
+	fwd.y = 0.0
+	var to := np - player.global_position
+	to.y = 0.0
+	var ang := rad_to_deg(atan2(fwd.cross(to.normalized()).y, fwd.normalized().dot(to.normalized())))
+	# clockwise from ahead: 12, 1, 2 ... (ang > 0 is to the left here)
+	var hour := int(round(-ang / 30.0)) % 12
+	if hour <= 0:
+		hour += 12
+	return "@ %.0f m, %d o'clock%s" % [nearest, hour, ", IN VIEW" if seen else ""]
 
 
 func _lk_text() -> String:
@@ -789,6 +820,30 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		elif event.keycode == KEY_F4:
 			enabled = not enabled
 			_log("toggle", "director %s" % ("on" if enabled else "off"))
+		elif event.keycode == KEY_F5:
+			force_event()
+
+
+## Development: place the next event now - the gap and the cooldowns waived,
+## the live cap and the pool kept, the hidden-placement rule kept. Cycles
+## through the catalogue so each press shows a different one.
+var _force_i := 0
+func force_event() -> void:
+	if spawn_soldier.is_null() or not is_instance_valid(player):
+		return
+	var names: Array = CATALOGUE.keys()
+	for k in names.size():
+		var name_: String = names[(_force_i + k) % names.size()]
+		var e: Dictionary = CATALOGUE[name_]
+		if live.size() + int(e.men) > MAX_LIVE or spawned_total + int(e.men) > FLOOR_POOL:
+			continue
+		_since_event = EVENT_GAP
+		cooldowns.erase(name_)
+		var r: Dictionary = run_event(name_)
+		_force_i = (_force_i + k + 1) % names.size()
+		_log("forced", "%s: %s" % [name_, "placed" if r.ok else r.why])
+		return
+	_log("forced", "nothing fits: live %d/%d, pool %d/%d" % [live.size(), MAX_LIVE, spawned_total, FLOOR_POOL])
 
 
 func _log(what: String, detail: String) -> void:

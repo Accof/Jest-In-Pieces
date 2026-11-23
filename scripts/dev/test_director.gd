@@ -438,6 +438,21 @@ func _events() -> void:
 		d._select()
 	_check(str(n_before) == str(d.events_run), "in COMBAT the tick places nothing (%s)" % str(d.events_run))
 
+	# F5 (development): forces the next event, the gap and cooldowns waived, the caps kept
+	await _new_game(1918)
+	d = _dir()
+	d.auto_events = false
+	for c: Clown in game.clowns:
+		var b: Node = c.get_node_or_null("Brain")
+		if b:
+			b.set_physics_process(false)
+	var n0 := d.active.size()
+	d.force_event()
+	_check(d.active.size() == n0 + 1, "F5 placed an event at once (%s)" % d._events_text())
+	d.force_event()
+	_check(d.active.size() == n0 + 2 and d.active[0].name != d.active[1].name, "a second press: another kind (%s, %s)" % [d.active[0].name, d.active[1].name])
+	_check(d._where_text(d.active[0]).contains("o'clock"), "the overlay says where: %s" % d._where_text(d.active[0]))
+
 	# lifecycle: far and unseen for 60 s -> taken off
 	await _new_game(1917)
 	d = _dir()
