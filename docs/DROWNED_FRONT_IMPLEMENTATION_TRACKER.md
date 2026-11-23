@@ -15,7 +15,7 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 5 | Physical impacts (surface-aware holes, mud, dust, wood, metal, water) | **done**; Andrew: "continue" (22 Nov 23:26) — his own shoot-around still to come | commits `bcde05b`, `ee8c88d`, `30c7c2d` | user review (pending) |
 | 6 | Core combat hazards (MG nests, suppression, artillery) | **done**; Andrew: "i like it. continue" (23 Nov 15:55, after the D-18 re-cut) | commits `31aba63`, `593648e` | playtest (his) |
 | 7 | Director foundation (tension/alertness, event points, budgets, overlay) | **done, awaiting review** | commit `c7c548a` | user review |
-| 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | not started | | user playtest |
+| 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | **done, awaiting playtest** | commit M8 | user playtest |
 | 9 | Expanded battlefield activity | not started | | user review |
 | 10 | Enemy trench suspense | not started | | user playtest |
 | 11 | Procedural variants | not started | | user review |
@@ -900,4 +900,75 @@ the field, holes on it, ahead-visible/behind-not, pick filters) · budget (every
   and `noise_at`; MG rounds), `scripts/player/fps_player.gd` (notes from `take_damage` and
   `suppress`), `scripts/clown/clown_brain.gd` (a note from `_tracer`).
 
-(Milestones 8–13: scope as in the package; detailed when authorised.)
+## Milestone 8 — Initial director events (23 Nov 2026) — DONE, AWAITING PLAYTEST
+
+Authorised by Andrew's "continue" after M7 (taken as M8 only).
+
+### What was built (package C4 catalogue 1–3, E2, J6/J7; D-20)
+The catalogue lives in `FrontDirector` (`CATALOGUE`: weights per pacing mode, men, cooldown). Every
+0.5 s tick in UNEASY_QUIET / RISING / RECOVERY (never COMBAT, never before 20 s on the floor) the
+director rolls a weighted choice among the events `can_spawn()` allows, and places it **out of the
+player's view cone and eye line**. Men are real `WitzSoldat`s from `Game._spawn_clown(true)` — the
+same brain, rifle, ragdoll and gore as every other — given a `BattleDuty` exactly as the legacy
+`TrenchBattle` does, and `watch()`ed so their alerts feed the local alertness. **No new AI.**
+1. **Silhouette** (1 man, 45 s cooldown): a PATROL along the top — the field or the ground among the
+   trenches — 30–75 m from the player, from a hidden start, along 3–4 top cells that **join on the
+   path graph** (6–16 m legs), clear of the wire belts **and their gaps** (±1.5 m of any band, so he
+   never stands in a gap and shoulders a crossing man into the wire). He ambles, stops, looks out.
+2. **Reinforcements** (3 men, 90 s): a file from a hidden dugout or trench run to the nearest fire
+   bay **on its own side with a real trench path** (≥10 m on); over a footbridge **only when it is a
+   short cut on the trench graph** (start → one end, deck, other end → bay fewer cells than the way
+   round) — never a stroll out on the top for its own sake. A leader walks the beat, the others follow 0.9–2.3 s behind
+   (TRENCH_PATROL leader/follower, as the legacy pairs). **On arrival** (within 3 m of his post,
+   still unaware) each man's duty is swapped for FRONTLINE at the bay or the one beside it: rifles
+   over the parapet. Tagged `director_event`, `reinforce_post`.
+3. **Parapet firefight** (2–3 men, 70 s): FRONTLINE men on the fire step of **adjacent bays in their
+   line** (ours as a fallback) 30 m or more off, firing across the field — the frontline duty's
+   **effects-only** rounds (flash, crack, tracer; no ray, no damage: J7), marked `cosmetic` in the
+   event and the overlay.
+- **Lifecycle:** `active` events; over when all their men are down, or when every man has been
+  ≥150 m from the player **and** out of his sight for 90 s — then taken off the floor (`queue_free`,
+  out of `game.clowns` and `live`), never in view. Nothing touches `remaining`: a SURVIVAL floor has
+  no required kills (J6) — asserted.
+- **Overlay:** an `events:` line (name × alive, age, live/cosmetic). Log lines `spawn`, `event`,
+  `arrive`, `event-over`, `no-event` (why a chosen event found no place).
+- **Game:** `director.setup(..., spawn)` with a closure over `_spawn_clown(true, false)` (always a
+  rifle). `auto_events` switch for tests (`run_event(name)` places one by hand). Run arg
+  `director_log` prints the director's log as it is written (any scene).
+
+### Tests (`test_director`, 92 checks, 0 failed; ~8 min headless)
+events (3 seeds × 3 events: every man hidden at spawn, in `game.clowns`/`live`, tagged; silhouette
+PATROL with 4 joined legs 62–74 m out; reinforce 3 men, one leader, start→bay a real path of 8–15
+cells; parapet 3 FRONTLINE men facing the field, cosmetic; `remaining` untouched; the tick places
+nothing before 20 s, 4 events in 200 s of quiet with the 12 s gap kept, pool/live within caps,
+nothing in COMBAT; far-and-unseen 88 s still there, 90 s gone) · walk (brains on, 75 s: the leader
+walked 15 m and took the fire step, 2 of 3 arrived, followers within 14 m, the silhouette finished
+4 legs, the parapet men fired 36 effects-only rounds, the player at 100 hp, all 7 still unaware) ·
+budget now runs with `auto_events = false`. `test_objective`, `test_threats`, `test_front crossing game`: 0 failed.
+
+### Honest list
+- `test_front crossing` failed once during M8 ("never through the wire": 98 frames). Instrumented:
+  the crossing rifleman was 44–46 m from the nearest director man the whole time — no interaction;
+  he had **stopped to shoot** with his feet 0.1–0.2 m inside our belt's ±0.35 m band edge, a path
+  the legacy brain takes or not depending on the global RNG (the spawns consume it: with events
+  off he arrived in 33 s, with 7 extra random draws 56 s, both 0 frames). Pre-existing, RNG-driven,
+  not an M8 regression. The test now counts frames **inside** a belt (wire at z ±0.4 m too), not
+  brushing its edge: 0 with events on. A rifleman choosing his firing spot clear of the wire's edge
+  is a brain refinement for a later milestone (noted for M11/M12).
+- The silhouette's "emerging from fog" is the atmosphere's: he is placed hidden and the haze does
+  the rest; the fog banks are not consulted when choosing his start (the view check is conservative).
+- Reinforcements walk the brains' own paths; a man who cannot get on (6 s stuck) skips a leg as the
+  legacy duty does. Followers of a leader who has taken his step continue the beat alone and take
+  theirs on arrival.
+- Weights are a first guess for the playtest: quiet 0.5/0.3/0.2, rising 0.2/0.4/0.4, recovery
+  0.4/0.4/0.2 (silhouette/reinforce/parapet). Andrew's feel decides.
+- Catalogue 4+ (counter-patrol into the field, a runner over the top, the shell-hole ambush, the
+  night flare…) are later milestones.
+
+### Files
+- touched: `scripts/world/front/front_director.gd` (catalogue, `_select`, `run_event`, the three
+  events, `_arrivals`, `_lifecycle`, overlay line, `verbose`), `scripts/game/game.gd` (spawner
+  closure), `scripts/dev/test_director.gd` (events, walk), `scripts/dev/test_front.gd` (crossing:
+  inside-the-wire measure).
+
+(Milestones 9–13: scope as in the package; detailed when authorised.)

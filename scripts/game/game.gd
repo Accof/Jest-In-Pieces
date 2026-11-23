@@ -332,7 +332,11 @@ func next_floor() -> void:
 		director = FrontDirector.new()
 		director.name = "Director"
 		_world.add_child(director)
-		director.setup(maze as FrontMaze, player, self, rng.randi())
+		director.setup(maze as FrontMaze, player, self, rng.randi(), func() -> Clown:
+			var g := _spawn_clown(true, false)
+			if not g.has_rifle:
+				g.give_rifle()
+			return g)
 		for mg in threats.nests:
 			mg.fired.connect(func(from: Vector3, _to: Vector3) -> void: director.note("mg_round", from, 1.0))
 	if outdoor and not (maze is FrontMaze):

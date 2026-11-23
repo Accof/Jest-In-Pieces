@@ -19,6 +19,20 @@ extends Node3D
 ##   seeded    two directors with the same seed and the same inputs make the
 ##             same choices; a different seed does not
 ##   overlay   hidden by default; F3 shows it; the text carries the state
+##   events    (Milestone 8) the first three of the catalogue: each spawns
+##             where the player cannot see, with a duty of the right kind on
+##             real paths (silhouette: a top route of joined cells; reinforce:
+##             a file from a dugout/trench to a bay on its side, leader and
+##             followers; parapet: frontline men at their bays facing the
+##             field, cosmetic fire); every man is in game.clowns and booked;
+##             the tick picks events itself after 20 s, never in COMBAT, with
+##             the gap and cooldowns kept; an event far from the player and
+##             unseen for 90 s is taken off the floor; none of it is a
+##             required kill (SURVIVAL)
+##   walk      brains on, 75 s of game time: the reinforcements' leader walks
+##             his beat toward the bay (legs finished, metres covered), the
+##             silhouette finishes legs of his route, the parapet men fire
+##             effects-only rounds (shots counted, no damage to anyone)
 ##   godot --headless --fixed-fps 60 res://scenes/test_director.tscn [-- section...]
 
 var fails := 0
@@ -42,7 +56,7 @@ func _frames(n: int) -> void:
 
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
-	var secs := ["tension", "local", "points", "budget", "seeded", "overlay"]
+	var secs := ["tension", "local", "points", "budget", "seeded", "overlay", "events", "walk"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -237,6 +251,7 @@ func _budget() -> void:
 	print("-- budget")
 	await _new_game(1916)
 	var d := _dir()
+	d.auto_events = false
 	for c: Clown in game.clowns:
 		var b := c.get_node_or_null("Brain")
 		if b:
@@ -303,3 +318,209 @@ func _overlay() -> void:
 	_check(d._overlay.visible and txt.contains("tension") and txt.contains("alert") and txt.contains("mode") and txt.contains("pool") and txt.contains("exit"), "F3 shows it; it carries mode, tension, alertness, pool and exit state")
 	d.toggle_overlay()
 	_check(not d._overlay.visible, "and hides it again")
+
+
+# --- events (Milestone 8) --------------------------------------------------------------
+func _events() -> void:
+	print("-- events")
+	var ran := {silhouette = 0, reinforce = 0, parapet = 0}
+	var hidden_ok := true
+	var booked_ok := true
+	for seed_: int in [1916, 1917, 1918]:
+		await _new_game(seed_)
+		var d := _dir()
+		d.auto_events = false
+		for c: Clown in game.clowns:
+			var b: Node = c.get_node_or_null("Brain")
+			if b:
+				b.set_physics_process(false)
+		_check(game.objective == game.Objective.SURVIVAL, "seed %d: a SURVIVAL floor (no required kills)" % seed_)
+		var before: int = game.clowns.size()
+		var remaining_before: int = game.remaining
+		for name_: String in ["silhouette", "reinforce", "parapet"]:
+			d._since_event = 999.0
+			d.cooldowns.clear()
+			var r: Dictionary = d.run_event(name_)
+			if not r.ok:
+				print("         %s on seed %d: %s" % [name_, seed_, r.why])
+				continue
+			ran[name_] += 1
+			var men: Array = r.soldiers
+			for c: Clown in men:
+				if d.visible_to_player(c.global_position):
+					hidden_ok = false
+					print("         %s: a man in view at %s" % [name_, c.global_position])
+				if not game.clowns.has(c) or not d.live.has(c) or not c.has_meta(&"director_event"):
+					booked_ok = false
+				var duty := c.get_node_or_null("Duty") as BattleDuty
+				if duty == null:
+					_check(false, "%s: a man with no duty" % name_)
+					continue
+				match name_:
+					"silhouette":
+						_check(duty.kind == BattleDuty.Kind.PATROL and duty.route.size() >= 3, "silhouette: PATROL with %d legs" % duty.route.size())
+						var joined := true
+						for i in range(1, duty.route.size()):
+							var a: Vector2i = game.maze.cell_of(duty.route[i - 1])
+							var b: Vector2i = game.maze.cell_of(duty.route[i])
+							if game.maze.path_cells(a, b) >= 9999:
+								joined = false
+						_check(joined, "silhouette: every leg joined on the path graph")
+						var dist: float = duty.route[0].distance_to(game.player.global_position)
+						_check(dist >= FrontDirector.SIL_RANGE.x - 1.0 and dist <= FrontDirector.SIL_RANGE.y + 1.0, "silhouette: starts %.0f m out" % dist)
+					"reinforce":
+						_check(duty.kind == BattleDuty.Kind.TRENCH_PATROL, "reinforce: a man on the beat")
+					"parapet":
+						_check(duty.kind == BattleDuty.Kind.FRONTLINE and absf(duty.face.z) > 0.9, "parapet: FRONTLINE facing the field")
+			match name_:
+				"reinforce":
+					_check(men.size() == 3, "reinforce: three men (%d)" % men.size())
+					var leaders := 0
+					var followers := 0
+					for c: Clown in men:
+						var duty := c.get_node("Duty") as BattleDuty
+						if duty.leader == null:
+							leaders += 1
+						else:
+							followers += 1
+					_check(leaders == 1 and followers == men.size() - 1, "reinforce: one leader, the rest follow")
+					var route: Array = r.point.route
+					var a: Vector2i = game.maze.cell_of(route[0])
+					var b: Vector2i = game.maze.cell_of(route[route.size() - 1])
+					_check(game.maze.path_cells(a, b) < 9999, "reinforce: start to bay is a real path (%d cells)" % game.maze.path_cells(a, b))
+				"parapet":
+					_check(men.size() >= 2, "parapet: %d men at adjacent bays" % men.size())
+					_check(bool(r.cosmetic), "parapet: marked cosmetic (effects-only frontline fire)")
+		_check(game.clowns.size() == before + d.live.size(), "seed %d: the men are in game.clowns (%d -> %d)" % [seed_, before, game.clowns.size()])
+		_check(game.remaining == remaining_before, "seed %d: `remaining` untouched (%d): no required kills" % [seed_, game.remaining])
+		_check(d.active.size() == ran_count(d), "seed %d: %d active events tracked" % [seed_, d.active.size()])
+	_check(ran.silhouette >= 2 and ran.reinforce >= 2 and ran.parapet >= 2, "every event placed on at least two of three seeds: %s" % str(ran))
+	_check(hidden_ok, "no man appeared in the player's view")
+	_check(booked_ok, "every man in game.clowns, in `live`, tagged with his event")
+
+	# the tick's own choices: nothing before 20 s, then events with the gap kept, none in COMBAT
+	await _new_game(1916)
+	var d := _dir()
+	for c: Clown in game.clowns:
+		var b: Node = c.get_node_or_null("Brain")
+		if b:
+			b.set_physics_process(false)
+	_tick(d, 19.0)
+	_check(d.active.is_empty(), "nothing in the first 20 s")
+	var births: Array[float] = []
+	var seen := 0
+	for i in 40:
+		_tick(d, 5.0)
+		for ev: Dictionary in d.active:
+			if not births.has(float(ev.born)):
+				births.append(float(ev.born))
+				seen += 1
+		# the men do not move (brains off): keep their brains quiet
+		for c in d.live:
+			if is_instance_valid(c):
+				var b: Node = c.get_node_or_null("Brain")
+				if b:
+					b.set_physics_process(false)
+	_check(seen >= 2, "the tick placed %d events in 200 s of quiet" % seen)
+	births.sort()
+	var gaps_ok := true
+	for i in range(1, births.size()):
+		if births[i] - births[i - 1] < FrontDirector.EVENT_GAP - 0.01:
+			gaps_ok = false
+	_check(gaps_ok, "births %s keep the %d s gap" % [str(births), int(FrontDirector.EVENT_GAP)])
+	_check(d.spawned_total <= FrontDirector.FLOOR_POOL and d.live.size() <= FrontDirector.MAX_LIVE, "pool %d/%d, live %d/%d" % [d.spawned_total, FrontDirector.FLOOR_POOL, d.live.size(), FrontDirector.MAX_LIVE])
+	d.mode = d.Mode.COMBAT
+	d.tension = 100.0
+	var n_before := d.events_run.duplicate()
+	for i in 10:
+		d._since_event = 999.0
+		d.cooldowns.clear()
+		d._select()
+	_check(str(n_before) == str(d.events_run), "in COMBAT the tick places nothing (%s)" % str(d.events_run))
+
+	# lifecycle: far and unseen for 60 s -> taken off
+	await _new_game(1917)
+	d = _dir()
+	d.auto_events = false
+	for c: Clown in game.clowns:
+		var b: Node = c.get_node_or_null("Brain")
+		if b:
+			b.set_physics_process(false)
+	var r: Dictionary = d.run_event("silhouette")
+	if r.ok:
+		var man: Clown = r.soldiers[0]
+		var brain := man.get_node("Brain")
+		brain.set_physics_process(false)
+		var total: int = game.clowns.size()
+		game.player.global_position = man.global_position + Vector3(0, 0, 200.0)
+		game.player.rotation.y = PI       # looking away
+		_tick(d, FrontDirector.DESPAWN_AFTER - 2.0)
+		_check(d.active.size() == 1, "far and unseen %.0f s: still on the floor" % (FrontDirector.DESPAWN_AFTER - 2.0))
+		_tick(d, 4.0)
+		await _frames(2)
+		_check(d.active.is_empty() and not is_instance_valid(man), "far and unseen %.0f s: taken off the floor" % FrontDirector.DESPAWN_AFTER)
+		_check(game.clowns.size() == total - 1 and d.live.is_empty(), "and out of game.clowns and `live`")
+	else:
+		_check(false, "lifecycle: no silhouette to test with (%s)" % r.why)
+
+
+func ran_count(d: FrontDirector) -> int:
+	var n := 0
+	for k in d.events_run.keys():
+		n += int(d.events_run[k])
+	return n
+
+
+# --- walk (Milestone 8): the men do their jobs ------------------------------------------
+func _walk() -> void:
+	print("-- walk")
+	await _new_game(1917)
+	var d := _dir()
+	d.auto_events = false
+	d.despawn_far = 10000.0           # nobody taken off while we watch
+	d._since_event = 999.0
+	var rr: Dictionary = d.run_event("reinforce")
+	d._since_event = 999.0
+	var rs: Dictionary = d.run_event("silhouette")
+	d._since_event = 999.0
+	var rp: Dictionary = d.run_event("parapet")
+	_check(rr.ok and rs.ok and rp.ok, "all three placed (%s %s %s)" % [rr.why, rs.why, rp.why])
+	if not (rr.ok and rs.ok and rp.ok):
+		return
+	var leader: Clown = rr.soldiers[0]
+	var start: Vector3 = leader.global_position
+	var dest: Vector3 = rr.point.dest
+	var sil: Clown = rs.soldiers[0]
+	var sil_start: Vector3 = sil.global_position
+	var hp_before: float = game.player.health
+	var frames := 75 * 60
+	for i in frames:
+		await get_tree().physics_frame
+	var ld := leader.get_node("Duty") as BattleDuty
+	var sd := sil.get_node("Duty") as BattleDuty
+	var moved: float = start.distance_to(leader.global_position)
+	var to_go: float = leader.global_position.distance_to(dest)
+	_check(ld.legs >= 1 or moved > 6.0 or ld.kind == BattleDuty.Kind.FRONTLINE, "reinforce leader: %s, %d legs, moved %.1f m, %.1f m from the bay (was %.1f)" % [ld.name_of(), ld.legs, moved, to_go, start.distance_to(dest)])
+	var on_step := 0
+	for c: Clown in rr.soldiers:
+		if is_instance_valid(c) and (c.get_node("Duty") as BattleDuty).kind == BattleDuty.Kind.FRONTLINE:
+			on_step += 1
+	_check(on_step >= 1, "%d of %d reinforcements took the fire step on arrival" % [on_step, rr.soldiers.size()])
+	var follow_ok := true
+	for i in range(1, rr.soldiers.size()):
+		var f: Clown = rr.soldiers[i]
+		if is_instance_valid(f) and f.global_position.distance_to(leader.global_position) > 14.0:
+			follow_ok = false
+	_check(follow_ok, "the followers kept within 14 m of the leader")
+	_check(sd.legs >= 1 or sil_start.distance_to(sil.global_position) > 4.0, "silhouette: %d legs, moved %.1f m" % [sd.legs, sil_start.distance_to(sil.global_position)])
+	var shots := 0
+	for c: Clown in rp.soldiers:
+		var pd := c.get_node("Duty") as BattleDuty
+		shots += pd.shots
+	_check(shots >= 1, "parapet men fired %d times" % shots)
+	_check(game.player.health == hp_before, "and the player took nothing from it (%.0f hp)" % game.player.health)
+	var unaware := 0
+	for c in d.live:
+		if is_instance_valid(c) and (c.get_node("Brain") as ClownBrain).mind == ClownBrain.Mind.IDLE:
+			unaware += 1
+	print("         %d of %d director men still unaware" % [unaware, d.live.size()])

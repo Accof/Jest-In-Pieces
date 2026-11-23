@@ -268,3 +268,16 @@ Add a record whenever a choice closes a door.
   outside the player's view cone or hidden from his eye.
 - One seeded RNG for every choice; every decision logged; a 0.5 s tick, not a per-frame scan.
 - The overlay is development-only (F3), off by default; F4 switches the director off entirely.
+
+### D-20 · Director events are real soldiers on real duties, placed unseen, never owed — decided (Milestone 8)
+- Every event man is an ordinary `WitzSoldat` from `Game._spawn_clown` with a legacy `BattleDuty`:
+  no second AI, no scripted puppets. What he does (patrol, beat, frontline) is what the legacy
+  battle's men do; where he goes is the brains' own pathing on the trench graph.
+- Placement only out of the player's view cone and eye line; routes only along joined cells; a
+  reinforcement's destination only a bay on its own side with a verified trench path.
+- Distant fire is **cosmetic by duty**: the frontline duty's effects-only rounds (J7). Anything that
+  can hurt the player is a ray from a real weapon (the Maxims, a hunting brain).
+- Events end by death or by being far and unseen for long enough; a man is never removed in view and
+  never counts toward anything owed: SURVIVAL has no required kills (J6).
+- The catalogue's weights follow the pacing mode and are the playtest's to tune.
+

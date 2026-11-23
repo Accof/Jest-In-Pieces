@@ -499,7 +499,9 @@ func _crossing() -> void:
 			break
 		var d := runner.global_position.distance_to(p.global_position)
 		closest = minf(closest, d)
-		if m.wire_at(runner.global_position.x, runner.global_position.z):
+		# inside the wire (not brushing a belt's edge, where a rifleman may stop to shoot)
+		var rp := runner.global_position
+		if m.wire_at(rp.x, rp.z) and m.wire_at(rp.x, rp.z - 0.4) and m.wire_at(rp.x, rp.z + 0.4):
 			in_wire += 1
 		if m.on_top(runner.global_position):
 			up_top += 1
@@ -509,7 +511,7 @@ func _crossing() -> void:
 	_check(d0 > 70.0, "he started across No Man's Land (%.0f m)" % d0)
 	_check(closest < 25.0, "he came over the top and across to within rifle range of the player (riflemen stop to shoot)")
 	_check(up_top > 60, "crossing the open ground")
-	_check(in_wire == 0, "never through the wire")
+	_check(in_wire == 0, "never through the wire (%d frames inside a belt)" % in_wire)
 
 
 # --- game ----------------------------------------------------------------------------------
