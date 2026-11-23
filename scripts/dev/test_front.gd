@@ -815,6 +815,15 @@ func _atmos() -> void:
 	print("      (a) parapet camera %s" % on_step.snapped(Vector3.ONE * 0.01))
 	if _want("a"):
 		await _shot("gate_a_parapet")
+	# (t) in the trench: standing on the floor of our fire trench, looking along it
+	if _want("t"):
+		var in_trench := Vector3(r.get_center().x, 0, r.get_center().y)
+		in_trench.y = m.floor_height(in_trench) + 1.65
+		cam.global_position = in_trench
+		var along := Vector3(in_trench.x + 14.0, in_trench.y - 0.4, in_trench.z + 1.0)
+		cam.look_at(along)
+		print("      (t) in-trench camera %s" % in_trench.snapped(Vector3.ONE * 0.01))
+		await _shot("gate_t_trench")
 	# (b) the panorama: from the lip of a shell hole a third of the way across
 	var pan := Vector3(mid_x - 4.0, 0, m.our_row0 * m.cell - 26.0)
 	pan.y = m.floor_height(pan) + 1.65

@@ -147,16 +147,16 @@ func _layout() -> bool:
 	# communication trenches: front <-> support (three), support <-> reserve (two),
 	# and two to the rear edge (one from the reserve, one from the support line)
 	var made := 0
-	for fx: float in [0.15, 0.5, 0.85]:
+	for fx: float in comm_front:
 		if _comm("comm", "support", "fire", int(w * (fx + rng.randf_range(-0.06, 0.06)))):
 			made += 1
-	if made < 2:
+	if made < mini(2, comm_front.size()):
 		return false
 	made = 0
 	for fx: float in [r0 + 3, r1 - 3]:
 		if _comm("comm", "reserve", "support", int(fx) + rng.randi_range(-1, 1)):
 			made += 1
-	if made < 1:
+	if made < comm_rear_min:
 		return false
 	var rear := _to_rear("reserve", int((r0 + r1) * 0.5) + rng.randi_range(-3, 3))
 	if rear.is_empty():
@@ -191,7 +191,7 @@ func _fire_trench() -> bool:
 	var allowed := {}
 	var last := w - 3
 	while x <= last:
-		var bay := rng.randi_range(3, 5)
+		var bay := rng.randi_range(bay_len.x, bay_len.y)
 		for i in bay:
 			if x > last:
 				break
@@ -206,7 +206,7 @@ func _fire_trench() -> bool:
 				x += 1
 			break
 		# round the traverse: back two rows, along, forward again
-		var t := rng.randi_range(3, 4)
+		var t := rng.randi_range(traverse_len.x, traverse_len.y)
 		x -= 1
 		_open(Vector2i(x, z + 1), "traverse", "fire")
 		for i in t + 1:
@@ -232,7 +232,7 @@ func _line(name_: String, row: int, x0: int, x1: int, drift: int) -> bool:
 		_open(c, name_, name_)
 		own[c] = true
 		since += 1
-		if since >= rng.randi_range(4, 8) and x < x1 - 2 and x > x0 + 1:
+		if since >= rng.randi_range(line_drift.x, line_drift.y) and x < x1 - 2 and x > x0 + 1:
 			var nz := clampi(z + (1 if rng.randf() < 0.5 else -1), row - drift, row + drift)
 			var n := Vector2i(x, nz)
 			if nz != z and _free(n, own):
@@ -265,7 +265,7 @@ func _comm(name_: String, from: String, to: String, x: int) -> bool:
 		while guard < 60:
 			guard += 1
 			# forward a few
-			var fwd := rng.randi_range(2, 3)
+			var fwd := rng.randi_range(comm_fwd.x, comm_fwd.y)
 			var hit := false
 			for i in fwd:
 				var n := c + Vector2i(0, -1)
@@ -443,7 +443,7 @@ func _sap(x: int) -> bool:
 ## flooded side trench, a gun pit, short firing positions; and the landmarks.
 func _stubs() -> void:
 	var made := {"dugout": 0, "flood": 0, "gunpit": 0, "stub": 0}
-	var want := {"dugout": 3, "flood": 1, "gunpit": 1, "stub": 2}
+	var want := stub_want
 	var lines := ["support", "reserve", "support", "fire"]
 	for attempt in 120:
 		var k: String = ["dugout", "flood", "gunpit", "stub"][attempt % 4]
@@ -719,6 +719,12 @@ var crater_list: Array[Vector4] = []
 ## How far each kind of wall leans back from the floor edge to the top (m).
 const WALL_W := {"timber": 0.12, "iron": 0.12, "sandbag": 0.22, "wattle": 0.14, "earth": 0.5, "broken": 0.42}
 
+## How far a wall of each lining runs horizontally from the floor's edge to
+## the ground up top: its batter. The legacy day's walls stand near-vertical;
+## the Front leans its own (FrontMaze.wall_w).
+func wall_w() -> Dictionary:
+	return WALL_W
+
 
 ## One heightfield for the whole floor: ground with shell craters, the trenches
 ## cut into it (floor, walls by their lining, fire steps), parapet and parados,
@@ -779,7 +785,7 @@ func _carve() -> void:
 			if sd < 3.0:
 				var c: Vector2i = near.cell
 				var wt: String = near.wall
-				var ww: float = WALL_W.get(wt, 0.4)
+				var ww: float = wall_w().get(wt, 0.4)
 				sd += wobble.get_noise_2d(x, z) * (0.025 if ww < 0.2 else 0.09)
 				if ww >= 0.3:
 					sd += slump.get_noise_2d(x * 1.3, z * 1.3) * 0.12
@@ -1023,6 +1029,17 @@ const EDGE := 0.06
 ## to pass; the reserve a little; junctions open out. Communication trenches
 ## stay one cell, with a passing place every few cells (PASSING).
 const WIDEN := {"fire": 0.9, "support": 0.65, "reserve": 0.3, "junction": 0.35}
+## Layout knobs (the legacy day's values; the Front sets its own, D-18): how
+## long a fire bay runs between traverses, how long the traverse's detour is,
+## how often a line drifts a row, how long a communication trench's forward
+## legs are, how many communication trenches, and what side features.
+var bay_len := Vector2i(3, 5)
+var traverse_len := Vector2i(3, 4)
+var line_drift := Vector2i(4, 8)
+var comm_fwd := Vector2i(2, 3)
+var comm_front := [0.15, 0.5, 0.85]       ## front <-> support comm trenches, as fractions of the width
+var comm_rear_min := 1                    ## support <-> reserve comm trenches wanted (of two tried)
+var stub_want := {"dugout": 3, "flood": 1, "gunpit": 1, "stub": 2}
 const PASSING := 0.6
 ## Earth always left between two trenches' floors where one has been widened
 ## toward the other (with the walls' lean, about a metre of ground up top).

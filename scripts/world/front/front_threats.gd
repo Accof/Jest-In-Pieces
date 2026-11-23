@@ -63,11 +63,16 @@ func nest_sites() -> Array:
 			continue                                   # not a front wall
 		var centre := maze.cell_center(c)
 		var floor_y := maze.floor_height(centre)
-		# on the lip, just in front of the parapet bags (which stand 0.45 m out from the wall)
-		var lip := Vector3(centre.x, 0, (c.y + 1) * maze.cell + 1.05)
+		# on the lip: past the wall's batter (the Front's walls lean, D-18) and the
+		# parapet bags that stand on the ground beyond it
+		var batter: float = 0.0
+		for v in maze.wall_w().values():
+			batter = maxf(batter, float(v))
+		var lip := Vector3(centre.x, 0, (c.y + 1) * maze.cell + batter + 0.7)
 		var top := maze.ground_height(lip.x, lip.z)
 		var at := Vector3(lip.x, top + 0.06, lip.z)
 		var stand := Vector3(centre.x, floor_y + TrenchMaze.FIRE_STEP_H, (c.y + 1) * maze.cell - 0.45)
+		stand.y = maxf(stand.y, maze.floor_height(stand) + 0.05)
 		# a view: from the muzzle height, out over the field, clear at 25 and 50 m
 		var view := 0.0
 		for dist: float in [25.0, 50.0]:

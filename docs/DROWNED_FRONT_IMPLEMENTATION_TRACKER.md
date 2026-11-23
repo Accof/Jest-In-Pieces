@@ -836,4 +836,12 @@ editor, Project Settings → Editor → Run → Main Run Args: `-- god perf=10` 
 the `PERF …` lines in the Output panel: fps / 1% low, then `PERF load: objects drawn … draw calls …`.
 Three lines each is enough to decide what M12 does first.
 
+## D-18 — the Front's trenches re-cut and the palette gone cold (23 Nov, awaiting Andrew's look)
+See D-18. Wider (2 m), battered walls, long bays, straighter lines, two comm trenches, no stubs;
+cold grey air/sky/light, brighter by a step. Tests: `test_front` all sections 0 failed (40/40 seeds,
+fire trenches 98 m apart), `test_threats` 0 failed (nests re-sited past the batter; the fire tests now
+stand the player on flat ground the gun can see, with the banks and smoke cleared for the test),
+`test_trench` 0 failed (legacy unchanged), `test_objective` 0 failed. Renders (first pass, before a
+small pull-back of the wash): `docs/reference/front_d18/`. **Andrew to judge live; M6 playtest still open.**
+
 (Milestones 7–13: scope as in the package; detailed when authorised.)

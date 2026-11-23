@@ -235,3 +235,25 @@ Add a record whenever a choice closes a door.
   look now and again." The depth haze, the drifting shell-hole smoke and the banks' puffs stay;
   `FrontAtmosphere.VOLUMETRIC` flips it back. The visibility model is unchanged. This is the
   approver's own change to the approved baseline, so the baseline is amended, not broken.
+
+### D-18 · The Front's trenches are the title art's: wide, battered, long — and cold grey (23 Nov, Andrew)
+- **Andrew, 14:31, with the title screen as the new reference:** "the initial trenches are too much of a
+  maze and too tight. A bit too dark. Notice the trench walls are far apart and a bit slanted, and
+  longer stretches… everything is very green; I wonder if more grey (cold) would work."
+- **Geometry (the Front only; the legacy day generates exactly as before):** `FrontMaze.FCELL = 2.0`
+  (the cut 2 m across the floor, was 1.5); walls battered — `FrontMaze.wall_w()` returns
+  `FRONT_WALL_W` (earth 1.05 m from floor-edge to lip, sandbag 0.62, wattle 0.38, timber/iron ~0.3;
+  the legacy 0.5/0.22/0.14/0.12), the linings lean with it (`TrenchArt` reads `maze.wall_w()`);
+  layout knobs on `TrenchMaze` as variables with the legacy defaults (`bay_len`, `traverse_len`,
+  `line_drift`, `comm_fwd`, `comm_front`, `comm_rear_min`, `stub_want`), the Front's scratch layouts
+  set bays 6–10 (was 3–5), traverses 2–3 (3–4), line drift every 10–16 (4–8), comm legs 4–7 (2–3),
+  two front comm trenches (three), no stubs/flooded junctions. `nml_rows` 36 × 2.0 = 72 m of open
+  ground, fire trenches 98 m apart (was 97). Nests sit past the batter. All Front tests pass; 40/40
+  seeds; build ~7.6 s headless (was ~6).
+- **Palette (D-16 amended again, by its approver):** cold grey air and sky (fog (0.53, 0.545, 0.565),
+  masses (0.29, 0.305, 0.33) / (0.43, 0.445, 0.47), openings (0.64, 0.65, 0.67), a restrained warm
+  core), cold ambient (0.68, 0.70, 0.74) at 0.92, cold sun (0.84, 0.87, 0.92), the grade's mids and
+  lights neutral-to-cold and the shadows brown-black; the mud brown (firm tint (0.86, 0.76, 0.67)) at
+  brightness 0.95, contrast 1.1, saturation 0.66; smoke and bank puffs grey. Fires stay warm.
+- **Open:** the brightness is calibrated by Andrew's eye, not by the container's software renders
+  (which have run both darker and lighter than his M2). First-pass renders in `docs/reference/front_d18/`.

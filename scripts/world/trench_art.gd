@@ -522,7 +522,7 @@ func _revetments() -> void:
 			var along := Vector3(b2.x - a2.x, 0, b2.y - a2.y).normalized()
 			var inn := Vector3(inward.x, 0, inward.y)
 			# the lining leans back with the wall
-			var lean := maxf(float(TrenchMaze.WALL_W.get(t, 0.12)) - 0.04, 0.0) / h
+			var lean := maxf(float(maze.wall_w().get(t, 0.12)) - 0.04, 0.0) / h
 			var up := (Vector3.UP - inn * lean).normalized()
 			var basis := Basis(along, up, along.cross(up)).orthonormalized()
 			var foot := Vector3(mid2.x, base, mid2.y)

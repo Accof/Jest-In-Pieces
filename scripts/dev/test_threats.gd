@@ -82,15 +82,49 @@ func _clear_sky() -> void:
 		(atm.front_fog as FrontFog).clear_banks()
 		atm.front_fog.set_physics_process(false)
 		atm.front_fog.set_process(false)
+	if atm:
+		atm.smoke_patches.clear()                 # the drifting shell-hole smoke thins sight too
 
 
-## Put the player on open ground `dist` m in front of a nest, in its arc.
+## Put the player on open ground `dist` m in front of a nest, in its arc -
+## on the flat, not down a shell hole (slides sideways to find flat ground).
+var _stand_side := {}
 func _stand_before(mg: FrontMg, dist: float, side := 0.0) -> void:
 	var pl: FpsPlayer = game.player
-	var at: Vector3 = mg.global_position + mg.facing * dist + mg.facing.cross(Vector3.UP) * side
-	at.y = (game.maze as TrenchMaze).ground_height(at.x, at.z) + 0.1
+	var m := game.maze as FrontMaze
+	var key := "%s/%.0f/%.1f" % [mg.name, dist, side]
+	if not _stand_side.has(key):
+		var best := side
+		for k in 14:
+			var try_side: float = side + (k * 1.2 if k % 2 == 0 else -(k + 1) * 1.2)
+			var p: Vector3 = mg.global_position + mg.facing * dist + mg.facing.cross(Vector3.UP) * try_side
+			var in_hole := false
+			for cr: Vector4 in m.crater_list:
+				if Vector2(p.x - cr.x, p.z - cr.y).length() < cr.z + 0.8:
+					in_hole = true
+			if in_hole:
+				continue
+			# and the gun must be able to see a man standing there
+			p.y = m.ground_height(p.x, p.z) + 0.1
+			pl.global_position = p
+			if mg._sees_target():
+				best = try_side
+				break
+		_stand_side[key] = best
+	var at: Vector3 = mg.global_position + mg.facing * dist + mg.facing.cross(Vector3.UP) * float(_stand_side[key])
+	at.y = m.ground_height(at.x, at.z) + 0.1
 	pl.global_position = at
 	pl.velocity = Vector3.ZERO
+
+
+## The nest to shoot at in the fire tests: the one on the fire row proper
+## (an OP's gun sits out in a sap, with the sap's own mound about it).
+func _main_nest(th: FrontThreats) -> FrontMg:
+	var best: FrontMg = th.nests[0]
+	for mg in th.nests:
+		if mg.global_position.z < best.global_position.z:
+			best = mg
+	return best
 
 
 ## A shell hole deep enough to hide a crouched man, in front of a nest.
@@ -123,9 +157,9 @@ func _nests() -> void:
 	if th == null or th.nests.is_empty():
 		return
 	var m := game.maze as FrontMaze
-	var fire_z := (m.their_row0 + TrenchMaze.GRID_D - TrenchMaze.FIRE_ROW) * m.cell
+	var fire_z := (m.their_row0 + TrenchMaze.GRID_D - TrenchMaze.FIRE_ROW) * m.cell + 1.5
 	for mg in th.nests:
-		var on_row := absf(mg.global_position.z - fire_z) < 2.5
+		var on_row: bool = absf(mg.global_position.z - fire_z) < m.cell * 2.0 or str(m.kind.get(m.cell_of(mg.global_position - mg.facing * 2.5), "")) == "op"
 		var faces_us := mg.facing.z > 0.9
 		var above := mg.global_position.y > m.ground_height(mg.global_position.x, mg.global_position.z) - 0.05
 		# a clear view from the muzzle to a man 30 m out
@@ -153,7 +187,7 @@ func _fire() -> void:
 	if th == null or th.nests.is_empty():
 		_check(false, "no nests")
 		return
-	var mg := th.nests[0]
+	var mg := _main_nest(th)
 	var pl: FpsPlayer = game.player
 	# a second gun must not muddy the count
 	for other in th.nests:
@@ -173,7 +207,7 @@ func _fire() -> void:
 	var on0 := mg.hits_on_player
 	var t0 := Time.get_ticks_msec()
 	var frames := 0
-	while frames < 60 * 14 and mg.hits_on_player == on0:
+	while frames < 60 * 14 and (mg.hits_on_player == on0 or mg.rounds_fired < 12):
 		await get_tree().physics_frame
 		frames += 1
 		_stand_before(mg, 32.0)                       # keep him there (the game would move him)
@@ -217,7 +251,7 @@ func _pauses() -> void:
 	if th == null or th.nests.is_empty():
 		_check(false, "no nests")
 		return
-	var mg := th.nests[0]
+	var mg := _main_nest(th)
 	for other in th.nests:
 		if other != mg:
 			other.jammed = true
@@ -252,7 +286,7 @@ func _crew() -> void:
 	if th == null or th.nests.is_empty():
 		_check(false, "no nests")
 		return
-	var mg := th.nests[0]
+	var mg := _main_nest(th)
 	for other in th.nests:
 		if other != mg:
 			other.jammed = true
@@ -277,7 +311,7 @@ func _crew() -> void:
 	_check(mg.gun.active and mg.gun.leave_ok and mg.gun.player == game.player, "the piece can be taken ([E] on it)")
 	# a second nest: the mechanism shot to pieces
 	if th.nests.size() >= 2:
-		var mg2 := th.nests[1]
+		var mg2: FrontMg = th.nests[0] if th.nests[0] != mg else th.nests[1]
 		mg2.jammed = false
 		for i in 12:
 			mg2.gun.shot(mg2.muzzle(), Vector3.FORWARD, 60.0)
@@ -404,7 +438,7 @@ func _look() -> void:
 	if th == null or th.nests.is_empty():
 		return
 	_clear_sky()
-	var mg := th.nests[0]
+	var mg := _main_nest(th)
 	for other in th.nests:
 		if other != mg:
 			other.jammed = true

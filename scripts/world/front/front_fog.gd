@@ -21,7 +21,7 @@ func setup_front(m: FrontMaze, a: FrontArt, seed_: int) -> void:
 	setup(m, a, null, seed_)
 	remove_from_group(&"fog")
 	# the puffs in the haze's colour, not the legacy day's white
-	_puff_mat.albedo_color = Color(0.72, 0.75, 0.66)
+	_puff_mat.albedo_color = Color(0.74, 0.76, 0.79)      # cold grey (23 Nov)
 	_t_bank = rng.randf_range(6.0, 14.0)
 	# two banks already out there when the floor loads, well along
 	for i in 2:

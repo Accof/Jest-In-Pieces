@@ -28,7 +28,14 @@ extends TrenchMaze
 ## Cells of No Man's Land between the two networks' blocks (1.5 m each).
 ## 52 rows = 78 m of open ground between the blocks; the fire trenches are 65
 ## cells (97 m) apart; the wire belts about 85 m. A prototype figure (D-12).
-var nml_rows := 52
+## (D-18, 23 Nov) the Front's trenches are the title art's, not the legacy
+## day's: a wider cut (FCELL m across the floor, the legacy's 1.5), walls
+## battered back (FRONT_WALL_W), long bays between traverses, lines that run
+## straight for a stretch, two communication trenches with long legs, few
+## side holes. No Man's Land keeps its ~78 m (nml_rows × FCELL).
+const FCELL := 2.0
+const FRONT_WALL_W := {"timber": 0.32, "iron": 0.3, "sandbag": 0.62, "wattle": 0.38, "earth": 1.05, "broken": 0.9}
+var nml_rows := 36
 ## -1: this cell's front is toward -z (our network); +1: toward +z (theirs).
 var facing := {}
 ## Open cells of each network.
@@ -58,6 +65,7 @@ var wire_cells := {}
 
 
 func generate(_width: int, _depth: int, seed_value: int) -> void:
+	cell = FCELL
 	w = GRID_W
 	d = GRID_D * 2 + nml_rows
 	their_row0 = 0
@@ -92,6 +100,15 @@ func _scratch_layout(seed_: int) -> TrenchMaze:
 	m.w = GRID_W
 	m.d = GRID_D
 	m.rng.seed = seed_
+	# the Front's layout knobs (D-18): long bays, short traverses, straight
+	# lines, two comm trenches with long legs, a dugout or two and a gun pit
+	m.bay_len = Vector2i(6, 10)
+	m.traverse_len = Vector2i(2, 3)
+	m.line_drift = Vector2i(10, 16)
+	m.comm_fwd = Vector2i(4, 7)
+	m.comm_front = [0.3, 0.7]
+	m.comm_rear_min = 1
+	m.stub_want = {"dugout": 2, "flood": 0, "gunpit": 1, "stub": 0}
 	for attempt in 40:
 		m._reset()
 		if m._layout():
@@ -633,7 +650,7 @@ func _carve() -> void:
 			if sd < 3.0:
 				var c: Vector2i = near.cell
 				var wt: String = near.wall
-				var ww: float = WALL_W.get(wt, 0.4)
+				var ww: float = wall_w().get(wt, 0.4)
 				sd += wobble.get_noise_2d(x, z) * (0.025 if ww < 0.2 else 0.09)
 				if ww >= 0.3:
 					sd += slump.get_noise_2d(x * 1.3, z * 1.3) * 0.12
@@ -668,3 +685,7 @@ func _carve() -> void:
 	_lay_duckboards()
 	_lay_water()
 	_bake_puddles()
+
+
+func wall_w() -> Dictionary:
+	return FRONT_WALL_W

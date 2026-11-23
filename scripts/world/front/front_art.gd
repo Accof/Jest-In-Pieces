@@ -68,12 +68,12 @@ func ground_material() -> ShaderMaterial:
 		mat.set_shader_parameter("dry_ground", 0.12)
 		mat.set_shader_parameter("puddles", 0.95)
 		mat.set_shader_parameter("earth_darkness", 0.34)
-		mat.set_shader_parameter("wall_tint", Color(0.6, 0.5, 0.42))         # brown, not olive
-		mat.set_shader_parameter("firm_tint", Color(0.88, 0.75, 0.63))       # the field's firm ground browned (reference mud: R > G > B)
+		mat.set_shader_parameter("wall_tint", Color(0.62, 0.55, 0.49))       # brown, not olive
+		mat.set_shader_parameter("firm_tint", Color(0.86, 0.76, 0.67))       # brown-black mud under a cold sky (23 Nov: the title art)
 		mat.set_shader_parameter("floor_tint", Color(0.78, 0.68, 0.58))
 		mat.set_shader_parameter("floor_darkness", 0.4)
 		mat.set_shader_parameter("rock_darkness", 0.5)
-		mat.set_shader_parameter("brightness", 0.92)
+		mat.set_shader_parameter("brightness", 0.95)
 		mat.set_shader_parameter("water_col", Color(0.26, 0.26, 0.22))
 		mat.set_shader_parameter("puddle_col", Color(0.07, 0.07, 0.06))
 	return mat
@@ -85,7 +85,7 @@ func ground_material() -> ShaderMaterial:
 ## TrenchArt._smoke's, as before.)
 func _drift_smoke() -> void:
 	var mat := smoke_material().duplicate() as StandardMaterial3D
-	mat.albedo_color = Color(0.58, 0.6, 0.55, 0.42)
+	mat.albedo_color = Color(0.58, 0.60, 0.63, 0.42)     # cold grey smoke (23 Nov)
 	var z_near := (front.their_row0 + TrenchMaze.GRID_D) * maze.cell + 6.0
 	var z_far := front.our_row0 * maze.cell - 6.0
 	var wind := Vector3(0.55, 0.0, 0.18)
@@ -711,10 +711,10 @@ func _mist() -> void:
 	fm.set_shader_parameter("noise_tex", tex("noise"))
 	fm.set_shader_parameter("nml_z", (front.our_row0 + TrenchMaze.FIRE_ROW) * maze.cell - 2.5)
 	# (M4) the mist in the reference's colour, a little thicker
-	fm.set_shader_parameter("tint", Color(0.66, 0.67, 0.61))
+	fm.set_shader_parameter("tint", Color(0.66, 0.68, 0.71))
 	fm.set_shader_parameter("density", 0.12)
 	fm.set_shader_parameter("height", 1.4)
 	fm.set_shader_parameter("nml_boost", 2.6)
-	fm.set_shader_parameter("bank_tint", Color(0.80, 0.80, 0.75))
+	fm.set_shader_parameter("bank_tint", Color(0.80, 0.81, 0.83))
 	mist.material = fm
 	add_child(mist)
