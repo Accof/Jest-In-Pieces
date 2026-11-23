@@ -105,6 +105,18 @@ func _run() -> void:
 		print("   triangles in the world: %dk total, %dk of them casting shadows. Heaviest:" % [total / 1000, total_cast / 1000])
 		for h: Array in heavy.slice(0, 18):
 			print("      %7dk  %-28s x%-6d %6d tris each  %s  %s" % [h[0] / 1000, h[1], h[2], h[3], "shadows" if h[4] else "no-shadow", h[5]])
+		# the lights, one line each when there are few
+		if lights <= 24:
+			var st3: Array = [game._world]
+			while not st3.is_empty():
+				var n3: Node = st3.pop_back()
+				st3.append_array(n3.get_children())
+				if n3 is OmniLight3D:
+					var o := n3 as OmniLight3D
+					print("      light %-22s parent %-18s range %5.1f energy %4.1f shadows %s fog %.1f at %s" % [o.name, o.get_parent().name, o.omni_range, o.light_energy, "YES" if o.shadow_enabled else "no", o.light_volumetric_fog_energy, o.global_position.snapped(Vector3.ONE)])
+				elif n3 is SpotLight3D:
+					var sp := n3 as SpotLight3D
+					print("      spot  %-22s parent %-18s range %5.1f shadows %s" % [sp.name, sp.get_parent().name, sp.spot_range, "YES" if sp.shadow_enabled else "no"])
 		var kind := "Front" if game.maze is FrontMaze else ("trench" if game.maze is TrenchMaze else "bunker")
 		print("CENSUS floor %d (%s): %d enemies | lights %d (%d with shadows) | MeshInstance3D %d (%dk tris) | MultiMesh %d (%d instances) | particles %d (%d quads) | decals %d | physical bones %d" % [
 			game.floor_number, kind, game.clowns.size(), lights, shadow_lights, mi, mi_tris / 1000, mm, mm_inst, parts, part_amount, decals, bones])

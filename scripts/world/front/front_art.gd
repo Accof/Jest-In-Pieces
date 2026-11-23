@@ -25,6 +25,11 @@ func build(m: TrenchMaze) -> void:
 		atmosphere.name = "Atmosphere"
 		add_child(atmosphere)
 		_drift_smoke()
+		# (23 Nov, M2) the dugout lamps' shadows: each one re-drew the field six
+		# times a frame for a 4.6 m glow; in this daylight they are off
+		for c in get_children():
+			if c is OmniLight3D:
+				(c as OmniLight3D).shadow_enabled = false
 		# the rolling fog: the legacy day's banks, for the Front's geometry
 		var fog := FrontFog.new()
 		fog.name = "Fog"
@@ -516,6 +521,27 @@ func _cottage_ruin(at: Vector3, face: Basis, mat: Material) -> void:
 		var q := at + face * Vector3(rng.randf_range(-w, w) * 0.7, 0, rng.randf_range(-dpt, dpt) * 0.7)
 		var sz := rng.randf_range(0.3, 0.9)
 		_box("cottage", mat, q + Vector3.UP * sz * 0.15, Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.3, 0.3)), Vector3(sz, sz * 0.4, sz * 0.7))
+
+
+## The field's batches are tiled (Andrew's M2, 23 Nov: 57 M primitives a
+## frame on the Front). A MultiMesh is culled as one thing, by one box, so a
+## "bags" batch spanning the whole 100 × 160 m floor was drawn whole - all
+## 8,600 bags - in the colour pass, the depth pass, each of the sun's splits
+## and each of the six faces of every lamp's shadow, whether or not any of
+## it was in view. Keyed by a TILE-metre cell, each batch is a tile's worth
+## and the renderer can leave the rest out. Same instances, same materials.
+const TILE := 20.0
+
+func _tile(key: String, at: Vector3) -> String:
+	return "%s@%d,%d" % [key, floori(at.x / TILE), floori(at.z / TILE)]
+
+
+func _add(key: String, mesh: Mesh, mat: Material, xf: Transform3D) -> void:
+	super._add(_tile(key, xf.origin), mesh, mat, xf)
+
+
+func _box(key: String, mat: Material, centre: Vector3, basis: Basis, size: Vector3) -> void:
+	super._box(_tile(key, centre), mat, centre, basis, size)
 
 
 ## The Front's sandbag: the legacy pillow at a third of the triangles. There
