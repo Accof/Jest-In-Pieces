@@ -23,3 +23,10 @@ Impacts="*res://scripts/fx/surface_impacts.gd"
 
 3d/physics_engine="Jolt Physics"
 common/physics_ticks_per_second=60
+
+[rendering]
+
+; (23 Nov 2026, D-10) Andrew's M2 at 1904x1029: bunkers 27 fps native, 56-60 with FSR 1 at 0.75;
+; FSR 1 is near free on this GPU where FSR 2 cost ~4 ms. The only perf change that touches the look.
+scaling_3d/mode=1
+scaling_3d/scale=0.75

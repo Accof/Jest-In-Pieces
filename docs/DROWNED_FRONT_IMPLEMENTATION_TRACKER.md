@@ -793,7 +793,19 @@ shadow anyway): floor triangles 4.48 M → 2.76 M, shadow passes halved. Before/
 fog bank and the cloud, not the bags. Second reading awaited. Next on the list (M12): the soldiers
 and corpses at 22–33 k triangles each (30–43 bodies), LOD or a simplified shadow mesh; render scale.
 
-**Still needed: the bunker readings (`bunker floor=2`, `bunker floor=8`).** The frame probe now prints the load too. In the
+**The bunker readings (23 Nov 13:45–14:00, Andrew, M2, ~1904 × 1020, Metal 4 / Forward+, vsync):**
+control **26–29 fps** with 1–2 M primitives and 1,000–2,350 draw calls (so not geometry-bound);
+`noshadows` at a half-size window 59 — but the control at that window was 58 too: **pixel-bound**;
+at the big window `nopost` (SSR, SSAO, SSIL, glow off) 32; **`nofog` 45–48** — the volumetric fog was
+~15 ms, fed by all ~29 bulbs' `light_volumetric_fog_energy` every frame; `scale=0.67` with FSR 2 only
+32–35 (FSR 2 itself costs ~4 ms here and the fog's light pass does not shrink with render scale).
+**Fixes:** `LevelArt._shadow_budget` now also leaves only the 6 nearest bulbs lighting the fog
+(`5b16c05`) → control **36–43**; then **FSR 1 at 0.75** (`fsr1=0.75`) → **56–60 fps, 1% lows to 60**,
+made the project default (`rendering/scaling_3d/mode=1, scale=0.75`) — the one change in this hunt
+that touches the look (a slight softening), Andrew to judge by eye. Noted for later: physics spikes of
+18–25 ms in some windows on a bunker floor (Jolt; corpses/ragdolls or an event), to be looked at in M12.
+
+**Still needed: the Front at the big window with the defaults, then its own knobs.** The frame probe now prints the load too. In the
 editor, Project Settings → Editor → Run → Main Run Args: `-- god perf=10` with `scenes/play_front.tscn`
 (the Front), `-- god perf=10 bunker floor=2` and `-- god perf=10 bunker floor=8` (bunkers), and read
 the `PERF …` lines in the Output panel: fps / 1% low, then `PERF load: objects drawn … draw calls …`.
