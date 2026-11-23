@@ -963,9 +963,39 @@ func _collider(size: Vector3, xf: Transform3D, surface := "") -> void:
 	_props.add_child(cs)
 
 
-# --- lights flicker ---------------------------------------------------------------
+# --- lights flicker, and a shadow budget --------------------------------------------
+## Every caged bulb was a shadow-casting omni light (six cube faces of the
+## scene re-rendered each frame, each): 18 of them on a mid-run bunker, more
+## the deeper the run went - which is why the frame rate fell floor by floor
+## (measured 23 Nov: 3,300+ draw calls on a bunker floor). Now only the
+## SHADOW_NEAR nearest the player cast shadows; the rest light without them.
+## The look is the same: a bulb's shadow past the next room was never seen.
+const SHADOW_NEAR := 4
+var _shadow_t := 0.0
+func _shadow_budget() -> void:
+	var pl := get_tree().get_first_node_in_group(&"player") as Node3D if is_inside_tree() else null
+	if pl == null:
+		return
+	var at := pl.global_position
+	var ranked: Array = []
+	for e: Array in _lights:
+		var l: OmniLight3D = e[0]
+		if is_instance_valid(l):
+			ranked.append([l.global_position.distance_squared_to(at), l])
+	ranked.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
+	for i in ranked.size():
+		var l: OmniLight3D = ranked[i][1]
+		var want: bool = i < SHADOW_NEAR and float(ranked[i][0]) < 20.0 * 20.0
+		if l.shadow_enabled != want:
+			l.shadow_enabled = want
+
+
 func _process(delta: float) -> void:
 	_t += delta
+	_shadow_t -= delta
+	if _shadow_t <= 0.0:
+		_shadow_t = 0.3
+		_shadow_budget()
 	for e: Array in _lights:
 		var l: OmniLight3D = e[0]
 		var ph: float = e[2]

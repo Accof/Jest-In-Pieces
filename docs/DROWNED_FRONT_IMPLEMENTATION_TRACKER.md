@@ -747,4 +747,42 @@ Authorised by Andrew's "continue" after M5 (taken as M6 only).
   fog and aim), `scripts/events/mounted_gun.gd` (`shot()` forwarded to a nest), `scripts/fx/sfx_synth.gd`
   (`mg_shot`, `shell_whistle`, `_whistle_in`), `scripts/world/front/front_fog.gd` (`clear_banks()`).
 
+## Performance note (23 Nov 2026) — Andrew: "the frame rate gets worse as I progress to the next floor… not great on the trench area either"
+
+**Is anything left over from previous floors? No.** `scenes/leak_probe.tscn` walks 8 floors (bunker,
+Front, bunker, bunker, Front, bunker, bunker) with the player firing, enemies dying and grenades going
+off on each, and counts what every node that outlives a floor is holding: the autoloads (`Impacts` 324,
+`Blood` ~335, `MechFx` 68), the player (395), the game's own children — all identical before and after
+every floor; orphan nodes 0 throughout; static memory rises and falls with the floor (690–970 MB), not
+monotonically. The world is freed whole (`_clear_floor`).
+
+**What grows is the floors.** `scenes/census.tscn`: a floor-4 bunker has 29 omni lights, **18 of them
+casting shadows** — every caged bulb was a shadow-casting light (six cube faces of the scene re-rendered
+per light per frame), and deeper floors have more rooms, so more bulbs, so more shadow passes: that is
+the floor-by-floor fall. Measured in the container (Forward+, llvmpipe, 640×360, same spot): a floor-2
+bunker drew **3,300–3,700 objects / 3.2–3.5 M primitives a frame**.
+
+**Fix (`LevelArt._shadow_budget`, commit below):** only the 4 bulbs nearest the player (within 20 m)
+cast shadows, re-ranked every 0.3 s; the rest light without shadows. Same spot after: **930–1,275
+objects / 0.9–1.25 M primitives** (−65%). A bulb's shadow in the next room was never seen, so the
+look does not change. The event rooms' own lights are untouched.
+
+**The Front** (floor 3, seed 1916, from the census): 456 MeshInstance3Ds carrying **1.56 M triangles**
+(the heightfield, the water planes, the trees), 79 MultiMeshes with 15.7 k instances (the litter, the
+bags, the wire posts), 30 skeletons / 480 physical bones (17 soldiers + 18 corpses, asleep), 27
+particle systems (599 quads), 7 lights (4 shadowed: the sun's 4 cascades over 70 m), plus SSR, SSAO,
+SSIL, volumetric fog and the mist volume at full resolution. The software renderer cannot even
+produce a frame-time reading for it in 4 minutes, so **no number from here means anything for the
+Mac**: the heavy items on a real GPU are most likely the sun's shadow cascades over 1.5 M triangles,
+the screen-space effects + volumetrics at native resolution, and the skinning of 30–43 bodies. Those
+are Milestone 12's (performance) proper subjects, and the approved atmosphere (D-16) is not to be
+touched for them without a new approval; render scale (FSR 2 at 0.77–0.85) is the lever that
+changes nothing in the look.
+
+**Still needed: the Mac baseline (D-10, PENDING).** The frame probe now prints the load too. In the
+editor, Project Settings → Editor → Run → Main Run Args: `-- god perf=10` with `scenes/play_front.tscn`
+(the Front), `-- god perf=10 bunker floor=2` and `-- god perf=10 bunker floor=8` (bunkers), and read
+the `PERF …` lines in the Output panel: fps / 1% low, then `PERF load: objects drawn … draw calls …`.
+Three lines each is enough to decide what M12 does first.
+
 (Milestones 7–13: scope as in the package; detailed when authorised.)

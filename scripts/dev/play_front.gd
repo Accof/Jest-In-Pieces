@@ -17,6 +17,7 @@ func _ready() -> void:
 	var seed_ := 0
 	var floor_ := 3
 	var perf := 0.0
+	var bunker := false
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("seed="):
 			seed_ = int(a.substr(5))
@@ -26,12 +27,14 @@ func _ready() -> void:
 			floor_ = int(a.substr(6))
 		elif a == "god":
 			FpsPlayer.god_mode = true
+		elif a == "bunker":
+			bunker = true                       # play floor_ as a bunker instead (perf comparisons)
 	Engine.set_meta(&"test_save", true)
 	game = load("res://scenes/game.tscn").instantiate()
 	add_child(game)
 	await get_tree().process_frame
 	await get_tree().process_frame
-	game.trench_every = maxi(floor_, 1)            # so floor `floor_` is a trench floor
+	game.trench_every = 1000 if bunker else maxi(floor_, 1)            # so floor `floor_` is a trench floor (or never, for a bunker)
 	game.survival_trenches = true
 	game.start_run()
 	if seed_ != 0:
@@ -43,6 +46,9 @@ func _ready() -> void:
 	if perf > 0.0:
 		var probe: Node = load("res://scripts/dev/frame_probe.gd").new()
 		probe.seconds = perf
+		for a in OS.get_cmdline_user_args():
+			if a.begins_with("warmup="):
+				probe.warmup = float(a.substr(7))
 		probe.label = "Drowned Front floor %d seed %s" % [game.floor_number, str(seed_) if seed_ != 0 else "random"]
 		add_child(probe)
 	if OS.has_environment("LEGACY_QUIT_AFTER"):

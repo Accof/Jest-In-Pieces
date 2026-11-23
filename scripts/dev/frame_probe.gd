@@ -58,4 +58,15 @@ func report() -> void:
 			OS.get_name(), OS.get_processor_name(), RenderingServer.get_video_adapter_name(), win.x, win.y,
 			DisplayServer.screen_get_refresh_rate(), RenderingServer.get_current_rendering_method(),
 			DisplayServer.window_get_vsync_mode(), Engine.get_version_info().string])
+	# what the frame is made of (the render monitors are per frame; the
+	# node/physics ones are the floor's size): compare floors with these
+	print("PERF load: objects drawn %d | primitives %dk | draw calls %d | nodes %d | physics bodies %d | video mem %.0f MB | process %.1f ms | physics %.1f ms" % [
+		Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),
+		int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME) / 1000),
+		Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+		Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
+		Performance.get_monitor(Performance.PHYSICS_3D_ACTIVE_OBJECTS),
+		Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / 1048576.0,
+		Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
+		Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0])
 	_frames = PackedFloat32Array()
