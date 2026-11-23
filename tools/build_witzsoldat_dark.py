@@ -34,6 +34,7 @@ model's elbows, knees and so on. Same conventions as the clown (clown_segments.j
 """
 import json
 import math
+import os
 import sys
 
 import bpy  # first: bmesh and mathutils come with it
@@ -404,21 +405,32 @@ helmet_obj.location = hcen
 bpy.context.scene.collection.objects.link(helmet_obj)
 print("helmet centre", hcen, "size", hhi - hlo, "liner", nl)
 
-bm = bmesh.new()
-bm.from_mesh(body.data)
-bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0002)
-# about 24k triangles, like the WitzSoldat (21k)
-bm.to_mesh(body.data)
-bm.free()
-dec = body.modifiers.new("dec", "DECIMATE")
-dec.ratio = 0.5
-bpy.ops.object.modifier_apply(modifier="dec")
-print("triangles after decimate:", len(body.data.polygons))
-# Tripo's custom normals do not survive decimation (they come out faceted, a
-# flat patch to each triangle on the mask): drop them, shade smooth, sharp only
-# at real creases.
-bpy.ops.mesh.customdata_custom_splitnormals_clear()
-bpy.ops.object.shade_smooth_by_angle(angle=math.radians(60))
+# Decimation (23 Nov 2026): OFF. At 0.5 the edge collapses crossed the UV
+# seams and islands (the weld before it had fused their vertices), and the
+# maps came out smeared in triangular streaks across the belt, pouches and
+# buttons - "stretched", nothing like Tripo's preview. The model stays at
+# Tripo's 47k triangles; a lower level of detail for distance is M12's job.
+# DEC_RATIO=<0..1> in the environment brings it back for an experiment.
+DEC_RATIO = float(os.environ.get("DEC_RATIO", "1.0"))
+if DEC_RATIO < 0.999:
+    bm = bmesh.new()
+    bm.from_mesh(body.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0002)
+    bm.to_mesh(body.data)
+    bm.free()
+    dec = body.modifiers.new("dec", "DECIMATE")
+    dec.ratio = DEC_RATIO
+    bpy.ops.object.modifier_apply(modifier="dec")
+    print("triangles after decimate:", len(body.data.polygons))
+    # Tripo's custom normals do not survive decimation (they come out faceted, a
+    # flat patch to each triangle on the mask): drop them, shade smooth, sharp only
+    # at real creases.
+    bpy.ops.mesh.customdata_custom_splitnormals_clear()
+    bpy.ops.object.shade_smooth_by_angle(angle=math.radians(60))
+else:
+    # the seams' duplicate vertices are kept (the cuts below weld what they
+    # need themselves); Tripo's own normals too: it is what its preview shows
+    print("triangles (no decimation):", len(body.data.polygons))
 
 # --- cut cleanly at every severable joint ---------------------------------------
 bm = bmesh.new()

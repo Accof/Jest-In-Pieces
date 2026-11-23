@@ -672,16 +672,17 @@ func start(profile: Dictionary, hit_dir: Vector3 = Vector3.ZERO, velocity: Vecto
 		# Arms jerk out to a random pose on reflex, then go slack wherever they are,
 		# so they end up thrown about instead of pinned to the sides.
 		var part := String(d.n).trim_prefix("Left").trim_prefix("Right")
-		if arm_fling > 0.0 and (part == "UpperArm" or part == "LowerArm"):
+		var fling := arm_fling * float(profile.get("fling_scale", 1.0))
+		if fling > 0.0 and (part == "UpperArm" or part == "LowerArm"):
 			var s := 1.0 if String(d.n).begins_with("Left") else -1.0
 			if part == "UpperArm" and profile.get("arms_wide", false):
-				eq.y -= s * deg_to_rad(randf_range(55.0, 110.0)) * arm_fling   # straight out to the side
-				eq.x -= s * deg_to_rad(randf_range(0.0, 20.0)) * arm_fling
+				eq.y -= s * deg_to_rad(randf_range(55.0, 110.0)) * fling   # straight out to the side
+				eq.x -= s * deg_to_rad(randf_range(0.0, 20.0)) * fling
 			elif part == "UpperArm":
-				eq.y -= s * deg_to_rad(randf_range(30.0, 100.0)) * arm_fling   # lift out sideways
-				eq.x += s * deg_to_rad(randf_range(-25.0, 60.0)) * arm_fling   # swing forward or back
+				eq.y -= s * deg_to_rad(randf_range(30.0, 100.0)) * fling   # lift out sideways
+				eq.x += s * deg_to_rad(randf_range(-25.0, 60.0)) * fling   # swing forward or back
 			else:
-				eq.x += s * deg_to_rad(randf_range(0.0, 25.0) if profile.get("arms_wide", false) else randf_range(10.0, 85.0)) * arm_fling    # bend the elbow
+				eq.x += s * deg_to_rad(randf_range(0.0, 25.0) if profile.get("arms_wide", false) else randf_range(10.0, 85.0)) * fling    # bend the elbow
 			pb.set("joint_constraints/x/angular_equilibrium_point", eq.x)
 			pb.set("joint_constraints/y/angular_equilibrium_point", eq.y)
 		_info[d.n].tone = -1.0

@@ -763,7 +763,7 @@ func _start_ragdoll(info: Dictionary, zone: StringName) -> void:
 		profile = ClownRagdoll.profile_blast()      # no fight left: it goes where it is carried
 	elif crawling or last_stand:
 		profile = ClownRagdoll.profile_limp()
-	elif not info.get("heavy", false) and wall_gap >= 0.0 and (force_variant == "wall_slide" or (force_variant == "" and randf() < 0.8)):
+	elif not info.get("heavy", false) and wall_gap >= 0.0 and (force_variant == "wall_slide" or (force_variant == "" and randf() < WALL_SLIDE_CHANCE)):
 		profile = ClownRagdoll.profile_wall_slide(wall_gap)
 	elif info.get("heavy", false):
 		profile = ClownRagdoll.profile_heavy(force_variant == "heavy_flat" or (force_variant == "" and randf() < 0.45))
@@ -784,15 +784,23 @@ func _start_ragdoll(info: Dictionary, zone: StringName) -> void:
 		for part in ["UpperLeg", "LowerLeg", "Foot"]:
 			ragdoll.weaken(StringName(side + part), 0.15)
 	if has_rifle and not profile.is_empty():
-		# The hands come off the rifle: the dying arm muscles pull toward arms
-		# hanging at the sides (then thrown wide), not the grip they died in.
+		# The hands come off the rifle: the dying arm muscles let the arms
+		# fall half-way from the grip toward hanging at the sides - not a
+		# pull all the way there, and not thrown wide (23 Nov: that read as
+		# the arms springing up out of an aim or a crouch).
 		profile = profile.duplicate()
-		profile["arms_wide"] = true
+		profile["fling_scale"] = rifle_arm_fling
+		if rifle_arms_wide:
+			profile["arms_wide"] = true
 		for side: String in ["Left", "Right"]:
 			for part: String in ["UpperArm", "LowerArm", "Hand"]:
 				var bi := skeleton.find_bone(side + part)
+				# and with little strength left in them: they drop, they are
+				# not driven there (full arm tone snapped them in a tenth of a second)
+				ragdoll.weaken(StringName(side + part), rifle_arm_tone)
 				if _base_rot.has(bi):
-					ragdoll.eq_override[StringName(side + part)] = Basis(_base_rot[bi])
+					var now := skeleton.get_bone_pose_rotation(bi)
+					ragdoll.eq_override[StringName(side + part)] = Basis(now.slerp(_base_rot[bi], rifle_arm_settle))
 	if ragdoll.active:
 		ragdoll.restart(profile)          # already on the floor (shot while down)
 	else:
@@ -3579,6 +3587,21 @@ func _drop_behind(shot_dir: Vector3) -> bool:
 
 ## Distance to a wall close behind the clown along the shot, or -1 if there is
 ## none or the clown was not shot from the front.
+## A wall slide only with the wall right at its back (the ray from the
+## chest's centre: WALL_SLIDE_REACH less the body's own half-depth is the
+## gap behind the coat), and only half the time (23 Nov: it was 1.25 m and
+## 80 %, which read as a lurch to a wall a stride away).
+## A rifleman's arms at death: how far from the grip toward hanging the
+## muscles settle (0 = they keep the grip, 1 = all the way to the sides),
+## and how much of the reflex fling they get (the ragdoll's arm_fling × this).
+static var rifle_arm_settle := 0.5     # (static: dev scenes compare settings)
+static var rifle_arm_fling := 0.4
+static var rifle_arms_wide := false
+static var rifle_arm_tone := 0.3        # the arms' muscle tone at death, as a share of the profile's
+const WALL_SLIDE_REACH := 0.6
+const WALL_SLIDE_CHANCE := 0.5
+
+
 func _wall_behind(shot_dir: Vector3) -> float:
 	var back := Vector3(shot_dir.x, 0, shot_dir.z)
 	if back.length() < 0.01:
@@ -3587,7 +3610,7 @@ func _wall_behind(shot_dir: Vector3) -> float:
 	if global_basis.z.dot(back) > -0.3:          # not facing the shooter
 		return -1.0
 	var from := global_position + Vector3.UP * 1.2
-	var q := PhysicsRayQueryParameters3D.create(from, from + back * 1.25, 1)
+	var q := PhysicsRayQueryParameters3D.create(from, from + back * WALL_SLIDE_REACH, 1)
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
 	if hit.is_empty() or absf(hit.normal.y) > 0.3:
 		return -1.0

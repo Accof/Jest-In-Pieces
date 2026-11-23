@@ -30,7 +30,7 @@ func _ready() -> void:
 			if sm2:
 				sm2.set_shader_parameter("use_mr", false)
 	var cam := Camera3D.new(); add_child(cam); cam.fov = 40
-	var shots := [[Vector3(0, 1.72, 0.6), Vector3(0, 1.7, 0)], [Vector3(0.9, 1.75, 0.15), Vector3(0, 1.72, 0)], [Vector3(0, 1.1, 3.6), Vector3(0, 0.95, 0)], [Vector3(2.6, 1.1, -2.2), Vector3(0, 0.95, 0)], [Vector3(-0.5, 1.8, -0.9), Vector3(0, 1.5, 0)]]
+	var shots := [[Vector3(0, 1.72, 0.6), Vector3(0, 1.7, 0)], [Vector3(0.9, 1.75, 0.15), Vector3(0, 1.72, 0)], [Vector3(0, 1.1, 3.6), Vector3(0, 0.95, 0)], [Vector3(2.6, 1.1, -2.2), Vector3(0, 0.95, 0)], [Vector3(-0.5, 1.8, -0.9), Vector3(0, 1.5, 0)], [Vector3(0.1, 1.25, 0.42), Vector3(0.1, 1.2, 0)]]   # the last: the uniform's weave at 40 cm
 	for i in shots.size():
 		cam.position = shots[i][0]; cam.look_at(shots[i][1])
 		for f in 3:
