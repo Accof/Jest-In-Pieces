@@ -1704,7 +1704,7 @@ func _grip_for(side: String) -> Vector3:
 	if attack_amount > 0.05 and side == main_arm() and not has_club and not has_rifle:
 		return Vector3(0.95, 0.9, -1.0)              # a fist to swing
 	if has_rifle and _rifle != null and is_instance_valid(_rifle):
-		return Vector3(0.7, 0.6, 0.42 if side == "Right" else -1.0)   # round the wrist and the fore-end; the trigger finger in
+		return Vector3(0.7, 0.6, rifle_index_curl if side == "Right" else -1.0)   # round the wrist and the fore-end; the trigger finger in
 	if has_gun and gun_side == side:
 		return Vector3(0.78, 0.65, 0.35)             # round the pistol's grip, the index on the trigger
 	if has_club and side == "Right":
@@ -3044,21 +3044,43 @@ func _hold_rifle() -> void:
 	_rifle.transform = chest.affine_inverse() * xf
 	# hands: right on the wrist of the stock, left under the fore-end, close
 	# enough that the elbows stay bent
-	var grip := xf * hold_grip
-	var fore := xf * Vector3(0.0, hold_fore_y, lerpf(hold_fore.x, hold_fore.y, a))
+	# Right hand round the wrist of the stock: palm on its right side (-x),
+	# thumb over the comb, the hand pointing along the barrel and a little
+	# down so the index reaches the trigger. Left hand under the fore-end,
+	# palm up, fingers over its right side, thumb along the left. The IK
+	# puts the wrist bone where the palm's contact point says it must be,
+	# then the hand's whole basis is set (not just its direction).
+	var wrist_half: float = float(RIFLE_INFO.get("wrist_half", 0.03))
+	var r_y: Vector3 = (xf.basis.z - xf.basis.y * rifle_hand_down).normalized()         # along the hand
+	var r_x: Vector3 = xf.basis.x                                           # the palm's normal: into the stock
+	var r_palm: Vector3 = xf * (hold_grip + Vector3(-(wrist_half + RIFLE_GLOVE), rifle_grip_lift, 0.0))
+	var grip := r_palm - r_y * RIFLE_PALM_ALONG
+	var fore_z := lerpf(hold_fore.x, hold_fore.y, a)
+	var l_y: Vector3 = (-xf.basis.x + xf.basis.z * 0.35).normalized()
+	var l_x: Vector3 = -xf.basis.y                                          # the left palm faces up, into the wood
+	var l_palm: Vector3 = xf * Vector3(0.0, _rf_fore(fore_z) - RIFLE_GLOVE, fore_z)
+	var fore := l_palm - l_y * RIFLE_PALM_ALONG
+	var r_basis := _hand_basis(r_x, r_y)
+	var l_basis := _hand_basis(l_x, l_y)
 	# the right hand leaves the wrist for the bolt: handle up, back, forward, down
 	if cyc >= 0.0 and _bolt:
 		var on_bolt := smoothstep(0.04, 0.18, cyc) * (1.0 - smoothstep(0.76, 0.9, cyc))
 		var lift := smoothstep(0.18, 0.28, cyc) - smoothstep(0.66, 0.76, cyc)
 		var pull := smoothstep(0.3, 0.44, cyc) - smoothstep(0.52, 0.64, cyc)
-		_bolt.position = Vector3(-0.035 + 0.012 * lift, 0.04 + 0.022 * lift, 0.29 - 0.085 * pull)
-		_bolt.rotation.z = -1.1 * lift
-		grip = grip.lerp(xf * (_bolt.position + Vector3(-0.05 + 0.02 * lift, 0.01 + 0.02 * lift, 0.0)), on_bolt)
+		_bolt.position = _bolt_home + Vector3(0.0, 0.0, -RIFLE_BOLT_TRAVEL * pull)
+		_bolt.rotation.z = -RIFLE_BOLT_LIFT * lift
+		# the hand over the knob: palm down and in, thumb forward
+		var knob: Vector3 = xf * _rf_knob()
+		var b_x: Vector3 = (xf.basis.x * 0.5 - xf.basis.y).normalized()
+		var b_y: Vector3 = xf.basis.z
+		var b_wrist: Vector3 = knob - b_x * RIFLE_GLOVE - b_y * RIFLE_PALM_ALONG * 0.8 + xf.basis.y * 0.01
+		grip = grip.lerp(b_wrist, on_bolt)
+		r_basis = Basis(Quaternion(r_basis).slerp(Quaternion(_hand_basis(b_x, b_y)), on_bolt))
 		if pull > 0.9 and not _cased:
 			_cased = true
 			_eject_case(xf)
 		if cyc > 0.95:
-			_bolt.position = Vector3(-0.035, 0.04, 0.29)
+			_bolt.position = _bolt_home
 			_bolt.rotation.z = 0.0
 	var rs := sk.get_bone_global_pose(sk.find_bone("RightUpperArm")).origin
 	var ls := sk.get_bone_global_pose(sk.find_bone("LeftUpperArm")).origin
@@ -3072,8 +3094,36 @@ func _hold_rifle() -> void:
 	else:
 		reach("Right", grip, rs + Vector3(-0.4, -0.55, -0.15).lerp(Vector3(-0.42, -0.5, -0.12), ab))
 		reach("Left", fore, ls + Vector3(0.3, -0.6, 0.05).lerp(Vector3(0.15, -0.65, 0.0), ab))
-	point_bone("RightHand", xf.basis.z)
-	point_bone("LeftHand", xf.basis.z)
+	_set_hand("RightHand", r_basis)
+	_set_hand("LeftHand", l_basis)
+
+
+## How a hand sits on the rifle: the glove's thickness between the palm's
+## centre and the wood, and how far the palm's centre is along the hand from
+## the wrist bone. The bolt: how far the handle draws back, how far it lifts.
+const RIFLE_GLOVE := 0.014
+const RIFLE_PALM_ALONG := 0.075
+static var rifle_hand_down := 0.65          # the right hand's slope down the wrist (per unit forward)
+static var rifle_index_curl := 0.4          # the trigger finger's curl
+static var rifle_grip_lift := 0.0           # the right palm's centre above the wrist's mid-height
+const RIFLE_BOLT_TRAVEL := 0.085
+const RIFLE_BOLT_LIFT := 1.1
+
+
+## A hand's basis from its palm normal (its +X: the palm faces it on the
+## right hand, away from it on the left) and the direction along the hand
+## (its +Y); Z follows, right-handed.
+static func _hand_basis(x: Vector3, y: Vector3) -> Basis:
+	var yy := y.normalized()
+	var xx := (x - yy * x.dot(yy)).normalized()
+	return Basis(xx, yy, xx.cross(yy))
+
+
+## Set a hand bone's whole global basis (skeleton space).
+func _set_hand(bone_name: String, basis: Basis) -> void:
+	var bi := skeleton.find_bone(bone_name)
+	var gp := skeleton.get_bone_global_pose(bi)
+	_rotate_global(bi, Quaternion(basis.orthonormalized()) * Quaternion(gp.basis.orthonormalized()).inverse())
 
 
 ## A basis whose +Z runs along `dir`, as level as it can be.
@@ -3452,32 +3502,32 @@ func give_rifle() -> void:
 	skeleton.add_child(_rifle_attach)
 	_rifle = Node3D.new()
 	_rifle_attach.add_child(_rifle)
-	var wood := StandardMaterial3D.new()
-	wood.albedo_color = Color(0.24, 0.13, 0.06)
-	wood.roughness = 0.6
-	var steel := StandardMaterial3D.new()
-	steel.albedo_color = Color(0.09, 0.09, 0.1)
-	steel.metallic = 0.8
-	steel.roughness = 0.35
-	# Laid out with the butt at the origin and the barrel along +Z.
-	_rifle_part(_rifle, Vector3(0.045, 0.05, 0.62), Vector3(0, 0.0, 0.35), wood)         # stock and fore-end
-	_rifle_part(_rifle, Vector3(0.04, 0.11, 0.24), Vector3(0, -0.03, 0.12), wood)        # butt
-	_rifle_part(_rifle, Vector3(0.022, 0.022, 0.48), Vector3(0, 0.025, 0.86), steel)     # barrel
-	_rifle_part(_rifle, Vector3(0.03, 0.035, 0.16), Vector3(0, 0.035, 0.33), steel)      # receiver
-	_rifle_part(_rifle, Vector3(0.06, 0.012, 0.012), Vector3(-0.035, 0.04, 0.29), steel) # bolt handle
-	_bolt = _rifle.get_child(_rifle.get_child_count() - 1)
-	var knob := MeshInstance3D.new()                                                      # the bolt's ball knob
-	var sm := SphereMesh.new()
-	sm.radius = 0.011
-	sm.height = 0.022
-	sm.material = steel
-	knob.mesh = sm
-	knob.position = Vector3(-0.03, 0, 0)
-	knob.layers = 2
-	_bolt.add_child(knob)
+	# The rifle (23 Nov 2026): the Tripo bolt-action, built by
+	# tools/build_enemy_rifle.py with the butt plate at the origin, the
+	# barrel along +Z and the bore at y 0.025 - the frame the old box rifle
+	# was laid out in. "Bolt" is the handle on its own, its origin on the
+	# bore axis at the root, so a turn about its Z lifts it. enemy_rifle.json
+	# carries the measured points the hands go to.
+	if RIFLE_INFO.is_empty():
+		var f := FileAccess.open(RIFLE_JSON, FileAccess.READ)
+		if f:
+			RIFLE_INFO = JSON.parse_string(f.get_as_text())
+	var model: Node3D = (load(RIFLE_SCENE) as PackedScene).instantiate()
+	_rifle.add_child(model)
+	for mi: MeshInstance3D in model.find_children("*", "MeshInstance3D", true, false):
+		mi.layers = 2
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	_bolt = model.find_child("Bolt", true, false) as Node3D
+	if _bolt:
+		_bolt_home = _bolt.position
 	_muzzle = Node3D.new()
-	_muzzle.position = Vector3(0, 0.025, 1.1)
+	_muzzle.position = _rf("muzzle", Vector3(0, 0.025, 1.1))
 	_rifle.add_child(_muzzle)
+	# where the hands go: the wrist of the stock (right), the fore-end (left)
+	var wrist := _rf("wrist", Vector3(0, -0.023, 0.24))
+	hold_grip = wrist + Vector3(0, 0, -0.012)        # a touch back: the index pad lands on the blade
+	hold_fore = Vector2(0.55, 0.62)
+	hold_fore_y = _rf_fore(hold_fore.x)
 	var chest_rest := skeleton.get_bone_global_rest(skeleton.find_bone("Chest"))
 	# Shouldered: butt against the right shoulder, barrel straight ahead.
 	_rifle_aimed = chest_rest.affine_inverse() * Transform3D(Basis.IDENTITY, Vector3(-0.11, 1.47, 0.1))
@@ -3489,6 +3539,45 @@ func give_rifle() -> void:
 	always_pose = true                  # the hands stay on the rifle every frame
 	set_process(true)
 	_snap_fingers.call_deferred()
+
+
+const RIFLE_SCENE := "res://art/weapons/enemy_rifle/enemy_rifle.glb"
+const RIFLE_JSON := "res://art/weapons/enemy_rifle/enemy_rifle.json"
+static var RIFLE_INFO: Dictionary = {}
+var _bolt_home := Vector3(0, 0.025, 0.351)
+
+
+func _rf_arr(a: Array) -> Vector3:
+	return Vector3(float(a[0]), float(a[1]), float(a[2]))
+
+
+## A point from the rifle's json (Godot axes: x, up, along the barrel).
+func _rf(key: String, fallback: Vector3) -> Vector3:
+	if RIFLE_INFO.has(key):
+		var a: Array = RIFLE_INFO[key]
+		return Vector3(float(a[0]), float(a[1]), float(a[2]))
+	return fallback
+
+
+## The fore-end's underside (y) at `z` along the barrel, from the json's samples.
+func _rf_fore(z: float) -> float:
+	if not RIFLE_INFO.has("fore"):
+		return -0.035
+	var best := INF
+	var y := -0.035
+	for k: String in RIFLE_INFO.fore.keys():
+		var p: Array = RIFLE_INFO.fore[k]
+		if absf(float(p[2]) - z) < best:
+			best = absf(float(p[2]) - z)
+			y = float(p[1])
+	return y
+
+
+## The bolt handle's knob, in the rifle's frame, where the handle is now.
+func _rf_knob() -> Vector3:
+	if _bolt == null:
+		return Vector3(-0.065, 0.04, 0.29)
+	return _bolt.transform * _rf("bolt_knob", Vector3(-0.095, 0.025, 0.009))
 
 
 ## Drop the rifle where it is (on death).
@@ -3504,8 +3593,11 @@ func _drop_rifle() -> void:
 	var cs := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	box.size = Vector3(0.05, 0.1, 1.1)
-	cs.shape = box
 	cs.position = Vector3(0, 0, 0.55)
+	if RIFLE_INFO.has("box"):
+		box.size = _rf_arr(RIFLE_INFO.box.size)
+		cs.position = _rf_arr(RIFLE_INFO.box.centre)
+	cs.shape = box
 	body_.add_child(cs)
 	_rifle.get_parent().remove_child(_rifle)
 	body_.add_child(_rifle)

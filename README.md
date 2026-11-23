@@ -278,7 +278,20 @@ Pistol and SMG rounds wear a body down. Enough of them into one part, alive or d
 
 ## WitzSoldat
 
-Carries the rifle at low ready: butt by the right hip, muzzle forward and a little down across the body, right hand on the wrist and left under the fore-end, both elbows easy. It swings a little with each stride and comes up when running. Shoulders it to aim: butt in the shoulder, cheek down on the stock, sights to the eye, right elbow out; both hands placed by a two-bone reach every frame. Up close it drives the bayonet forward from the hip. It runs upright (a soldier's run, not a crouched sprint). When it dies its hands come off the rifle: the dying arm muscles pull toward arms hanging free (and are flung wide), not the grip it died in. Lining up a shot in the open it side-steps slowly and smoothly, pausing now and then.
+**The rifle (23 Nov 2026)** is a Tripo bolt-action (`art/weapons/enemy_rifle/enemy_rifle.glb`, 1.11 m, a Mauser
+carbine's length; three 2K PBR maps shared by every rifle on the floor) in place of the old box placeholder.
+`tools/build_enemy_rifle.py` turns the Tripo model onto its bore axis (butt plate at the origin, barrel along +Z,
+bore at y 0.025 — the frame `give_rifle` always used), cuts the bolt handle into its own `Bolt` object with its
+origin on the bore at the handle's root, and measures what the hands need into `enemy_rifle.json`: the muzzle,
+the trigger inside its guard, the wrist of the stock and its half-width, the fore-end's underside, the handle's
+root and knob. `Clown._hold_rifle` places the hands from those: the right palm on the right side of the wrist
+with the hand sloping down the grip and the index curled to the trigger blade (`rifle_hand_down`,
+`rifle_index_curl`), the thumb over the comb; the left palm up under the fore-end, fingers over its right side,
+thumb along the left; each hand's whole basis is set, not just its direction. Working the bolt the right hand
+goes over the knob, palm down and in, and the handle lifts 63° and draws back 8.5 cm. `scenes/look_rifle_hold.tscn`
+(`-- --all --bare`) renders the hold close up with markers at the trigger and the fingertips.
+
+Carries the rifle at low ready: butt by the right hip, muzzle forward and a little down across the body, right hand on the wrist and left under the fore-end, both elbows easy. It swings a little with each stride and comes up when running. Shoulders it to aim: butt in the shoulder, cheek down on the stock, sights to the eye, right elbow out; both hands placed by a two-bone reach every frame. Up close it drives the bayonet forward from the hip. It runs upright (a soldier's run, not a crouched sprint). When it dies its hands come off the rifle: the dying arm muscles let the arms fall half-way from the grip toward hanging, with little strength left in them (they drop, they are not driven), not thrown wide. Lining up a shot in the open it side-steps slowly and smoothly, pausing now and then.
 
 Everyone's walk (clowns too): the stepping knee folds up to about 60 degrees as the foot comes through, the planted knee gives a little under the weight and never locks, the foot pushes off with the toe and comes down heel first, and hips and shoulders counter-turn. Any real movement gets a full step (slow walking takes shorter steps, not smaller leg movements), so a slow side-step still lifts its feet, and side-steps swing the legs out sideways.
 
