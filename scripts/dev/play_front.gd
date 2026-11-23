@@ -18,6 +18,7 @@ func _ready() -> void:
 	var floor_ := 3
 	var perf := 0.0
 	var bunker := false
+	var knobs: Array[String] = []
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("seed="):
 			seed_ = int(a.substr(5))
@@ -29,6 +30,8 @@ func _ready() -> void:
 			FpsPlayer.god_mode = true
 		elif a == "bunker":
 			bunker = true                       # play floor_ as a bunker instead (perf comparisons)
+		elif a == "noshadows" or a == "nopost" or a == "nofog" or a.begins_with("scale="):
+			knobs.append(a)                     # perf experiments, applied after the floor is built
 	Engine.set_meta(&"test_save", true)
 	game = load("res://scenes/game.tscn").instantiate()
 	add_child(game)
@@ -43,6 +46,30 @@ func _ready() -> void:
 	game.next_floor()
 	var kind: String = "FrontMaze" if game.maze is FrontMaze else ("TrenchMaze" if game.maze is TrenchMaze else str(game.maze.get_class()))
 	print("Drowned Front: floor %d, %s, %d enemies, seed %s, objective %s" % [game.floor_number, kind, game.clowns.size(), str(seed_) if seed_ != 0 else "random", ("SURVIVAL" if game.objective == 1 else "ELIMINATION")])
+	# perf experiments: knock one thing out at a time and read the frame probe
+	for k in knobs:
+		if k == "noshadows":
+			for n in get_tree().get_nodes_in_group(&"world_root") + [game._world]:
+				_walk(n, func(x: Node) -> void:
+					if x is Light3D:
+						(x as Light3D).shadow_enabled = false)
+			print("PERF knob: every light's shadows off")
+		elif k == "nopost":
+			var env: Environment = game._world_env.environment
+			env.ssr_enabled = false
+			env.ssao_enabled = false
+			env.ssil_enabled = false
+			env.glow_enabled = false
+			env.sdfgi_enabled = false
+			print("PERF knob: SSR, SSAO, SSIL, glow, SDFGI off")
+		elif k == "nofog":
+			game._world_env.environment.volumetric_fog_enabled = false
+			print("PERF knob: volumetric fog off")
+		elif k.begins_with("scale="):
+			var sc := float(k.substr(6))
+			get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR2
+			get_viewport().scaling_3d_scale = sc
+			print("PERF knob: 3D render scale %.2f (FSR 2)" % sc)
 	if perf > 0.0:
 		var probe: Node = load("res://scripts/dev/frame_probe.gd").new()
 		probe.seconds = perf
@@ -56,3 +83,9 @@ func _ready() -> void:
 		await get_tree().create_timer(float(OS.get_environment("LEGACY_QUIT_AFTER"))).timeout
 		print("Drowned Front: ok (%s)" % ("front" if game.maze is FrontMaze else "NOT THE FRONT"))
 		get_tree().quit(0 if game.maze is FrontMaze else 1)
+
+
+func _walk(n: Node, f: Callable) -> void:
+	f.call(n)
+	for c in n.get_children():
+		_walk(c, f)
