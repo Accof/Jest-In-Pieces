@@ -228,3 +228,10 @@ Add a record whenever a choice closes a door.
 - Suppression on the player is feedback only: a crack and a slight tremor. No aim penalty, no
   control theft. Soldiers get `near_miss` from MG rounds and shells as they do from the player's.
 - The brains read the crouch from this milestone on (`eye_height` / `chest_height`).
+
+- **Amendment, 23 Nov (Andrew, after playing the Front with and without it):** the Front's
+  **volumetric layer is off** — the ground-mist volume and the banks' volumetric body. "The game
+  actually looks better, I can see more detail, and the rolling smoke banks already add that misty
+  look now and again." The depth haze, the drifting shell-hole smoke and the banks' puffs stay;
+  `FrontAtmosphere.VOLUMETRIC` flips it back. The visibility model is unchanged. This is the
+  approver's own change to the approved baseline, so the baseline is amended, not broken.

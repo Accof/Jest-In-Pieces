@@ -22,6 +22,7 @@ extends Node3D
 const LIGHT_DIR := Vector3(-0.3, 0.36, -0.88)   # low, behind the trees across the field, as in the reference
 ## How far a man can make another out through the haze (m): visibility()
 ## falls to the brains' threshold here. The reference reads as 30-60 m.
+const VOLUMETRIC := false            ## the ground-mist volume (D-16 amendment, 23 Nov)
 const SIGHT_M := 55.0
 ## The haze: physically coherent depth fog, not an overlay.
 const FOG_COLOR := Color(0.58, 0.585, 0.545)
@@ -90,8 +91,14 @@ static func make_environment() -> Environment:
 	env.fog_depth_curve = 1.0
 	env.fog_aerial_perspective = 0.85    # the far posts fade into the sky behind them, not into a darker grey
 	env.fog_sky_affect = 0.6
-	# the ground mist's volume (FrontArt._mist) still needs the volumetric fog
-	env.volumetric_fog_enabled = true
+	# (23 Nov, Andrew, after playing it both ways) the volumetric layer is OFF
+	# on the Front: "the game actually looks better, I can see more detail,
+	# and the rolling smoke banks already add that misty look now and again."
+	# The depth haze, the drifting shell-hole smoke and the banks' puffs stay;
+	# the ground-mist volume and the banks' volumetric body go. Sight for the
+	# soldiers and the guns is unchanged (visibility() does not read this).
+	# Flip VOLUMETRIC to get the mist volume back.
+	env.volumetric_fog_enabled = VOLUMETRIC
 	env.volumetric_fog_density = 0.0
 	env.volumetric_fog_albedo = Color(0.70, 0.705, 0.65)
 	env.volumetric_fog_ambient_inject = 0.9

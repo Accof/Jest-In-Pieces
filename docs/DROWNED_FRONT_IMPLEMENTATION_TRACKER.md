@@ -820,6 +820,11 @@ crater water planes as separate MeshInstances (merge per tile); the bunker physi
 a Graphics options page (render scale / upscaler / fog and shadow quality, saved per user) so the FSR
 default is a player's choice, not a project-wide fact; video memory at 0.93–1.1 GB (texture import).
 
+**Andrew's amendment (14:16):** having played the Front with the `nofog` knob, he prefers it — "looks
+better, I can see more detail, and the rolling smoke banks already add that misty look" — so the
+Front's volumetric layer is off (`FrontAtmosphere.VOLUMETRIC`; D-16 amended, SETTINGS.md noted).
+The bunkers keep theirs.
+
 **Look-neutrality:** every change above except FSR 1 at 0.75 is invisible by construction (shadows
 that were in the haze, bulbs' fog glow two rooms away, culling); the before/after shots for the bags
 and the sun are in `docs/reference/front_m6/`. The approved atmosphere (D-16) stands; Andrew to say

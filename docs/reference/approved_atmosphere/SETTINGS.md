@@ -33,3 +33,9 @@ Code: `scripts/world/front/front_atmosphere.gd`, `front_fog.gd`, `FrontArt.groun
 | (c) ground | (137, 137, 128) | (30, 27, 20) |
 | (d) silhouettes | (141, 141, 130) | (66, 64, 51) |
 | (e) thicker bank | (137, 137, 126) | (67, 65, 52) |
+
+## Amendment — 23 Nov 2026 (Andrew)
+Volumetric fog **off** on the Front (`FrontAtmosphere.VOLUMETRIC = false`): the ground-mist volume
+and the banks' volumetric body are gone; the depth haze, drifting smoke and bank puffs remain. His
+words after playing both: "the game actually looks better, I can see more detail, and the rolling
+smoke banks already add that misty look now and again." The shots above predate this.
