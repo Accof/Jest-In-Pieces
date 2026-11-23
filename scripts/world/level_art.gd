@@ -971,6 +971,11 @@ func _collider(size: Vector3, xf: Transform3D, surface := "") -> void:
 ## SHADOW_NEAR nearest the player cast shadows; the rest light without them.
 ## The look is the same: a bulb's shadow past the next room was never seen.
 const SHADOW_NEAR := 4
+## And the fog: every bulb was also injected into the volumetric fog every
+## frame (its `light_volumetric_fog_energy`), ~29 lights on a bunker floor —
+## measured on Andrew's M2 as ~15 ms of a 37 ms frame (23 Nov: 27 fps, 45–48
+## with the fog off). Only the FOG_NEAR nearest bulbs light the fog now.
+const FOG_NEAR := 6
 var _shadow_t := 0.0
 func _shadow_budget() -> void:
 	var pl := get_tree().get_first_node_in_group(&"player") as Node3D if is_inside_tree() else null
@@ -988,6 +993,11 @@ func _shadow_budget() -> void:
 		var want: bool = i < SHADOW_NEAR and float(ranked[i][0]) < 20.0 * 20.0
 		if l.shadow_enabled != want:
 			l.shadow_enabled = want
+		var fog_e: float = float(l.get_meta(&"fog_energy", l.light_volumetric_fog_energy)) if i < FOG_NEAR else 0.0
+		if not l.has_meta(&"fog_energy"):
+			l.set_meta(&"fog_energy", l.light_volumetric_fog_energy)
+		if l.light_volumetric_fog_energy != fog_e:
+			l.light_volumetric_fog_energy = fog_e
 
 
 func _process(delta: float) -> void:
