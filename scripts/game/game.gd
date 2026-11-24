@@ -376,8 +376,9 @@ func _spawn_clown(soldier: bool, gun: bool) -> Clown:
 	if soldier:
 		c.body = "witzsoldat"
 	_world.add_child(c)
-	# one WitzSoldat in four leaves the rifle behind and comes at you with a club
-	var clubber := soldier and rng.randf() < club_share
+	# one WitzSoldat in four leaves the rifle behind and comes at you with a club;
+	# the trench clown always carries one, unless he is one of the few with a pistol
+	var clubber := (soldier and rng.randf() < club_share) or (not soldier and not gun)
 	if clubber:
 		c.give_club()
 	elif soldier:

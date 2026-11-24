@@ -295,6 +295,20 @@ Legs break rather than kill. Leg hits do 40% of their usual harm to health (`leg
 
 Pistol and SMG rounds wear a body down. Enough of them into one part, alive or dead, tears it open in stages: the head cracks open, then more of the skull goes, then most of it; the chest opens to the ribs, then wider; the belly opens and the guts come out, then more. The thresholds are `WEAR_STAGES` in `clown.gd` (damage soaked up, and hole size, per stage). The shotgun still does it all in one blast.
 
+## The trench clown (24 Nov 2026)
+
+The basic clown is Andrew's Tripo model now: a black leather greatcoat, a Stahlhelm with a riveted eye-slit
+visor strapped over the face and a bloody grin under it (`art/trench_clown/`, three 4K PBR maps, 50k
+triangles; the old blockout in `art/clown/` only lends its head to the carved face over dugout doors).
+`tools/build_trench_clown.py` rigs and segments the Tripo mesh on the shared skeleton at the WitzSoldat's
+1.93 m — joints measured from this model (shorter arms, breeches joined to the knee), fifteen severable
+segments with gore caps, gibs, finger bones from `add_finger_bones.py` — so every death, dismemberment, the
+Curse and the killcam work on him as on the others. **He carries the spiked trench club** (the WitzSoldat
+clubman's, `Game._spawn_clown`): a heavier, longer swing than the old bare hands; the few clowns rolled a
+pistol keep the pistol. His helmet stays on — the visor is riveted to it and nothing is modelled behind it,
+so there is no clean helmet to knock off (the tool says what was tried); a Tripo model with a separated helmet
+would bring that back. `scenes/look_trench_clown.tscn` renders him standing, walking, swinging and shot.
+
 ## WitzSoldat
 
 **The rifle (23 Nov 2026)** is a Tripo bolt-action (`art/weapons/enemy_rifle/enemy_rifle.glb`, 1.11 m, a Mauser

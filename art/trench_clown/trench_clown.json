@@ -1,0 +1,30 @@
+{
+ "segments": [
+  "Pelvis",
+  "Torso",
+  "Head",
+  "LeftUpperArm",
+  "LeftLowerArm",
+  "LeftHand",
+  "LeftUpperLeg",
+  "LeftLowerLeg",
+  "LeftFoot",
+  "RightUpperArm",
+  "RightLowerArm",
+  "RightHand",
+  "RightUpperLeg",
+  "RightLowerLeg",
+  "RightFoot"
+ ],
+ "rest_bbox_min": [
+  -0.7968910336494446,
+  -0.004999999888241291,
+  -0.24182087182998657
+ ],
+ "rest_bbox_size": [
+  1.598383903503418,
+  1.9449999332427979,
+  0.49088823795318604
+ ],
+ "note": "Godot axes. Same skeleton names and segment ids as the clown. Built by tools/build_trench_clown.py."
+}

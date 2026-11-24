@@ -9,10 +9,23 @@ signal hurt(clown: Clown)
 ## Every enemy body shares the clown's skeleton names and segment layout, so
 ## the ragdoll, deaths and gore all work on each of them.
 const BODIES := {
+	# The trench clown (24 Nov 2026): Andrew's Tripo model, rigged and segmented
+	# by tools/build_trench_clown.py on the WitzSoldat's skeleton at his height.
+	# Black leather greatcoat, a Stahlhelm with a riveted eye-slit visor over the
+	# face, a bloody grin under it; a trench club in his hand (Game._spawn_clown).
+	# His helmet stays on (no separate helmet: the visor is riveted to it and
+	# nothing is modelled behind it; the tool says why). PBR maps kept; the gibs
+	# carry no images and take the body's material. The old blockout
+	# (art/clown/) is only the carved face over dugout doors now.
 	"clown": {
-		model = "res://art/clown/clown.glb", gibs = "res://art/clown/clown_gibs.glb",
-		rest_min = Vector3(-0.953, -0.005, -0.15493), rest_size = Vector3(1.906, 1.88737, 0.35291),
-		shapes = {},
+		model = "res://art/trench_clown/trench_clown.glb", gibs = "res://art/trench_clown/trench_clown_gibs.glb",
+		rest_min = Vector3(-0.79689, -0.005, -0.24182), rest_size = Vector3(1.59838, 1.90498, 0.49089),
+		shapes = {&"UpperLeg": 1.3, &"LowerLeg": 1.12, &"UpperArm": 1.2, &"LowerArm": 1.05,
+			&"Hips": 1.2, &"Spine": 1.2, &"Chest": 1.2, &"Neck": 1.12, &"Foot": 1.15},
+		muddy = true,
+		grime_cap = 2,                            # leather: splashed at worst, never caked (it would read as khaki)
+		pbr = true,
+		share_material = true,
 		mocap_legs = true,                        # walks on the motion-captured legs (SoldierClips), arms its own
 	},
 	"witzsoldat": {
