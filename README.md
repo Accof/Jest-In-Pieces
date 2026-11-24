@@ -209,6 +209,12 @@ foreground comes up (drips, creaks, rattles, closer and from further off); the l
 back and two new ones come: an occupied dugout (two guards inside, facing the door, coughing and
 muttering and setting a cup down — heard before seen) and, once a floor, a Klappersoldat standing
 its ground round a corner, ticking louder than its kind. Every soldier's boots are heard within 38 m.
+Milestone 11: **the crossing comes in five configurations**, picked by the seed (`variant=` forces one):
+the base; smoke-heavy (banks twice as often and thicker); barrage (salvos sooner and closer together, a
+shell more, a third more holes to use); MG-defended (three Maxims, firing more); and, rarely, the **flare
+crossing** — dusk, and every minute or so a flare goes up from their parapet, arcs out over the field and
+hangs burning for ten seconds, lighting it from above while everyone (their guns, their men, you) sees
+further through the haze. Fairness is not a knob in any of them.
 
 Floors now have an objective (`Game.Objective`): bunker floors are **ELIMINATION** (every enemy must die
 before the exit opens; the last kill runs the final-kill camera), trench floors are **SURVIVAL** (the

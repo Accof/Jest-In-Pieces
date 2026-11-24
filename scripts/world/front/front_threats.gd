@@ -18,6 +18,7 @@ var maze: FrontMaze
 var player: FpsPlayer
 var nests: Array[FrontMg] = []
 var artillery: FrontArtillery
+var flares: FrontFlares = null        ## (M11) the flare-lit crossing only
 var _rng := RandomNumberGenerator.new()
 
 
@@ -25,8 +26,9 @@ func setup(m: FrontMaze, p: FpsPlayer, seed_: int, spawn_soldier: Callable) -> v
 	maze = m
 	player = p
 	_rng.seed = seed_
+	var want_nests := int(m.knobs.get("nests", NESTS))
 	for site: Dictionary in nest_sites():
-		if nests.size() >= NESTS:
+		if nests.size() >= want_nests:
 			break
 		var mg := FrontMg.new()
 		mg.name = "MG%d" % nests.size()
@@ -42,6 +44,11 @@ func setup(m: FrontMaze, p: FpsPlayer, seed_: int, spawn_soldier: Callable) -> v
 	artillery.name = "Artillery"
 	add_child(artillery)
 	artillery.setup(m, p, _rng.randi())
+	if bool(m.knobs.get("flares", false)):
+		flares = FrontFlares.new()
+		flares.name = "Flares"
+		add_child(flares)
+		flares.setup(m, p, _rng.randi())
 
 
 ## Where a gun could go: their fire bays facing us with a clear view over the

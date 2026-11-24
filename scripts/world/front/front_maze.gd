@@ -64,7 +64,15 @@ const WIRE_COIL := 1.4           ## the coils this far beyond the last row (m)
 var wire_cells := {}
 
 
+## (M11) The crossing's configuration (FrontVariant.Kind) and its knobs,
+## picked from the seed before the layout so the craters follow it.
+var variant := 0
+var knobs: Dictionary = FrontVariant.knobs(0)
+
+
 func generate(_width: int, _depth: int, seed_value: int) -> void:
+	variant = FrontVariant.pick(seed_value)
+	knobs = FrontVariant.knobs(variant)
 	cell = FCELL
 	w = GRID_W
 	d = GRID_D * 2 + nml_rows
@@ -520,12 +528,13 @@ func _craters() -> Array[Vector4]:
 	var out: Array[Vector4] = []
 	var z_near := (their_row0 + GRID_D) * cell          # the front of their block
 	var z_far := our_row0 * cell                         # the front of ours
-	for i in 190:
+	var n_craters := int(round(190.0 * float(knobs.get("craters", 1.0))))
+	for i in n_craters:
 		var x := rng.randf_range(-MARGIN * 0.5, w * cell + MARGIN * 0.5)
 		var z: float
 		var r: float
 		var depth_: float
-		if i < 150:
+		if i < int(n_craters * 150 / 190):
 			# No Man's Land: holes a man can get down into: 2.2-4.5 m across the
 			# rim, 0.9-1.7 m deep (chest-deep and more; the raised rim adds to
 			# it), the walls no steeper than he can walk

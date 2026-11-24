@@ -50,7 +50,7 @@ func setup(m: FrontMaze, p: FpsPlayer, seed_: int) -> void:
 	_rng.seed = seed_
 	z_min = (m.their_row0 + TrenchMaze.GRID_D - 1 - TrenchMaze.FIRE_ROW) * m.cell - 1.0
 	z_max = (m.our_row0 + TrenchMaze.FIRE_ROW + 1) * m.cell + 1.0
-	_t = _rng.randf_range(FIRST.x, FIRST.y)
+	_t = _rng.randf_range(FIRST.x, FIRST.y) * float(m.knobs.get("art_first", 1.0))
 
 
 func _physics_process(delta: float) -> void:
@@ -73,7 +73,7 @@ func _physics_process(delta: float) -> void:
 			_fire_one()
 			if _salvo_left == 0:
 				_last_salvo_end = now
-				_t = _rng.randf_range(LULL.x, LULL.y)
+				_t = _rng.randf_range(LULL.x, LULL.y) * float(maze.knobs.get("art_lull", 1.0))
 		return
 	_t -= delta
 	if _t <= 0.0:
@@ -86,7 +86,7 @@ func salvo_now(centre := Vector3.INF) -> void:
 	if _last_salvo_end >= 0.0:
 		windows.append(_clock - _last_salvo_end)
 	salvos += 1
-	_salvo_left = _rng.randi_range(SALVO.x, SALVO.y)
+	_salvo_left = _rng.randi_range(SALVO.x, SALVO.y) + int(maze.knobs.get("art_salvo_extra", 0))
 	_salvo_near_used = false
 	_salvo_t = 0.0
 	if centre != Vector3.INF:

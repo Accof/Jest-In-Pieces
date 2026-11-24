@@ -89,7 +89,7 @@ func _drift_smoke() -> void:
 	var z_near := (front.their_row0 + TrenchMaze.GRID_D) * maze.cell + 6.0
 	var z_far := front.our_row0 * maze.cell - 6.0
 	var wind := Vector3(0.55, 0.0, 0.18)
-	for i in 8:
+	for i in int(front.knobs.get("smoke_patches", 8)):
 		var at := Vector3(rng.randf_range(2.0, maze.w * maze.cell - 2.0), 0, rng.randf_range(z_near, z_far))
 		# from a shell hole where there is one near
 		var best := Vector4.ZERO

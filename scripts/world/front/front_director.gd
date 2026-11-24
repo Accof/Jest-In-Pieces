@@ -457,6 +457,9 @@ func _weight(name_: String) -> float:
 		w *= 0.3
 	if sec == Sector.THEIRS and name_ in LOUD_EVENTS:
 		w *= THEIRS_LOUD_SCALE
+	# (M11) the crossing's configuration leans on its own events
+	var dw: Dictionary = maze.knobs.get("director", {})
+	w *= float(dw.get(name_, 1.0))
 	return w
 
 
@@ -1239,7 +1242,7 @@ func overlay_text() -> String:
 		+ "enemies alive %d  (near %d / mid %d / far %d)   director live %d   pool %d/%d\n" % [alive, tiers.near, tiers.mid, tiers.far, live.size(), spawned_total, FLOOR_POOL]
 		+ "spawn: %s   cooldowns: %s\n" % ["yes" if cs.ok else cs.why, cd if cd != "" else "-"]
 		+ "events: %s\n" % _events_text()
-		+ "region: %s  muffle %.2f  foreground %.2f  voices %d\n" % [Sector.keys()[sector_of(player.global_position)] if is_instance_valid(player) else "-", region_muffle, region_foreground, voices_played]
+		+ "region: %s  muffle %.2f  foreground %.2f  voices %d   crossing: %s\n" % [Sector.keys()[sector_of(player.global_position)] if is_instance_valid(player) else "-", region_muffle, region_foreground, voices_played, str(maze.knobs.get("name", "base"))]
 		+ "frame %.1f ms   fps %d   exit %s   points %d\n" % [_frame_ms, Engine.get_frames_per_second(), exit_state, points.size()]
 		+ "F3 overlay  F4 director on/off  F5 force the next event")
 

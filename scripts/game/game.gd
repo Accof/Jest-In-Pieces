@@ -97,6 +97,7 @@ var _world_env: WorldEnvironment
 var _bunker_env: Environment
 var _trench_env: Environment
 var _front_env: Environment
+var _front_dusk_env: Environment
 var _sun: DirectionalLight3D
 var _exit_light: OmniLight3D
 var _ui: CanvasLayer
@@ -364,7 +365,7 @@ func next_floor() -> void:
 		banner += "  -  REACH THE ENEMY H.Q."
 	_flash(banner)
 	if maze is FrontMaze:
-		print("Drowned Front: %d x %d cells, %d m of No Man's Land between the fire trenches, route %d cells, built in %s ms" % [maze.w, maze.d, int((maze.our_row0 + TrenchMaze.FIRE_ROW - (maze.their_row0 + TrenchMaze.GRID_D - 1 - TrenchMaze.FIRE_ROW)) * maze.cell), maze.route.size(), str(maze.timing)])
+		print("Drowned Front (%s crossing): %d x %d cells, %d m of No Man's Land between the fire trenches, route %d cells, built in %s ms" % [FrontVariant.NAMES[maze.variant], maze.w, maze.d, int((maze.our_row0 + TrenchMaze.FIRE_ROW - (maze.their_row0 + TrenchMaze.GRID_D - 1 - TrenchMaze.FIRE_ROW)) * maze.cell), maze.route.size(), str(maze.timing)])
 
 
 func _spawn_clown(soldier: bool, gun: bool) -> Clown:
@@ -870,11 +871,18 @@ func _apply_floor_look(outdoor: bool) -> void:
 		return
 	if outdoor and maze is FrontMaze:
 		# the Front's weather (FrontAtmosphere): the green-grey haze
-		if _front_env == null:
-			_front_env = FrontAtmosphere.make_environment()
-		_world_env.environment = _front_env
-		_world_env.camera_attributes = FrontAtmosphere.make_camera_attributes()
-		FrontAtmosphere.setup_sun(_sun)
+		# (M11) the crossing's configuration: the flare-lit one is dusk
+		var dusk: bool = bool((maze as FrontMaze).knobs.get("dusk", false))
+		if dusk:
+			if _front_dusk_env == null:
+				_front_dusk_env = FrontAtmosphere.make_environment(true)
+			_world_env.environment = _front_dusk_env
+		else:
+			if _front_env == null:
+				_front_env = FrontAtmosphere.make_environment()
+			_world_env.environment = _front_env
+		_world_env.camera_attributes = FrontAtmosphere.make_camera_attributes(dusk)
+		FrontAtmosphere.setup_sun(_sun, dusk)
 	elif outdoor:
 		if _trench_env == null:
 			_trench_env = TrenchArt.make_environment()

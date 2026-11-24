@@ -302,3 +302,12 @@ Add a record whenever a choice closes a door.
   louder — no scripted scare.
 - Soldiers' footsteps are a general change (every floor): heard within 38 m, by surface.
 
+### D-23 · Variants are leans over the approved base, chosen by the seed, each one coherent — decided (Milestone 11)
+- One picked configuration per Front floor (base 40 %, smoke 20, barrage 20, MG 14, flare 6); every
+  knob is a multiplier or a count over the base, so the approved crossing is what runs when none applies.
+- Fairness is never a knob: the artillery's zone and clearance, the guns' arcs and standoffs, the
+  director's budgets stay as built; the MG variant is checked for ground no gun sees.
+- The flare crossing changes what can be seen, not what can be hit, through the one visibility function.
+- Dusk turns the eye's adaptation off; a darker crossing that the exposure quietly undid would be no
+  variant at all.
+

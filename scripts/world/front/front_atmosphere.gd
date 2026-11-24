@@ -33,7 +33,7 @@ const FOG_DENSITY := 0.9           # what is left of the far trees: shapes
 static var _grade: ImageTexture3D
 
 
-static func make_environment() -> Environment:
+static func make_environment(dusk := false) -> Environment:
 	var sky_mat := ShaderMaterial.new()
 	sky_mat.shader = load("res://shaders/overcast_sky.gdshader")
 	sky_mat.set_shader_parameter("noise_tex", TrenchArt.tex("noise"))
@@ -45,7 +45,7 @@ static func make_environment() -> Environment:
 	sky_mat.set_shader_parameter("warm", Color(0.90, 0.88, 0.82))   # the glow where the sun hides, low over their side
 	sky_mat.set_shader_parameter("horizon", Color(0.62, 0.635, 0.655))
 	sky_mat.set_shader_parameter("ground", Color(0.24, 0.235, 0.22))
-	sky_mat.set_shader_parameter("energy", 0.9)
+	sky_mat.set_shader_parameter("energy", 0.9 * (0.28 if dusk else 1.0))
 	sky_mat.set_shader_parameter("coverage", 0.5)   # in this shader more coverage = fewer openings, and past ~0.7 the whole sky is one pale plate (M4 pass 1-3 had 0.82: bland, no cloud); 0.56 gives the legacy day's layered masses in this palette
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
@@ -60,10 +60,10 @@ static func make_environment() -> Environment:
 	# ground went black (Andrew: "really so hard to see where I'm going")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.68, 0.70, 0.74)      # cold
-	env.ambient_light_energy = 0.92                         # (23 Nov) "a bit too dark": lifted from 0.85 (1.0 washed it out in the render)
+	env.ambient_light_energy = 0.92 * (0.55 if dusk else 1.0)   # (23 Nov) "a bit too dark": lifted from 0.85 (1.0 washed it out in the render); (M11) the flare crossing is dusk
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 0.9
+	env.tonemap_exposure = 0.9 * (0.72 if dusk else 1.0)
 	env.tonemap_white = 6.0
 	env.ssr_enabled = true
 	env.ssr_max_steps = 48
@@ -150,21 +150,21 @@ static func make_grade() -> ImageTexture3D:
 
 ## The eye: it adjusts a little in a dugout; out in the open the exposure
 ## stays put, so the mud stays dark under the bright haze.
-static func make_camera_attributes() -> CameraAttributesPractical:
+static func make_camera_attributes(dusk := false) -> CameraAttributesPractical:
 	var ca := CameraAttributesPractical.new()
-	ca.auto_exposure_enabled = true
+	ca.auto_exposure_enabled = not dusk        # (M11) at dusk the eye does not adapt: it stays dark
 	ca.auto_exposure_scale = 0.22
 	ca.auto_exposure_speed = 0.5
-	ca.auto_exposure_min_sensitivity = 90.0
-	ca.auto_exposure_max_sensitivity = 190.0   # (pass 6) the eye opens more for the dark ground
+	ca.auto_exposure_min_sensitivity = 90.0 if not dusk else 50.0
+	ca.auto_exposure_max_sensitivity = 190.0 if not dusk else 80.0   # (pass 6) the eye opens more for the dark ground; (M11) at dusk it cannot open enough: it stays dark
 	return ca
 
 
 ## No sun: a weak, very soft directional light from high behind the cloud,
 ## only enough to give the ground its relief and the parapets a face.
-static func setup_sun(sun: DirectionalLight3D) -> void:
-	sun.light_color = Color(0.84, 0.87, 0.92)             # cold daylight through cloud
-	sun.light_energy = 0.8
+static func setup_sun(sun: DirectionalLight3D, dusk := false) -> void:
+	sun.light_color = Color(0.84, 0.87, 0.92) if not dusk else Color(0.70, 0.72, 0.82)   # cold daylight through cloud; at dusk bluer and low
+	sun.light_energy = 0.8 if not dusk else 0.3
 	sun.light_specular = 0.0             # hidden behind cloud: no glint on the water (its reflection sat right where you look down into a trench and blinded)
 	sun.light_angular_distance = 6.0
 	sun.light_volumetric_fog_energy = 0.25
@@ -211,7 +211,15 @@ func visibility(a: Vector3, b: Vector3) -> float:
 	var v := exp(-tau)
 	if front_fog:
 		v *= front_fog.visibility(a, b)
+	# (M11) a flare up over the field lights the haze through: everyone sees
+	# further while it burns (the same factor for the guns, the brains and you)
+	if flare_glow > 0.001:
+		v = minf(v * (1.0 + 0.9 * flare_glow), 1.0)
 	return v
+
+
+## 0..1: how much flare light is on the field now (FrontFlares sets it).
+var flare_glow := 0.0
 
 
 ## How far one can make a man out in this haze (where visibility falls to 0.3).

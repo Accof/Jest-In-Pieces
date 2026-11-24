@@ -18,7 +18,7 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | **done, awaiting playtest** | commit `b76ea70` | user playtest |
 | 9 | Expanded battlefield activity (catalogue 4–6, 9–10, squad) | **done, awaiting review** | commit `f3bc059` | user review |
 | 10 | Enemy trench suspense (catalogue 7–8, region pacing, audio foreground) | **done, awaiting playtest** | commit `1c98bed` | user playtest |
-| 11 | Procedural variants | not started | | user review |
+| 11 | Procedural variants (smoke / barrage / MG / flare-lit) | **done, awaiting review** | commit M11 | user review |
 | 12 | Performance and polish | not started | | user review |
 | 13 | Final integration | not started | | final approval |
 
@@ -1098,4 +1098,63 @@ meat and bone inside" — the same single failure as every baseline run since 21
   counters, `ambience` group), `scripts/clown/clown.gd` (footsteps), `scripts/clown/klappersoldat.gd`
   (`idle_tick_db`), `scripts/fx/sfx_synth.gd` (cough, mutter, tin_cup), `scripts/dev/test_director.gd`.
 
-(Milestones 11–13: scope as in the package; detailed when authorised.)
+## Milestone 11 — Procedural variants (24 Nov 2026) — DONE, AWAITING REVIEW
+
+Authorised by Andrew's "just continue" (taken as M11 only).
+
+### What was built (package C8 / master plan row 11; D-23)
+- **`FrontVariant`** (`scripts/world/front/front_variant.gd`): five configurations picked from the floor
+  seed — BASE 40 %, SMOKE 20, BARRAGE 20, MG 14, FLARE 6 (over 400 seeds: 158/84/72/62/24) — or forced
+  (`variant=smoke|barrage|mg|flare|base` run arg, `FrontVariant.forced`). `knobs(kind)` returns
+  **multipliers and counts over the base**, so the approved base is untouched by construction.
+  `FrontMaze.generate` picks it first (`maze.variant`, `maze.knobs`); everything built after reads it.
+- **SMOKE:** banks every 14–30 s instead of 28–60 (×0.5), 25 % thicker, three pre-rolled, 13 low smoke
+  patches instead of 8, the director's smoke event ×2.
+- **BARRAGE:** the first salvo at 15–27 s (×0.6), lulls 16–35 s (×0.5), a shell more per salvo (4–6),
+  30 % more shell holes on the field (247 vs 190 placed; 143 vs 116 deep enough to count), shellfire ×2.
+  Fairness untouched: the zone, the 7.5 m clearance, one near shell a salvo, the whistle.
+- **MG:** three nests (the third from the same spaced, view-checked sites), idle bursts across the field
+  ×0.6 as often, mg_sector ×1.6 and parapet ×1.3. **J5 checked:** on seed 1916 nine shell-hole clusters
+  on the field are seen by none of the three guns (arc + range + line).
+- **FLARE (the dusk crossing):** `FrontAtmosphere.make_environment(dusk)` — sky energy ×0.28, ambient
+  ×0.55, exposure ×0.72, **auto-exposure off** (the eye does not adapt: it stays dark; with it on the
+  dusk normalised back to day), the sun 0.3 and bluer. `FrontFlares` (in `FrontThreats`): first 18–40 s,
+  then every 45–90 s a flare from their parapet — a pop and a hiss, a spark climbing 1.2 s to 28 m while
+  arcing 45 % of the way across the field toward the player's lane, then burning 9 s as it sinks at
+  1.6 m/s under its parachute, swinging, flickering, 1.6 s guttering out. One OmniLight (energy 30,
+  range 120 m, **no shadow**: the budget) and a 4 m additive billboard. **`FrontAtmosphere.flare_glow`
+  multiplies `visibility()` by up to 1.9** — the same function the Maxims, the brains and the smoke read,
+  so a flare means everyone sees further (0.044 → 0.083 along a 48 m line through the banks in the test).
+  Telegraphed: the pop and the climb come before the light is full. The director leans on silhouettes
+  ×1.5 and investigations ×1.3 there. `docs/reference/front_m11/`: dusk, the flare up, the flare down.
+- The banner names the crossing (`Drowned Front (smoke crossing): …`); the F3 overlay's `region:` line
+  shows `crossing:`.
+
+### Tests (`test_front variants`, 53 checks, 0 failed; `-- variants render` for the three captures)
+picks over 400 seeds (all five; base most, flare least; deterministic; names resolve) · each
+configuration generated on seed 1916: the maze carries it, a route start → H.Q. (107 cells), the nests,
+the first salvo within its window, the smoke patches, banks pre-rolled and cadence, barrage's craters,
+day/dusk and flares, the director's weights carrying the multipliers · mg: J5 (clusters no gun sees) ·
+flare: launched (glow 0 on the climb), burning (glow 0.88–0.97) with visibility ×1.5+ at the same
+instant, a light 28 m up, out with the glow off the haze, the next in ≤ 90 s. Whole `test_front` (0 failed),
+`test_threats` (0), `test_objective` (0), `test_director budget events suspense` (0).
+
+### Honest list
+- "Authored-feeling": each variant is one coherent lean (more smoke, more shells, more guns, dusk) over
+  the approved base, not a random mix; the weights are a first guess.
+- The flare is a point light and a sprite; no smoke trail, no parachute mesh, no light shafts (volumetric
+  fog is off by Andrew's choice). From inside a trench only its glow on the parapet shows.
+- The dusk lighting was judged on the container's renders (`front_m11/`); Andrew's eye on the Mac decides,
+  as with M4 — the knobs are three numbers in `make_environment`/`setup_sun`/`make_camera_attributes`.
+- Performance: three nests and a flare light add little (one extra light, no shadow); not re-measured on
+  the Mac this session.
+
+### Files
+- new `scripts/world/front/front_variant.gd`, `scripts/world/front/front_flares.gd`,
+  `docs/reference/front_m11/`.
+- touched: `front_maze.gd` (variant/knobs, craters), `front_art.gd` (patches), `front_fog.gd` (cadence,
+  peak, pre-rolled), `front_threats.gd` (nests, flares), `front_artillery.gd`, `front_mg.gd`,
+  `front_atmosphere.gd` (dusk, `flare_glow`), `front_director.gd` (weights, overlay), `game.gd` (dusk
+  env, banner), `play_front.gd` (`variant=`), `test_front.gd` (variants).
+
+(Milestones 12–13: scope as in the package; detailed when authorised.)

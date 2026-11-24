@@ -22,9 +22,11 @@ func setup_front(m: FrontMaze, a: FrontArt, seed_: int) -> void:
 	remove_from_group(&"fog")
 	# the puffs in the haze's colour, not the legacy day's white
 	_puff_mat.albedo_color = Color(0.74, 0.76, 0.79)      # cold grey (23 Nov)
-	_t_bank = rng.randf_range(6.0, 14.0)
-	# two banks already out there when the floor loads, well along
-	for i in 2:
+	every_scale = float(m.knobs.get("fog_every", 1.0))
+	peak_scale = float(m.knobs.get("fog_peak", 1.0))
+	_t_bank = rng.randf_range(6.0, 14.0) * every_scale
+	# two banks (three on a smoke-heavy crossing) already out there when the floor loads, well along
+	for i in int(m.knobs.get("fog_prerolled", 2)):
 		var b := roll_in(i)
 		if b:
 			b.age = 30.0
@@ -35,10 +37,16 @@ func setup_front(m: FrontMaze, a: FrontArt, seed_: int) -> void:
 ## A bank rolling in now, from the Front's far side or a flank. The field
 ## lies between their fire trench (low z) and ours (high z); the wind blows
 ## toward our lines and a little across.
+## (M11) The crossing's configuration: bank cadence and thickness multipliers.
+var every_scale := 1.0
+var peak_scale := 1.0
+
+
 func roll_in(from_side := -1) -> Bank:
 	var b := super.roll_in(from_side)
 	if b == null or front == null:
 		return b
+	b.peak = minf(b.peak * peak_scale, 0.95)
 	var w := maze.w * maze.cell
 	var z_near := (front.their_row0 + TrenchMaze.GRID_D) * maze.cell   # their fire trench's far wall
 	var z_far := front.our_row0 * maze.cell                              # our fire trench
@@ -109,8 +117,8 @@ func _process(delta: float) -> void:
 	# the legacy cadence (70-150 s) is for a day with a battle going on; here
 	# the fog is the weather. TrenchFog resets the timer past our range when a
 	# bank rolls; we pull it back in once.
-	if _t_bank > BANK_EVERY.y:
-		_t_bank = rng.randf_range(BANK_EVERY.x, BANK_EVERY.y)
+	if _t_bank > BANK_EVERY.y * every_scale:
+		_t_bank = rng.randf_range(BANK_EVERY.x, BANK_EVERY.y) * every_scale
 
 
 ## Every bank gone (tests, and the director when it wants a clear field).

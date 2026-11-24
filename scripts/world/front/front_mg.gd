@@ -75,7 +75,7 @@ func setup(m: TrenchMaze, p: FpsPlayer, at: Vector3, face: Vector3, seed_: int) 
 	gun.set_meta(&"front_mg", self)
 	gun.set_meta(&"surface", "metal")
 	_t = _rng.randf_range(20.0, 50.0)
-	_idle_t = _rng.randf_range(25.0, 70.0)
+	_idle_t = _rng.randf_range(25.0, 70.0) * float(m.knobs.get("mg_idle", 1.0))
 
 
 func set_gunner(c: Clown) -> void:
@@ -142,7 +142,7 @@ func _physics_process(delta: float) -> void:
 				_idle_t -= delta
 				if _idle_t <= 0.0:
 					# a burst across the field at nothing in particular: it keeps heads down
-					_idle_t = _rng.randf_range(35.0, 90.0)
+					_idle_t = _rng.randf_range(35.0, 90.0) * float(maze.knobs.get("mg_idle", 1.0))
 					_start_burst(_random_field_point(), 0.5)
 		State.SEARCH:
 			if sees:
