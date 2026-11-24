@@ -30,3 +30,6 @@ common/physics_ticks_per_second=60
 ; FSR 1 is near free on this GPU where FSR 2 cost ~4 ms. The only perf change that touches the look.
 scaling_3d/mode=1
 scaling_3d/scale=0.75
+; (24 Nov 2026, blood Phase D) 1,200 blood decals: the per-view cluster budget (decals in the
+; frustum plus lights) goes from 512 to 1024 so a fight's marks are not dropped by the renderer.
+limits/cluster_builder/max_clustered_elements=1024
