@@ -780,17 +780,20 @@ func _start_ragdoll(info: Dictionary, zone: StringName) -> void:
 		profile = ClownRagdoll.profile_wall_slide(wall_gap)
 	elif info.get("heavy", false):
 		profile = ClownRagdoll.profile_heavy(force_variant == "heavy_flat" or (force_variant == "" and randf() < 0.45))
-	elif force_variant == "" and velocity.length() > 1.5 and randf() < 0.6 and not drop:
+	elif force_variant == "" and velocity.length() > 1.5 and randf() < (0.4 if has_rifle else 0.6) and not drop:
 		profile = ClownRagdoll.profile_tumble()
 	elif zone == &"Neck":
-		profile = ClownRagdoll.profile_headshot(force_variant)
+		# (24 Nov) a rifleman goes back more often than not: Andrew prefers
+		# the head jerk, the knees giving, and over onto his back
+		profile = ClownRagdoll.profile_headshot(force_variant, has_rifle and rifle_back_bias)
 	else:
 		# A gut shot usually folds the clown forward; a chest shot throws it back.
 		var v := force_variant
 		if v == "" and drop and randf() < 0.85:
 			v = ["blown_back", "stagger"].pick_random()
 		if v == "":
-			v = ("double" if randf() < 0.15 else "double_flat") if (zone in [&"Spine", &"Hips"] and randf() < 0.7) or randf() < 0.2 else ["stagger", "blown_back"].pick_random()
+			var fold_chance := 0.35 if (has_rifle and rifle_back_bias) else 0.7
+			v = ("double" if randf() < 0.15 else "double_flat") if (zone in [&"Spine", &"Hips"] and randf() < fold_chance) or randf() < (0.1 if has_rifle else 0.2) else ["stagger", "blown_back"].pick_random()
 		profile = ClownRagdoll.profile_bodyshot(v)
 	if zone in [&"UpperLeg", &"LowerLeg", &"Foot"] and not info.get("blast", false):
 		var side := "Left" if String(info.collider.bone_name).begins_with("Left") else "Right"
@@ -814,6 +817,14 @@ func _start_ragdoll(info: Dictionary, zone: StringName) -> void:
 				if _base_rot.has(bi):
 					var now := skeleton.get_bone_pose_rotation(bi)
 					ragdoll.eq_override[StringName(side + part)] = Basis(now.slerp(_base_rot[bi], rifle_arm_settle))
+		# (24 Nov) and the hunch of the aim or the crouch straightens on the
+		# reflex: with the spine's spring left at the bent pose his weight was
+		# ahead of his feet and he pitched forward whatever the profile asked
+		for b: String in ["Spine", "Chest"]:
+			var bi := skeleton.find_bone(b)
+			if bi >= 0 and _base_rot.has(bi):
+				var now := skeleton.get_bone_pose_rotation(bi)
+				ragdoll.eq_override[StringName(b)] = Basis(now.slerp(_base_rot[bi], rifle_straighten))
 	if ragdoll.active:
 		ragdoll.restart(profile)          # already on the floor (shot while down)
 	else:
@@ -3744,6 +3755,8 @@ static var rifle_arm_settle := 0.5     # (static: dev scenes compare settings)
 static var rifle_arm_fling := 0.4
 static var rifle_arms_wide := false
 static var rifle_arm_tone := 0.3        # the arms' muscle tone at death, as a share of the profile's
+static var rifle_straighten := 0.8      # (24 Nov) how far the bent spine straightens as he dies (0 keeps the hunch)
+static var rifle_back_bias := true      # (24 Nov) headshots and chest shots send him back more often than not
 const WALL_SLIDE_REACH := 0.6
 const WALL_SLIDE_CHANCE := 0.5
 

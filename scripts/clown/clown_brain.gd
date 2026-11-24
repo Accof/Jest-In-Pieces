@@ -163,6 +163,13 @@ var suppression := 0.0
 var near_misses := 0             ## tests
 var _near_t := 0.0
 var _duck_t := 0.0               ## a flinching duck under a near miss
+## (24 Nov, Andrew: "the enemy ducking animation is a bit extreme") A near
+## miss dips him a third of the way down, not into a full crouch, for a
+## little longer, and not more than one such dip in a second and a half, so
+## he no longer pogoes under fire.
+const DUCK_DEPTH := 0.38
+const DUCK_TIME := Vector2(0.5, 0.9)
+const NEAR_MISS_EVERY := Vector2(0.9, 1.5)
 var _look_t := 0.0               ## idle glances
 var _peeks := 0                  ## shots from this cover so far
 var _peek_rise := false          ## this cover is low: rise up behind it to shoot
@@ -385,7 +392,7 @@ func _after(delta: float) -> void:
 	_near_t = maxf(_near_t - delta, 0.0)
 	if _duck_t > 0.0:
 		_duck_t -= delta
-		crouch_want = maxf(crouch_want, 0.65)
+		crouch_want = maxf(crouch_want, DUCK_DEPTH)
 	if weighty and suppression > 0.6 and mind == Mind.HUNT and _cover_state != 3 and not backing:
 		crouch_want = maxf(crouch_want, 0.45)            # keeping his head down
 	if not hiding and not pinned:
@@ -1177,7 +1184,7 @@ func _look(delta: float) -> void:
 func near_miss(from: Vector3, closest: float, passed := Vector3.INF) -> void:
 	if not weighty or clown.dead or _near_t > 0.0:
 		return
-	_near_t = randf_range(0.5, 0.9)
+	_near_t = randf_range(NEAR_MISS_EVERY.x, NEAR_MISS_EVERY.y)
 	near_misses += 1
 	var power := clampf(1.2 - closest, 0.3, 1.0)
 	suppression = minf(suppression + 0.3 * power + 0.1, 1.5)
@@ -1188,10 +1195,10 @@ func near_miss(from: Vector3, closest: float, passed := Vector3.INF) -> void:
 		var side := (passed - clown.global_position).dot(clown.global_basis.x.normalized())
 		dodged = clown.dodge(-1.0 if side > 0.0 else 1.0)
 	if not dodged:
-		_duck_t = randf_range(0.35, 0.7) * (0.6 + power)
+		_duck_t = randf_range(DUCK_TIME.x, DUCK_TIME.y) * (0.6 + power)
 	var away := (clown.global_position - from)
 	away.y = 0.0
-	clown.flinch_away(away.normalized(), 0.35 + 0.4 * power)
+	clown.flinch_away(away.normalized(), 0.25 + 0.3 * power)
 	if _aim_t > 0.0:
 		_aim_t = minf(_aim_t, aim_time * 0.4)
 	if mind != Mind.HUNT and player:

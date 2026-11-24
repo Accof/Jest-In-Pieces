@@ -313,6 +313,18 @@ would bring that back. `scenes/look_trench_clown.tscn` renders him standing, wal
 
 ## WitzSoldat
 
+**Deaths and the duck (24 Nov):** a rifleman now goes over *backwards* more often than not — Andrew
+preferred the melee clowns' headshot (the head jerk, the knees giving, down onto the back) to the rifleman
+pitching forward, which turned out to be his stance: the ragdoll's spine spring kept the aim's hunch, so his
+weight was ahead of his feet whatever the fall profile asked. Now the bent spine straightens on the reflex
+as he dies (`Clown.rifle_straighten`, 0.8), the headshot mix for riflemen leans to back/sit/stagger with the
+forward falls kept at a quarter (`rifle_back_bias`; `ClownRagdoll.profile_headshot(…, back_bias)`), and a
+chest shot folds him forward less often. Measured on flat ground (`scenes/test_fall_direction.tscn`, 24 men
+a case): aiming riflemen shot in the head went from 11 back / 11 forward to 20 / 4; crouched 16/8 → 20/4;
+the clubman's own mix is unchanged (17/7). The near-miss duck is a dip (0.38 of a crouch, was 0.65), held a
+little longer and not more than one in a second and a half, so he no longer pogoes under fire.
+
+
 **The rifle (23 Nov 2026)** is a Tripo bolt-action (`art/weapons/enemy_rifle/enemy_rifle.glb`, 1.11 m, a Mauser
 carbine's length; three 2K PBR maps shared by every rifle on the floor) in place of the old box placeholder.
 `tools/build_enemy_rifle.py` turns the Tripo model onto its bore axis (butt plate at the origin, barrel along +Z,

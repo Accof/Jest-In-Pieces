@@ -279,10 +279,16 @@ func bone_for_segment(seg_bone: StringName) -> PhysicalBone3D:
 const HEADSHOT_VARIANTS := ["back", "back_flat", "stagger_flat", "sit", "spin", "side", "crumple", "knees", "knees_flat", "knees_hang", "stumble"]
 const BODYSHOT_VARIANTS := ["stagger", "blown_back", "double", "double_flat"]
 
-static func profile_headshot(variant: String = "") -> Dictionary:
+static func profile_headshot(variant: String = "", back_bias := false) -> Dictionary:
 	if variant == "":
 		# "knees" (ends curled on one hip) is left out of the random mix; ask for it by name.
-		variant = ["back", "back_flat", "back_flat", "stagger_flat", "sit", "spin", "side", "crumple", "knees_flat", "knees_flat", "knees_flat", "knees_hang", "knees_hang", "stumble", "stumble"].pick_random()
+		if back_bias:
+			# (24 Nov) the rifleman's mix: mostly back - sinks onto his heels and
+			# over, sits and flops, reels back flat - with the forward ones kept
+			# in at a quarter so it is not every time
+			variant = ["back", "back", "back", "back_flat", "back_flat", "stagger_flat", "stagger_flat", "sit", "sit", "spin", "side", "crumple", "knees_flat", "knees_hang", "stumble"].pick_random()
+		else:
+			variant = ["back", "back_flat", "back_flat", "stagger_flat", "sit", "spin", "side", "crumple", "knees_flat", "knees_flat", "knees_flat", "knees_hang", "knees_hang", "stumble", "stumble"].pick_random()
 	# Shared opening: the head whips back with no resistance, then the neck
 	# catches it and it rebounds while the body still stands on reflex.
 	var p := {
