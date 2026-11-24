@@ -14,6 +14,7 @@ extends TrenchArt
 
 var front: FrontMaze
 var crater_water_meshes := 0          ## (M12) merged water meshes, for the tests
+var lights: FrontLights                 ## (24 Nov) the lanterns and fires at dawn and night, else null
 ## The Front's weather and the one visibility model (M4).
 var atmosphere: FrontAtmosphere
 
@@ -44,6 +45,14 @@ func build(m: TrenchMaze) -> void:
 		add_child(fog)
 		fog.setup_front(front, self, rng.randi())
 		atmosphere.front_fog = fog
+		# (24 Nov) at dawn and at night, lanterns in the trenches, braziers at
+		# the corners and burning wreckage along the crossing: light to find
+		# the way by (FrontLights; nothing by day)
+		if front.light != FrontVariant.Light.DAY:
+			lights = FrontLights.new()
+			lights.name = "Lights"
+			add_child(lights)
+			lights.setup(front, rng.randi(), front.light)
 		# (M4) the far battle's smoke columns: half as many billows, paler, so
 		# they are shapes in the haze and not the picture
 		for c in get_children():

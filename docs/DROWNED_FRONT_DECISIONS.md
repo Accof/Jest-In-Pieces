@@ -328,3 +328,16 @@ Add a record whenever a choice closes a door.
   should not decide a player's sharpness for them; the M2 numbers are the default's justification,
   not a rule.
 - Not done blind: the bunker physics spikes wait for the Mac profiler rather than a guess.
+
+### D-26 · The night is lit from inside: lanterns, braziers, wreck fires — decided (24 Nov, Andrew)
+- Andrew: "I think i need to add a source of light for the night time trenches. It's way too dark. No
+  mans land is also too dark to navigate without the moon light … lanterns or small flames to light
+  the way now and again. These should look realistic."
+- Three kinds, each with a reason to be where it is: lanterns on post arms along the trenches and by
+  every dugout door (a garrison lights its own trench); braziers at corners (men warming themselves);
+  burning wreckage in No Man's Land (the shelling's leavings), strung along the crossing so the fires
+  are the way across. Nothing by day: the approved look stays untouched. At dawn half the lanterns are out.
+- Realism bought with animated flame sprites (a 64-frame procedural sheet, additive, two tongues always
+  there plus rising ones), embers, a thread of smoke, flicker on every light, rusted drums with glowing
+  holes — not with shadows: none of these lights casts one, so the M6/M12 frame budget stands. The
+  night's ambient was nudged 0.36 → 0.42 besides; the moon (D-24) is unchanged.

@@ -73,7 +73,7 @@ func _run() -> void:
 	for a in args:
 		if a.begins_with("seed="):
 			fixed_seed = int(a.substr(5))
-	var secs := ["layouts", "geo", "cover", "wire", "crossing", "game", "views", "atmos", "variants"]
+	var secs := ["layouts", "geo", "cover", "wire", "crossing", "game", "views", "atmos", "variants", "lights"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -1040,3 +1040,75 @@ func _render_light(nm: String, m: FrontMaze, d: FrontDirector) -> void:
 	p.camera.rotation.x = deg_to_rad(6.0)
 	await _frames(20)
 	get_viewport().get_texture().get_image().save_png("/tmp/front_light_%s.png" % nm.replace(" ", "_"))
+
+
+# --- lights (24 Nov: lanterns, braziers, wreck fires at dawn and night) ------------------
+## By day nothing is built. At night: lanterns along both networks and by
+## every dugout door, a few braziers a side, wreck fires along the crossing;
+## each fire out of the water and off the wire, each lantern inside a trench
+## cell; no light casts a shadow. At dawn the fires still burn and about half
+## the lanterns are out.
+func _lights() -> void:
+	print("-- lights")
+	FrontVariant.forced = FrontVariant.Kind.BASE
+	for li: int in [FrontVariant.Light.DAY, FrontVariant.Light.NIGHT, FrontVariant.Light.DAWN]:
+		FrontVariant.forced_light = li
+		await _new_game(1916)
+		var m: FrontMaze = game.maze as FrontMaze
+		var art: FrontArt = m.find_child("Art", true, false) as FrontArt
+		var fl: FrontLights = art.lights
+		var nm: String = FrontVariant.LIGHT_NAMES[li]
+		if li == FrontVariant.Light.DAY:
+			_check(fl == null, "day: no lanterns or fires (the approved look untouched)")
+			continue
+		_check(fl != null and fl.lanterns >= 12 and fl.braziers >= 6 and fl.wreck_fires >= 4, "%s: %d lanterns, %d braziers, %d wreck fires" % [nm, fl.lanterns if fl else 0, fl.braziers if fl else 0, fl.wreck_fires if fl else 0])
+		if fl == null:
+			continue
+		var lit_lanterns := 0
+		var lit_fires := 0
+		var shadows := 0
+		var in_cell := 0
+		var dugout_lit := 0
+		var dry := 0
+		var off_wire := 0
+		for e: Array in fl._lights:
+			var o: OmniLight3D = e[0]
+			if o.shadow_enabled:
+				shadows += 1
+			if e[3] == "lantern":
+				lit_lanterns += 1
+				if m.open_cells.has(m.cell_of(o.global_position)):
+					in_cell += 1
+			else:
+				lit_fires += 1
+				var g := o.global_position
+				if m.water_level(g) <= m.ground_height(g.x, g.z):
+					dry += 1
+				if not m.wire_at(g.x, g.z):
+					off_wire += 1
+		var dugouts := 0
+		for l: Dictionary in m.landmarks:
+			if l.kind == "dugout" and l.has("entrance"):
+				dugouts += 1
+				var door := m.cell_center(l.entrance)
+				for e: Array in fl._lights:
+					if e[3] == "lantern" and (e[0] as OmniLight3D).global_position.distance_to(door) < 2.5:
+						dugout_lit += 1
+						break
+		_check(shadows == 0, "%s: none of the %d lights casts a shadow" % [nm, fl._lights.size()])
+		_check(in_cell == lit_lanterns, "%s: every lit lantern hangs inside a trench cell (%d of %d)" % [nm, in_cell, lit_lanterns])
+		_check(dry == lit_fires and off_wire == lit_fires, "%s: every fire out of the water and off the wire (%d dry, %d off the wire of %d)" % [nm, dry, off_wire, lit_fires])
+		_check(lit_fires == fl.braziers + fl.wreck_fires, "%s: every brazier and wreck burns (%d lights)" % [nm, lit_fires])
+		if li == FrontVariant.Light.NIGHT:
+			_check(lit_lanterns == fl.lanterns, "night: every lantern lit (%d)" % lit_lanterns)
+			_check(dugouts == 0 or dugout_lit == dugouts, "night: a lantern by every dugout door (%d of %d)" % [dugout_lit, dugouts])
+			var flames := fl.find_child("lantern_flames", false, false) as MultiMeshInstance3D
+			_check(flames != null and flames.multimesh.instance_count == lit_lanterns, "night: a flame in every lit lantern's glass")
+			var fires := 0
+			for n in fl.find_children("*", "GPUParticles3D", true, false):
+				fires += 1
+			_check(fires == 2 * lit_fires, "night: flames and embers on every fire (%d emitters)" % fires)
+		else:
+			_check(lit_lanterns < fl.lanterns and lit_lanterns >= fl.lanterns / 4, "dawn: %d of %d lanterns still lit" % [lit_lanterns, fl.lanterns])
+	FrontVariant.forced = -1
+	FrontVariant.forced_light = -1

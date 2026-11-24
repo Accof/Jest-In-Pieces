@@ -79,7 +79,7 @@ static func make_environment(light: int = 0) -> Environment:
 	# ground went black (Andrew: "really so hard to see where I'm going")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.68, 0.70, 0.74) if not night else Color(0.50, 0.56, 0.72)      # cold; at night the sky's blue
-	env.ambient_light_energy = 0.92 * (0.72 if dawn else (0.36 if night else 1.0))   # (23 Nov) "a bit too dark": lifted from 0.85 (1.0 washed it out in the render); (24 Nov) dawn and night below it
+	env.ambient_light_energy = 0.92 * (0.72 if dawn else (0.42 if night else 1.0))   # (23 Nov) "a bit too dark"; night 0.36 -> 0.42 (24 Nov, "way too dark", with the lanterns and fires): lifted from 0.85 (1.0 washed it out in the render); (24 Nov) dawn and night below it
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 0.9 * (0.85 if dawn else (0.58 if night else 1.0))
