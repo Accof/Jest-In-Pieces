@@ -216,15 +216,17 @@ def finish(c: Canvas, name: str, out_dir: str, edge_break=0.08, wet=1.0, seed=0)
     # colour by thickness: thin edges bright arterial red, thick dark, with a
     # little hue noise (browner, bluer) across the splat
     hue = value_noise((R, R), 160, seed + 5, 2)
-    thin = np.array([0.72, 0.06, 0.04], dtype=np.float32)
-    deep = np.array([0.13, 0.006, 0.008], dtype=np.float32)
-    k = (thick ** 0.8)[..., None]
+    # (24 Nov, Andrew on the first in-game look: "too big, wrong colour, too
+    # bright") darker throughout: the thin edges a deep red, not pink
+    thin = np.array([0.40, 0.025, 0.02], dtype=np.float32)
+    deep = np.array([0.075, 0.004, 0.005], dtype=np.float32)
+    k = (thick ** 0.7)[..., None]
     rgb = thin * (1.0 - k) + deep * k
     rgb = rgb * (0.9 + 0.2 * hue[..., None])
     rgb[..., 1] *= 1.0 + 0.5 * (hue - 0.5)
     # the colour map is linear here; store sRGB
     srgb = np.where(rgb <= 0.0031308, rgb * 12.92, 1.055 * np.power(np.clip(rgb, 0, 1), 1 / 2.4) - 0.055)
-    a = cov * np.clip(0.5 + 0.7 * thick ** 0.5, 0.0, 1.0)
+    a = cov * np.clip(0.45 + 1.0 * thick ** 0.5, 0.0, 1.0)     # drops opaque, the haze faint
     rgba = np.concatenate([np.clip(srgb, 0, 1), a[..., None]], axis=-1)
     col = Image.fromarray((rgba * 255).astype(np.uint8), "RGBA").resize((OUT, OUT), Image.BOX)
     col.save(os.path.join(out_dir, f"splat_{name}.png"))
@@ -232,12 +234,12 @@ def finish(c: Canvas, name: str, out_dir: str, edge_break=0.08, wet=1.0, seed=0)
     h = Image.fromarray((thick * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.5))
     hh = np.asarray(h).astype(np.float32) / 255.0 * 0.9
     gy, gx = np.gradient(hh)
-    nx = -gx * 6.0; ny = gy * 6.0; nz = np.ones_like(hh)
+    nx = -gx * 3.0; ny = gy * 3.0; nz = np.ones_like(hh)
     l = np.sqrt(nx * nx + ny * ny + nz * nz)
     nrm = np.stack([nx / l, ny / l, nz / l], -1) * 0.5 + 0.5
     Image.fromarray((nrm * 255).astype(np.uint8), "RGB").resize((OUT_AUX, OUT_AUX), Image.BOX).save(os.path.join(out_dir, f"splat_{name}_n.png"))
     # ORM: occlusion 1, roughness low where thick and wet, metallic 0
-    rough = 0.42 - 0.3 * wet * thick ** 0.5
+    rough = 0.72 - 0.25 * wet * thick ** 0.5      # wet, not lacquered: a thick mass under a lamp went pale with its own highlight
     orm = np.stack([np.ones_like(rough), rough, np.zeros_like(rough)], -1)
     Image.fromarray((np.clip(orm, 0, 1) * 255).astype(np.uint8), "RGB").resize((OUT_AUX, OUT_AUX), Image.BOX).save(os.path.join(out_dir, f"splat_{name}_orm.png"))
 
@@ -252,7 +254,7 @@ def gen_mist(i):
     oy = R * 0.8
     n = int(rng.integers(14000, 24000))
     # the haze first: a wide fan of blood too fine to resolve
-    c.wash(ox, oy - R * 0.22, R * 0.3, 0.2, 1.3, UP, seed=i)
+    c.wash(ox, oy - R * 0.22, R * 0.3, 0.12, 1.3, UP, seed=i)
     # the fan: a dense core along the travel line, a wide base, and the fast
     # fine specks far out; sizes many tiny, few medium; the fan is broad
     c.specks(int(n * 0.55), (ox, oy), 0.55, UP, R * 0.36, R * 0.2, 0.8, 9.0, 2.15, tails=True, thick=1.0)

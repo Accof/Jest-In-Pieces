@@ -36,7 +36,7 @@ const SPLAT_KINDS := {spray = 6, impact = 5, small = 4, streak = 4, drip = 3, de
 ## kind's shape fills, so a size asked for in metres is the shape's size.
 const SPLAT2_KINDS := {mist = 6, impact = 6, castoff = 4, dripfield = 4, heavy = 4, streak = 4, small = 8}
 const SPLAT2_MAP := {spray = "mist", drip = "small", death = "heavy", impact = "impact", streak = "streak", small = "small", mist = "mist", castoff = "castoff", dripfield = "dripfield", heavy = "heavy"}
-const SPLAT2_FILL := {mist = 0.62, impact = 0.5, castoff = 0.75, dripfield = 0.8, heavy = 0.7, streak = 0.6, small = 0.3}
+const SPLAT2_FILL := {mist = 0.62, impact = 0.5, castoff = 0.75, dripfield = 0.8, heavy = 0.7, streak = 0.6, small = 0.55}
 static var splat_version := 2
 var _decals: Array[Decal] = []
 var _born := PackedFloat32Array()
@@ -231,6 +231,8 @@ func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along
 	if kind == "impact" and size >= 0.6:
 		kind = "death"                  # a body's worth: the broad death splatters
 	if splat_version == 2 and not use_legacy_splatters:
+		if kind == "drip":
+			size *= 0.5                                # a landed drop is a drop, not a saucer
 		kind = SPLAT2_MAP.get(kind, kind)
 		size /= float(SPLAT2_FILL.get(kind, 0.6))      # the shape is `size` across, not the texture
 		# on a wall the kinds with drips hang them downward: the texture's up

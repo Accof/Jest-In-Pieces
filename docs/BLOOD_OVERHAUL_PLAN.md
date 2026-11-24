@@ -214,3 +214,9 @@ references (`blood_phaseA_vs_references.png`). Wired into `BloodManager` (`splat
 `SPLAT2_MAP` for the old kind names, `SPLAT2_FILL` so a size in metres is the shape's size, drips
 hang downward on walls, oil by modulate). The look room renders with it; pools/death/blast suites
 unchanged. Sizes and placement are still the old ones — that is Phase B.
+
+Andrew's first in-game look (18:53): "the drops are too big, wrong colour, too bright" — the droplet
+landings had come out ~1.7× their old size (the fill factor), the thin-edge colour was pink, and the
+wet gloss so low in roughness that a thick mass under a lamp went pale with its own highlight. Fixed
+in the same phase: landings halved, the palette darkened throughout (thin edges deep red, centres
+near-black), drops opaque, roughness floor 0.47, normal bumps halved, the mist haze fainter.
