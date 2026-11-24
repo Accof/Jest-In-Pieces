@@ -320,3 +320,11 @@ Add a record whenever a choice closes a door.
 - The glint is placed by the sun's angle, not by turning specular up in general: low over their side it
   lies out on the field; the M4 lesson (a high sun's reflection down in the trench blinded) holds.
 
+### D-25 · Performance is bought where it is invisible; the one visible knob is the player's — decided (Milestone 12)
+- Simulation tiers for unaware far men (same metres, same seconds, coarser sampling), merged crater
+  water, VRAM-compressed model textures: each a cut nobody can see, so none needs a look review.
+- The render scale / upscaler default (FSR 1 at 0.75, D-10) stays, but it is now a setting on a
+  Graphics page saved per user, with shadows, ambient occlusion and fullscreen beside it. A build
+  should not decide a player's sharpness for them; the M2 numbers are the default's justification,
+  not a rule.
+- Not done blind: the bunker physics spikes wait for the Mac profiler rather than a guess.

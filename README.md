@@ -40,7 +40,7 @@ Everything is GDScript and builds itself in code, so there is nothing to wire up
 
 ## Title screen
 
-Continue (to the base), New Game, Quit. New Game asks first, then wipes everything: tickets, perks, trophies, every stat, the fortune and the armoury choice. The automated tests use their own save file (`clown_save_test.json`) so they never touch yours.
+Continue (to the base), New Game, Graphics, Quit. **Graphics** is the player's: render scale (50–100 %) and the upscaler (FSR 1 — near free on Apple GPUs — FSR 2 or bilinear), shadows Off / Low / High, ambient occlusion, fullscreen; each line cycles and applies at once, saved to `user://graphics.cfg`. The default is 75 % with FSR 1, which is what holds 60 fps on an M2 at 1900 × 1000; 100 % is the sharpest. New Game asks first, then wipes everything: tickets, perks, trophies, every stat, the fortune and the armoury choice. The automated tests use their own save file (`clown_save_test.json`) so they never touch yours.
 
 ## Title screen art
 
@@ -219,6 +219,8 @@ And the **light** is its own roll (`light=day|dawn|night`): day is the approved 
 warm sun over their side glancing off the wet field — the one glint the Front allows; **night** (20 %) the
 moonlit crossing — a cold moon's sheen on No Man's Land, a blue-black sky, and the flares going up over it.
 To see the flares: `light=night` (the first goes up 18–40 s in) and press **F6** for one on demand.
+
+Milestone 12: performance bought where it is invisible — far, unaware men think on a coarser beat (same metres, same seconds), the ~150 crater water planes are 30 merged meshes, and 29 model textures that were imported lossless are VRAM-compressed (~500 MB of video memory back). The one visible knob, the render scale, moved to the title screen's Graphics page. The M2 budget runs (`-- god perf=10`, now also in a fire-fight) are Andrew's to repeat.
 
 Floors now have an objective (`Game.Objective`): bunker floors are **ELIMINATION** (every enemy must die
 before the exit opens; the last kill runs the final-kill camera), trench floors are **SURVIVAL** (the

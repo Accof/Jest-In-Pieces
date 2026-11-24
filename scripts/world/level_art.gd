@@ -990,7 +990,7 @@ func _shadow_budget() -> void:
 	ranked.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
 	for i in ranked.size():
 		var l: OmniLight3D = ranked[i][1]
-		var want: bool = i < SHADOW_NEAR and float(ranked[i][0]) < 20.0 * 20.0
+		var want: bool = i < SHADOW_NEAR and float(ranked[i][0]) < 20.0 * 20.0 and GraphicsSettings.shadows > 0   # (M12) the player's choice
 		if l.shadow_enabled != want:
 			l.shadow_enabled = want
 		var fog_e: float = float(l.get_meta(&"fog_energy", l.light_volumetric_fog_energy)) if i < FOG_NEAR else 0.0

@@ -13,6 +13,7 @@ extends TrenchArt
 ## reference atmosphere is Milestone 4, functional cover and wire Milestone 3.
 
 var front: FrontMaze
+var crater_water_meshes := 0          ## (M12) merged water meshes, for the tests
 ## The Front's weather and the one visibility model (M4).
 var atmosphere: FrontAtmosphere
 
@@ -380,19 +381,38 @@ func _no_mans_land() -> void:
 	mat.set_shader_parameter("noise_tex", tex("noise"))
 	mat.set_shader_parameter("colour", Color(0.085, 0.08, 0.07))      # (M4) dark water: it shows the sky by reflection
 	mat.set_shader_parameter("deep", Color(0.045, 0.043, 0.04))
+	# (M12) the shell holes' water as one mesh per 20 m tile, not a plane each
+	# (~120 draw calls became ~12): every quad keeps its own 0..1 UVs, so the
+	# shader's disc mask (instance uniform `round`, set once per tile) still
+	# rounds each hole
+	var tiles := {}
 	for cr: Vector4 in maze.crater_list:
 		if cr.w < 0.55:
 			continue
 		var bottom := maze.ground_height(cr.x, cr.y)
-		var pm := PlaneMesh.new()
-		pm.size = Vector2.ONE * cr.z * 1.4
+		var key := "%d,%d" % [floori(cr.x / TILE), floori(cr.y / TILE)]
+		if not tiles.has(key):
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			tiles[key] = st
+		var st: SurfaceTool = tiles[key]
+		var c := Vector3(cr.x, bottom + cr.w * 0.35, cr.y)
+		var h := cr.z * 0.7
+		var corners := [c + Vector3(-h, 0, -h), c + Vector3(h, 0, -h), c + Vector3(h, 0, h), c + Vector3(-h, 0, h)]
+		var uvs := [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
+		for idx: int in [0, 1, 2, 0, 2, 3]:
+			st.set_normal(Vector3.UP)
+			st.set_uv(uvs[idx])
+			st.add_vertex(corners[idx])
+	for key: String in tiles.keys():
 		var mi := MeshInstance3D.new()
-		mi.mesh = pm
+		mi.name = "crater_water~" + key
+		mi.mesh = (tiles[key] as SurfaceTool).commit()
 		mi.material_override = mat
 		mi.set_instance_shader_parameter("round", 1.0)
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		mi.position = Vector3(cr.x, bottom + cr.w * 0.35, cr.y)
 		add_child(mi)
+		crater_water_meshes += 1
 	_dressing(z_near, z_far)
 	call_deferred("_bodies", z_near, z_far)
 

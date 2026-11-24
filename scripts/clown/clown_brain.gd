@@ -334,10 +334,37 @@ func _pinned(delta: float) -> void:
 	_aim_t = -1.0
 
 
+## (M12) Simulation tiers: a man going about his duty far from the player
+## thinks less often - every 2nd physics frame past 40 m, every 4th past
+## 80 m - with the frames' time handed to him in one piece, so he walks the
+## same metres and waits the same seconds; only the sampling is coarser.
+## Anyone hunting, searching, pinned or hiding, and anyone within 40 m,
+## thinks every frame. Each man on his own beat, so the work spreads.
+## Counted in `ticks` for the tests; NO_LOD in the environment turns it off.
+static var sim_tiers := not OS.has_environment("NO_LOD")
+var ticks := 0
+var _sim_acc := 0.0
+var _sim_slot := randi() % 4
+
+
+func sim_every() -> int:
+	if not sim_tiers or player == null or pinned or hiding or mind != Mind.IDLE:
+		return 1
+	var d2 := clown.global_position.distance_squared_to(player.global_position)
+	return 1 if d2 < 1600.0 else (2 if d2 < 6400.0 else 4)
+
+
 func _physics_process(delta: float) -> void:
 	if clown.dead:
 		set_physics_process(false)
 		return
+	var every := sim_every()
+	_sim_acc += delta
+	if every > 1 and (Engine.get_physics_frames() + _sim_slot) % every != 0:
+		return
+	delta = _sim_acc
+	_sim_acc = 0.0
+	ticks += 1
 	crouch_want = 1.0 if _cover_state == 2 else 0.0
 	_think(delta)
 	if clown.dead:
@@ -544,6 +571,8 @@ func _think(delta: float) -> void:
 			want = (side * 0.3 - toward).normalized()          # careful steps straight back
 		elif close:
 			want = side * 0.6                                   # holding ground to shoot
+			if _near_wire():
+				want = (side * 0.3 + toward).normalized()       # (M12) not from inside the wire: a step on first
 		elif dist > keep_distance * 1.6:
 			want = (side * 0.5 + toward).normalized()          # too far: close up
 		if want.length() > 0.05 and not _free(want):
@@ -915,6 +944,18 @@ func _keep_apart(want: Vector3, delta: float) -> Vector3:
 		if toward > room:
 			want += out * (toward - room)
 	return want
+
+
+## (M12) Standing in, or at the edge of, one of the Front's wire belts: a
+## rifleman does not choose that for his firing spot.
+func _near_wire() -> bool:
+	if maze == null or not maze.has_method("wire_at"):
+		return false
+	var p := clown.global_position
+	for off: Vector2 in [Vector2(0, 0), Vector2(0, 0.45), Vector2(0, -0.45), Vector2(0.45, 0), Vector2(-0.45, 0)]:
+		if maze.wire_at(p.x + off.x, p.z + off.y):
+			return true
+	return false
 
 
 func _step(vel: Vector3, delta: float) -> void:

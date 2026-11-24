@@ -78,7 +78,7 @@ func _frames(n: int) -> void:
 
 func _run() -> void:
 	var args := OS.get_cmdline_user_args()
-	var secs := ["tension", "local", "points", "budget", "seeded", "overlay", "events", "walk", "activity", "suspense"]
+	var secs := ["tension", "local", "points", "budget", "seeded", "overlay", "events", "walk", "activity", "suspense", "perf"]
 	var any := false
 	for s: String in secs:
 		any = any or args.has(s)
@@ -899,3 +899,67 @@ func _suspense() -> void:
 		_check(walker.steps_played == s0, "none from 80 m")
 	else:
 		_check(false, "no soldier to walk")
+
+
+# --- perf (Milestone 12) ----------------------------------------------------------------
+## Far, unaware men think on a coarser beat and still get where they were
+## going; crater water is a handful of merged meshes, not one per crater;
+## the graphics choices round-trip through user://graphics.cfg and land
+## on the viewport.
+func _perf() -> void:
+	print("-- perf")
+	await _new_game(1918)
+	var d := _dir()
+	d.auto_events = false
+	d.despawn_far = 10000.0
+	d._since_event = 999.0
+	var rr: Dictionary = d.run_event("reinforce")
+	_check(rr.ok, "reinforce placed (%s)" % rr.why)
+	if not rr.ok:
+		return
+	var leader: Clown = rr.soldiers[0]
+	var lb := leader.get_node("Brain") as ClownBrain
+	var dist: float = leader.global_position.distance_to(game.player.global_position)
+	var start: Vector3 = leader.global_position
+	var frames := 20 * 60
+	for i in frames:
+		await get_tree().physics_frame
+	var ratio := float(lb.ticks) / float(frames)
+	var moved := start.distance_to(leader.global_position)
+	var expect_far := dist >= 80.0 and lb.mind == ClownBrain.Mind.IDLE
+	_check((not expect_far) or ratio <= 0.4, "far reinforce leader (%.0f m) thought on %.0f%% of frames (tier %d)" % [dist, ratio * 100.0, lb.sim_every()])
+	_check(moved > 4.0 or (leader.get_node("Duty") as BattleDuty).legs >= 1, "and still moved %.1f m on the coarse beat" % moved)
+	# anyone close thinks every frame
+	var near_ok := true
+	for c in d.live:
+		if is_instance_valid(c) and c.global_position.distance_to(game.player.global_position) < 40.0:
+			near_ok = near_ok and (c.get_node("Brain") as ClownBrain).sim_every() == 1
+	_check(near_ok, "men within 40 m think every frame")
+	# merged crater water
+	var art: FrontArt = game._world.find_child("Art", true, false) as FrontArt
+	var craters: int = (art.get_parent() as FrontMaze).crater_list.size() if art and art.get_parent() is FrontMaze else -1
+	_check(art != null and art.crater_water_meshes > 0 and art.crater_water_meshes <= 30, "%d crater water meshes for %d craters (one per 20 m tile, not per crater)" % [art.crater_water_meshes if art else -1, craters])
+	# graphics settings
+	var was_scale := GraphicsSettings.scale
+	var was_shadows := GraphicsSettings.shadows
+	GraphicsSettings.scale = 0.67
+	GraphicsSettings.upscaler = 0
+	GraphicsSettings.shadows = 0
+	GraphicsSettings.save_settings()
+	GraphicsSettings._loaded = false
+	GraphicsSettings.load_settings()
+	_check(is_equal_approx(GraphicsSettings.scale, 0.67) and GraphicsSettings.shadows == 0, "graphics.cfg round trip: scale %.2f shadows %d" % [GraphicsSettings.scale, GraphicsSettings.shadows])
+	GraphicsSettings.apply(get_viewport(), game._world_env.environment, game._world)
+	_check(is_equal_approx(get_viewport().scaling_3d_scale, 0.67) and get_viewport().scaling_3d_mode == Viewport.SCALING_3D_MODE_FSR, "applied to the viewport: %.2f, mode %d" % [get_viewport().scaling_3d_scale, get_viewport().scaling_3d_mode])
+	var sun: DirectionalLight3D = game._world.find_child("Sun", true, false) as DirectionalLight3D
+	if sun == null:
+		for n in game._world.find_children("*", "DirectionalLight3D", true, false):
+			sun = n
+	_check(sun == null or not sun.shadow_enabled, "shadows off reaches the sun")
+	GraphicsSettings.shadows = 2
+	GraphicsSettings.apply(get_viewport(), game._world_env.environment, game._world)
+	_check(sun == null or sun.shadow_enabled, "and High gives it back")
+	GraphicsSettings.scale = was_scale
+	GraphicsSettings.shadows = was_shadows
+	GraphicsSettings.save_settings()
+	GraphicsSettings.apply(get_viewport(), game._world_env.environment, game._world)

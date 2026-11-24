@@ -263,10 +263,12 @@ func next_floor() -> void:
 		player.rotation.y = atan2(spawn.x - ahead.x, spawn.z - ahead.z)
 	_build_exit()
 	events.new_floor()
+	GraphicsSettings.apply(get_viewport(), _world_env.environment if _world_env else null, _world)   # (M12) the player's graphics choices on every floor
 	for l: JokerLocker in get_tree().get_nodes_in_group(&"joker_lockers"):
 		if l.is_inside_tree() and not l.is_queued_for_deletion():
 			l.player = player
-			l.opened.connect(_on_locker_opened)
+			if not l.opened.is_connected(_on_locker_opened):
+				l.opened.connect(_on_locker_opened)      # (M12) a second game in one scene met the same lockers
 
 	if floor_number > 1 and int(save.perks.get("dressing", 0)) > 0:
 		player.heal(15.0 * int(save.perks.dressing))
@@ -945,6 +947,7 @@ func _build_exit() -> void:
 
 # --- interface ------------------------------------------------------------------
 func _build_ui() -> void:
+	GraphicsSettings.apply(get_viewport())
 	main_menu = MainMenu.new()
 	main_menu.name = "MainMenu"
 	add_child(main_menu)
@@ -1016,9 +1019,24 @@ func _show_menu() -> void:
 	if is_instance_valid(player):
 		player.queue_free()
 	_set_state(State.MENU)
-	main_menu.open([["Continue", go_base], ["New Game", new_game], ["Quit", get_tree().quit]],
+	main_menu.open([["Continue", go_base], ["New Game", new_game], ["Graphics", _show_graphics], ["Quit", get_tree().quit]],
 		"Best floor %d   ·   %d kills   ·   %d tickets   ·   %d/%d trophies" % [int(save.best_floor), int(save.total_kills), int(save.tickets), (save.get("trophies", []) as Array).size(), Records.TROPHIES.size()],
 		"WASD move   ·   Shift sprint   ·   Mouse aim   ·   Click fire   ·   R reload   ·   1-4, 6 weapons   ·   E use   ·   F light   ·   G god mode")
+
+
+## (M12) The graphics page: each line cycles its setting and applies at once.
+func _show_graphics() -> void:
+	var entries: Array = []
+	var lines: Array = GraphicsSettings.describe()
+	for i in lines.size():
+		entries.append([lines[i], func() -> void:
+			GraphicsSettings.cycle(i)
+			GraphicsSettings.apply(get_viewport(), _world_env.environment if _world_env else null, _world)
+			_show_graphics()])
+	entries.append(["Back", _show_menu])
+	main_menu.open(entries,
+		"Render scale and the upscaler buy the most frames; shadows next. Saved to user://graphics.cfg.",
+		"The default is 75 % with FSR 1: 60 fps on an M2 at 1900 x 1000. 100 % is the sharpest.")
 
 
 func _title(text: String, size: int) -> void:

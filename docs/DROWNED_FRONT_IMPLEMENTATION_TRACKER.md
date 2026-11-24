@@ -1187,4 +1187,69 @@ day? like at dawn so it's not totally bright and not totally dark either?" So th
   between 0.35 and lower. Night's brightness likewise. Neither re-measured for frame rate (one light each,
   no extra shadow).
 
-(Milestones 12–13: scope as in the package; detailed when authorised.)
+## Milestone 12 — Performance & polish (24 Nov 2026) — DONE, AWAITING ANDREW'S MEASUREMENTS
+
+Authorised with M13 ("continue with the rest of the milestones"). The M6 performance note left an
+M12 list; this is it, item by item, plus the two polish notes carried from M8–M10. Nothing here
+changes the approved look (D-16/D-18/D-24) except by the player's own choice on the new page.
+
+### What was built (package rows 12; D-25)
+- **Brain simulation tiers** (`ClownBrain.sim_every`): a man who is unaware (`Mind.IDLE`), not
+  pinned, not hiding, thinks every frame within 40 m, every 2nd frame to 80 m, every 4th beyond; he
+  gets the accumulated delta so he walks the same metres and waits the same seconds — only the
+  sampling is coarser. Anyone hunting or searching thinks every frame wherever he is. Each man on his
+  own beat (`_sim_slot`) so the work spreads over frames. `NO_LOD` in the environment turns it off;
+  `ticks` counts for the tests. With 30–43 director men mostly far and unaware this is the brain
+  cost cut by roughly half to two thirds; the per-frame bits that must stay smooth (the crouch, the
+  turn, the legs) are outside the gate.
+- **Crater water merged** (`FrontArt`): the ~150 water planes were one MeshInstance each; now one
+  SurfaceTool mesh per 20 m tile (`crater_water~x,y`, 30 meshes on the 98 m field), same shader,
+  same per-crater `round` look (the instance parameter is per tile now, one value — the ripple phase
+  is seeded per tile instead of per crater; indistinguishable at any distance). `crater_water_meshes`
+  counts for the tests. ~120 fewer objects drawn and culled every frame.
+- **Graphics page** (`GraphicsSettings`, `Game._show_graphics`): the title menu gains **Graphics**:
+  render scale (50/67/75/85/100 %), upscaler (FSR 1 / FSR 2 / bilinear), shadows (Off / Low 2048 /
+  High 4096), ambient occlusion (SSAO + SSIL), fullscreen. Each line cycles and applies at once;
+  saved to `user://graphics.cfg`; applied at start and on every floor built. The project default is
+  unchanged (FSR 1 at 0.75, D-10) — it is now the player's to change rather than a fact about the
+  build. Shadows Off remembers which lights had them so High gives back exactly what the floor set
+  (lamps and litter stay shadowless, as the floors want); the dugout-bulb budget respects the choice.
+- **Video memory** (the 0.93–1.1 GB of M6): 29 model textures (every 2K base colour, normal and
+  metal/rough of the soldiers, the gibs, the SMLE, MP18 and the enemy rifle) were imported
+  *lossless* (RGBA8 in VRAM, 21 MB each with mipmaps). Re-imported VRAM-compressed, high quality
+  (BC7; normals RGTC), ~5 MB each: **~500 MB of video memory back**, no source changed, no resolution
+  lost. The dark WitzSoldat's 4K maps were already compressed. The title backgrounds and the sunburst
+  stay lossless (2D gradients). Mesh LODs: already generated for every GLB (`generate_lods=true`),
+  nothing to do.
+- **Polish carried over:** riflemen pick a firing spot off the wire (`ClownBrain._near_wire`; the
+  "stops at the belt edge" of M11's honest list); the Joker-locker signal is connected once (the
+  double-connect warning in a two-game test scene, M9's list).
+
+### Tests (`test_director perf`, 9 checks, 0 failed; whole scene 0 failed; `test_front` 0 failed)
+A far reinforce leader thinks on ≤40 % of frames (tier 2 or 4 by his distance) and still walks;
+men within 40 m think every frame; 30 crater water meshes for the field's craters; graphics.cfg
+round-trips; the applied scale and mode reach the viewport; Shadows Off reaches the sun and High
+gives it back.
+
+### Honest list
+- **Not measured on the Mac.** The M6 numbers (bunker 60, Front 58 standing still at 0.75) are the
+  last measurements; combat was never measured. The tiers, the merge and the VRAM are each a cut by
+  construction, but Andrew's `-- god perf=10` runs (Front, bunker floor 2 and 8, now also in a
+  fire-fight) are the only numbers that count. Same three `PERF` lines as before.
+- **The bunker physics spikes (18–25 ms)** are not addressed: they need the Mac profiler (Jolt, with
+  corpses/ragdolls present); headless there is nothing to see. Left on the list with the knob to try
+  first: fewer live ragdolls (`ClownRagdoll` sleep after settle) if the spike tracks the corpse count.
+- `test_rattlejack` 5 headshot checks (planted feet 7 cm) and `test_klapper` "meat and bone" are
+  pre-existing failures from 21–22 Nov baselines, not touched by Drowned Front; left for their own
+  pass.
+- Aftermath kit props not placed (optional polish, M9 list) — still not.
+- The Graphics page is plain menu lines (the title menu's style); no slider, no apply/cancel. Enough
+  for a player to set it once.
+
+### Files
+`scripts/clown/clown_brain.gd` (tiers, `_near_wire`), `scripts/world/front/front_art.gd` (merge),
+`scripts/ui/graphics_settings.gd` (new), `scripts/game/game.gd` (Graphics entry, apply, locker
+guard), `scripts/world/level_art.gd` (bulb budget), 29 `*.import` files under `art/`,
+`scripts/dev/test_director.gd` (perf), this tracker, `DROWNED_FRONT_DECISIONS.md` (D-25), README.
+
+(Milestone 13: the final integration pass; detailed when done.)
