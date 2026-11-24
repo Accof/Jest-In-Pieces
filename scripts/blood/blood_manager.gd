@@ -38,6 +38,7 @@ const SPLAT2_KINDS := {mist = 6, impact = 6, castoff = 4, dripfield = 4, heavy =
 const SPLAT2_MAP := {spray = "mist", drip = "small", death = "heavy", impact = "impact", streak = "streak", small = "small", mist = "mist", castoff = "castoff", dripfield = "dripfield", heavy = "heavy"}
 const SPLAT2_FILL := {mist = 0.62, impact = 0.5, castoff = 0.75, dripfield = 0.8, heavy = 0.7, streak = 0.6, small = 0.55}
 static var splat_version := 2
+static var flat_decals := OS.get_environment("BLOOD_FLAT") == "1"   # dev: albedo only, to judge the normal/ORM maps' part
 var _decals: Array[Decal] = []
 var _born := PackedFloat32Array()
 var _next := 0
@@ -174,10 +175,17 @@ func clear() -> void:
 
 # --- splatter -----------------------------------------------------------------
 ## A bullet passing through flesh at `pos` travelling along `dir`.
-## `amount` 0..2 scales how much blood comes out.
-func spawn_hit(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false) -> void:
+## `amount` 0..2 scales how much blood comes out. `zone` ("head", "" …) and
+## `weapon` let the v2 placement pick the regime (Phase B).
+func spawn_hit(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false, zone := "", weapon := "", shot_id := -1) -> void:
 	dir = dir.normalized()
 	_burst(pos, dir, amount, oil)
+	if splat_version == 2 and not use_legacy_splatters:
+		_place_gunshot(pos, dir, amount, oil, zone, weapon, shot_id)
+		for i in 3 + int(amount * 7.0):
+			var v := dir * _rng.randf_range(0.8, 4.2) + Vector3.UP * _rng.randf_range(0.3, 2.6) + _rand_unit() * 1.3
+			add_droplet(pos, v, _rng.randf_range(0.05, 0.13), oil)
+		return
 	# Exit spray onto whatever is behind the target.
 	var rays := 2 + int(amount * 4.0)
 	for i in rays:
@@ -198,6 +206,125 @@ func spawn_hit(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false) ->
 	for i in 3 + int(amount * 7.0):
 		var v := dir * _rng.randf_range(0.8, 4.2) + Vector3.UP * _rng.randf_range(0.3, 2.6) + _rand_unit() * 1.3
 		add_droplet(pos, v, _rng.randf_range(0.05, 0.13), oil)
+
+
+# --- Phase B: placement by physics (24 Nov) ----------------------------------------------
+## How much the one big exit mark grows with the distance the blood flew: the
+## fan widens. `GUN_MIST_BASE` + amount + distance × `GUN_MIST_PER_M`, in metres.
+const GUN_MIST_BASE := 0.42
+const GUN_MIST_PER_M := 0.2
+const GUN_MIST_MAX := 1.7
+var _last_shot := -1               # a shotgun's pellets share one big mark
+
+
+## A gunshot's forward spatter: the cone's centre ray finds the surface behind
+## the man; ONE mist decal lands there, sized by the distance flown and the
+## hit's amount, stretched along the travel's projection (a shallow angle
+## draws the fan out), the fan's wide end away from the shooter. Close or hard
+## hits put an impact on top (the mass); a headshot a heavy with its drips.
+## A handful of small drops are re-raycast round it, a little back spatter
+## toward the shooter, a few drops on the floor beneath. A shotgun's pellets
+## share the one big mark (the first pellet of a shot places it).
+func _place_gunshot(pos: Vector3, dir: Vector3, amount: float, oil: bool, zone: String, weapon: String, shot_id: int) -> void:
+	var pellet := shot_id >= 0 and shot_id == _last_shot
+	if shot_id >= 0:
+		_last_shot = shot_id
+	var head := zone == "head"
+	var d := (dir + _rand_unit() * 0.05).normalized()
+	var reach := 2.6 + 3.0 * amount
+	var hit := _ray(pos + d * 0.05, pos + d * reach)
+	if not hit.is_empty() and not pellet:
+		var n: Vector3 = (hit.normal as Vector3).normalized()
+		var dist: float = pos.distance_to(hit.position)
+		var facing: float = absf(d.dot(n))
+		var along: Vector3 = d - n * d.dot(n)
+		var size := clampf(GUN_MIST_BASE + 0.35 * amount + dist * GUN_MIST_PER_M, 0.45, GUN_MIST_MAX)
+		if head:
+			size *= 1.25
+		var shotgun := weapon.containsn("shotgun")
+		if shotgun:
+			size = minf(size * 1.6, GUN_MIST_MAX)          # the whole charge's fan, placed by its first pellet
+			amount = maxf(amount, 1.2)
+		var stretch := 1.0 + (1.0 - facing) * 1.6
+		if facing < 0.45 and along.length() > 0.05:
+			# a graze along the surface: a dragged streak, and the mist beyond it
+			spawn_decal(hit.position, n, size * 0.6, "streak", along, 1.0, 1.0 + (1.0 - facing) * 1.2, oil)
+		spawn_decal(hit.position, n, size, "mist", along if along.length() > 0.08 else Vector3.ZERO, 1.0 / sqrt(stretch), sqrt(stretch), oil)
+		# the mass: close or hard, an impact on the mist; a headshot, a heavy that drips
+		if head and amount >= 0.8 and dist < 2.6:
+			spawn_decal(hit.position + along.normalized() * 0.04, n, clampf(0.5 + 0.3 * amount, 0.5, 0.95), "heavy", Vector3.ZERO, 1.0, 1.0, oil)
+		elif (dist < 1.3 and amount >= 0.8) or amount >= 1.3:
+			spawn_decal(hit.position, n, clampf(0.28 + 0.3 * amount, 0.3, 0.7), "impact", Vector3.ZERO, 1.0, 1.0, oil)
+		# small drops re-raycast round the mark, inside the fan
+		for i in 4 + int(amount * 5.0):
+			var dd := (d + _rand_unit() * 0.32).normalized()
+			var h2 := _ray(pos + dd * 0.05, pos + dd * (reach * 0.9))
+			if not h2.is_empty():
+				var sl: Vector3 = dd - h2.normal * dd.dot(h2.normal)
+				spawn_decal(h2.position, h2.normal, _rng.randf_range(0.03, 0.09) * (1.0 + 0.4 * amount), "small", sl, 1.0, 1.0 + sl.length() * 1.5, oil)
+	elif not hit.is_empty() and pellet:
+		# one more pellet of the same shot: a drop or two in the fan, no second mark
+		for i in 2:
+			var dd := (d + _rand_unit() * 0.3).normalized()
+			var h2 := _ray(pos + dd * 0.05, pos + dd * reach)
+			if not h2.is_empty():
+				spawn_decal(h2.position, h2.normal, _rng.randf_range(0.03, 0.08), "small", Vector3.ZERO, 1.0, 1.0, oil)
+	if pellet:
+		return
+	# back spatter toward the shooter: a small mist and a few drops
+	var bd := (-d + _rand_unit() * 0.5).normalized()
+	var bh := _ray(pos + bd * 0.05, pos + bd * 1.8)
+	if not bh.is_empty():
+		var bal: Vector3 = bd - bh.normal * bd.dot(bh.normal)
+		spawn_decal(bh.position, bh.normal, _rng.randf_range(0.22, 0.4) * (0.8 + 0.4 * amount), "mist", bal, 1.0, 1.0, oil)
+	for i in 1 + int(amount * 2.0):
+		var bd2 := (-d + _rand_unit() * 0.8).normalized()
+		var bh2 := _ray(pos + bd2 * 0.05, pos + bd2 * 1.6)
+		if not bh2.is_empty():
+			spawn_decal(bh2.position, bh2.normal, _rng.randf_range(0.03, 0.07), "small", Vector3.ZERO, 1.0, 1.0, oil)
+	# drops straight down onto the floor beneath the wound
+	for i in 2 + int(amount * 2.0):
+		var fd := (Vector3.DOWN + _rand_unit() * 0.32).normalized()
+		var fh := _ray(pos, pos + fd * 2.6)
+		if not fh.is_empty():
+			spawn_decal(fh.position, fh.normal, _rng.randf_range(0.04, 0.1), "small", Vector3.ZERO, 1.0, 1.0, oil)
+
+
+## Blood flung off something bloody moving fast (a severed limb, a swung club,
+## a tumbling body): an arc on the nearest surface in the plane of its motion.
+## `vel` is the thing's velocity; the arc's tangent follows it.
+func cast_off(pos: Vector3, vel: Vector3, amount: float = 1.0, oil := false) -> void:
+	if splat_version != 2 or use_legacy_splatters or vel.length() < 2.0:
+		return
+	var m := vel.normalized()
+	# surfaces beside the path: a ring of rays round the motion
+	var best := {}
+	var best_d := 9.0
+	for i in 6:
+		var a := TAU * (i + _rng.randf()) / 6.0
+		var side := m.cross(Vector3.UP).normalized() if absf(m.y) < 0.9 else Vector3.RIGHT
+		var up := side.cross(m).normalized()
+		var rd := (side * cos(a) + up * sin(a) + m * 0.3).normalized()
+		var h := _ray(pos, pos + rd * 1.4)
+		if not h.is_empty():
+			var dd: float = pos.distance_to(h.position)
+			if dd < best_d:
+				best_d = dd
+				best = h
+	if best.is_empty():
+		return
+	var n: Vector3 = best.normal.normalized()
+	var along: Vector3 = m - n * m.dot(n)
+	var size := clampf(0.8 + 0.4 * amount + best_d * 0.3, 0.8, 1.7)
+	spawn_decal(best.position, n, size, "castoff", along, 1.0, 1.0, oil)
+
+
+## A wall beside a body bleeding out against it: drops that ran (Phase B's
+## volume regime). Placed once per bleed by the gore module.
+func drip_field(pos: Vector3, normal: Vector3, size: float, oil := false) -> void:
+	if splat_version != 2 or use_legacy_splatters:
+		return
+	spawn_decal(pos, normal, size, "dripfield", Vector3.UP, 1.0, 1.0, oil)
 
 
 ## A single falling drop, for wounds that keep bleeding.
@@ -243,8 +370,11 @@ func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along
 	var set_: Dictionary = _tex_oil if oil else _tex
 	var pair: Array = set_[kind][_rng.randi() % set_[kind].size()]
 	d.texture_albedo = pair[0]
-	d.texture_normal = pair[1]
-	d.texture_orm = pair[2]
+	d.texture_normal = pair[1] if not flat_decals else null
+	# (Phase B) v2 decals carry no ORM: a wet roughness turned a lamp into a
+	# broad highlight that washed the colour out of every mass; the surface's
+	# own roughness stays, the blood keeps its colour
+	d.texture_orm = (pair[2] if splat_version != 2 else null) if not flat_decals else null
 	# each one a little different: size, angle, and a shade darker, redder or browner
 	size *= _rng.randf_range(0.88, 1.14)
 	if along.length() > 0.01:
@@ -260,7 +390,7 @@ func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along
 			z = y.cross(Vector3.RIGHT)
 	z = -z.normalized()                 # texture "up" is the decal's -Z
 	var x := y.cross(z).normalized()
-	d.size = Vector3(size * stretch_x, 0.3, size * stretch_z)
+	d.size = Vector3(size * stretch_x, (clampf(0.1 + 0.2 * size, 0.12, 0.4) if splat_version == 2 else 0.3), size * stretch_z)
 	d.global_transform = Transform3D(Basis(x, y, z), pos)
 	d.modulate = _tint[(_next - 1 + MAX_DECALS) % MAX_DECALS]
 	d.visible = true

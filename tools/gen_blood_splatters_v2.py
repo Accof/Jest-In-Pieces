@@ -218,8 +218,10 @@ def finish(c: Canvas, name: str, out_dir: str, edge_break=0.08, wet=1.0, seed=0)
     hue = value_noise((R, R), 160, seed + 5, 2)
     # (24 Nov, Andrew on the first in-game look: "too big, wrong colour, too
     # bright") darker throughout: the thin edges a deep red, not pink
-    thin = np.array([0.40, 0.025, 0.02], dtype=np.float32)
-    deep = np.array([0.075, 0.004, 0.005], dtype=np.float32)
+    # (second correction) real blood's albedo is low: thin edges ~0.2 linear
+    # (a saturated red under light, salmon only when lit hard), thick near-black
+    thin = np.array([0.21, 0.012, 0.010], dtype=np.float32)
+    deep = np.array([0.045, 0.003, 0.004], dtype=np.float32)
     k = (thick ** 0.7)[..., None]
     rgb = thin * (1.0 - k) + deep * k
     rgb = rgb * (0.9 + 0.2 * hue[..., None])
@@ -234,7 +236,7 @@ def finish(c: Canvas, name: str, out_dir: str, edge_break=0.08, wet=1.0, seed=0)
     h = Image.fromarray((thick * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(1.5))
     hh = np.asarray(h).astype(np.float32) / 255.0 * 0.9
     gy, gx = np.gradient(hh)
-    nx = -gx * 3.0; ny = gy * 3.0; nz = np.ones_like(hh)
+    nx = -gx * 1.5; ny = gy * 1.5; nz = np.ones_like(hh)
     l = np.sqrt(nx * nx + ny * ny + nz * nz)
     nrm = np.stack([nx / l, ny / l, nz / l], -1) * 0.5 + 0.5
     Image.fromarray((nrm * 255).astype(np.uint8), "RGB").resize((OUT_AUX, OUT_AUX), Image.BOX).save(os.path.join(out_dir, f"splat_{name}_n.png"))
@@ -254,18 +256,18 @@ def gen_mist(i):
     oy = R * 0.8
     n = int(rng.integers(14000, 24000))
     # the haze first: a wide fan of blood too fine to resolve
-    c.wash(ox, oy - R * 0.22, R * 0.3, 0.12, 1.3, UP, seed=i)
+    c.wash(ox, oy - R * 0.22, R * 0.3, 0.08, 1.3, UP, seed=i)
     # the fan: a dense core along the travel line, a wide base, and the fast
     # fine specks far out; sizes many tiny, few medium; the fan is broad
     c.specks(int(n * 0.55), (ox, oy), 0.55, UP, R * 0.36, R * 0.2, 0.8, 9.0, 2.15, tails=True, thick=1.0)
     c.specks(int(n * 0.3), (ox, oy), 0.8, UP, R * 0.22, R * 0.14, 0.8, 5.0, 2.3, tails=False, thick=0.9)
     c.specks(int(n * 0.15), (ox, oy), 1.2, UP, R * 0.12, R * 0.12, 0.8, 3.0, 2.3, tails=False, thick=0.8)
     # mid-sized torn splotches in the core, and larger drops with tails
-    c.splotches(int(rng.integers(6, 16)), ox, oy - R * 0.2, R * 0.12, 8, 26, 0.9, seed=700 + i * 20)
-    for _ in range(int(rng.integers(12, 28))):
-        a = UP + rng.normal(0, 0.45)
-        d = rng.uniform(R * 0.1, R * 0.55)
-        c.drop(ox + math.cos(a) * d, oy + math.sin(a) * d, rng.uniform(5, 14), 1.9, a, 0.95, rng.uniform(14, 70))
+    c.splotches(int(rng.integers(10, 22)), ox, oy - R * 0.2, R * 0.13, 8, 30, 0.95, seed=700 + i * 20)
+    for _ in range(int(rng.integers(50, 110))):
+        a = UP + rng.normal(0, 0.5)
+        d = abs(rng.normal(R * 0.22, R * 0.14)) + R * 0.05
+        c.drop(ox + math.cos(a) * d, oy + math.sin(a) * d, rng.uniform(4, 15), 1.9, a, 0.95, rng.uniform(10, 70))
     return c, 0.05
 
 
@@ -379,12 +381,12 @@ def gen_dripfield(i):
     for _ in range(n):
         x = np.clip(fx + rng.normal(0, R * 0.17), R * 0.06, R * 0.94)
         y = np.clip(fy + rng.normal(0, R * 0.12), R * 0.06, R * 0.6)
-        r = rng.uniform(8, 30)
+        r = rng.uniform(12, 40)
         c.drop(x, y, r, 1.15, math.pi / 2, 1.0)
         for _k in range(int(rng.integers(2, 9))):
             c.drop(x + rng.normal(0, r * 2.2), y + rng.normal(0, r * 2.2), rng.uniform(0.8, r * 0.25), 1.3, rng.random() * 6.28, 0.85)
         if rng.random() < 0.8:
-            c.run(x, y + r * 0.4, rng.uniform(30, 700) * (r / 14.0) ** 0.6, r * 0.42, 0.95, 1.25, wobble=4.0)
+            c.run(x, y + r * 0.4, rng.uniform(30, 700) * (r / 14.0) ** 0.6, r * 0.5, 1.0, 1.25, wobble=4.0)
     # fine specks between
     c.specks(int(rng.integers(300, 900)), (R * 0.5, R * 0.3), 3.0, 0.0, R * 0.25, R * 0.15, 0.6, 3.0, 2.4, tails=False, thick=0.5, far_small=False)
     return c, 0.08

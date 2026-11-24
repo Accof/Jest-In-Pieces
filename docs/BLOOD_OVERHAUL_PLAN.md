@@ -220,3 +220,35 @@ landings had come out ~1.7× their old size (the fill factor), the thin-edge col
 wet gloss so low in roughness that a thick mass under a lamp went pale with its own highlight. Fixed
 in the same phase: landings halved, the palette darkened throughout (thin edges deep red, centres
 near-black), drops opaque, roughness floor 0.47, normal bumps halved, the mist haze fainter.
+
+## 9. Phase B — done 24 Nov, awaiting his eye
+`Blood.spawn_hit(pos, dir, amount, oil, zone, weapon, shot_id)` (the clown passes zone "head",
+the weapon's name and the shot id) now places by regime in the v2 path (`_place_gunshot`):
+- **Gunshot:** the cone's centre ray (3° jitter) to 2.6 + 3·amount m; ONE mist where it lands,
+  `0.42 + 0.35·amount + 0.2·distance` m (0.45–1.7; ×1.25 for a headshot, ×1.6 for a shotgun's
+  charge), stretched `1 + 1.6·(1 − |cos incidence|)` along the travel's projection, the fan's wide
+  end away from the shooter; a graze (incidence under 27°) draws a dragged streak under it. The mass
+  on top: a headshot within 2.6 m gets a **heavy** (0.5–0.95 m, drips hanging down the wall); a hard
+  or close body hit an **impact**. 4–9 small drops re-raycast inside the fan; back spatter toward the
+  shooter (a 0.22–0.4 m mist and 1–3 drops); 2–4 drops straight down to the floor. A shotgun's
+  pellets share the one mark (the first pellet places it; the rest add a drop or two).
+- **Cast-off:** `Blood.cast_off(pos, vel, amount)` — a ring of rays round the motion finds the
+  nearest surface within 1.4 m and lays an arc (0.8–1.7 m) with its tangent along the motion. Fired
+  by a severed part's first fast knock against the world (`Gib`, contact monitoring on).
+- **Volume:** `Blood.drip_field(pos, normal, size)` — a man who bled out within 0.55 m of a wall
+  leaves the drops that ran down it (0.8–1.2 m), once per bleed, when his pool starts
+  (`ClownGore`).
+- Decal depth is now by size (0.12–0.4 m) so a splat hugs a battered wall instead of sinking in.
+The library's thin colour was darkened a second time (linear 0.21 red: real blood's albedo; the
+0.40 of the first fix still read salmon under a lamp), the mist got 50–110 mid-size drops and torn
+splotches so it has structure at a metre, the drip field bolder drops.
+Tests: `test_blood` (new, 15 checks: one mist a rifle hit of the right size, no mass; a heavy on a
+headshot, flat on the wall; eight pellets one fan; a graze streaks; cast-off arcs only within reach;
+drip fields; nothing floats; depths), 0 failed. Pools/death/blast/limbs/throat suites as baseline
+(`test_pools` is flaky on its own: 1–2 different physics checks fail run to run, also with every
+Phase B change reverted). `look_blood.tscn -- --regimes [--dim]` renders the six regimes on the wall.
+Found by experiment (`BLOOD_FLAT=1`, albedo-only decals beside the full ones): the pale, washed
+masses under a lamp were the decal's ORM/normal maps — a wet roughness turned the light into a broad
+highlight across every thick mass. v2 decals now carry no ORM (the surface keeps its own roughness)
+and a half-strength normal; the masses are dark red under the harshest light in the room. The wet
+sheen can come back under control in Phase D if wanted.

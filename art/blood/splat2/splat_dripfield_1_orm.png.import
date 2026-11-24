@@ -2,22 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://kf86i4d775pg"
-path.bptc="res://.godot/imported/splat_dripfield_1_orm.png-7ea10410bae43ce9d391acc1f50fe34e.bptc.ctex"
+uid="uid://rgmsxq6ev3pe"
+path="res://.godot/imported/splat_dripfield_1_orm.png-7ea10410bae43ce9d391acc1f50fe34e.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
-"vram_texture": true
+"vram_texture": false
 }
 
 [deps]
 
 source_file="res://art/blood/splat2/splat_dripfield_1_orm.png"
-dest_files=["res://.godot/imported/splat_dripfield_1_orm.png-7ea10410bae43ce9d391acc1f50fe34e.bptc.ctex"]
+dest_files=["res://.godot/imported/splat_dripfield_1_orm.png-7ea10410bae43ce9d391acc1f50fe34e.ctex"]
 
 [params]
 
-compress/mode=2
-compress/high_quality=true
+compress/mode=0
+compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
 compress/rdo_quality_loss=0.0

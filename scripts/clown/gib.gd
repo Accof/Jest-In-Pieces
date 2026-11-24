@@ -6,6 +6,7 @@ extends RigidBody3D
 var oil := false
 var _pooled := false
 var _still := 0.0
+var _cast := false      # the cast-off arc thrown once (Phase B)
 var _age := 0.0
 var _drip := 0.0
 
@@ -26,6 +27,8 @@ func setup(mesh: Mesh, shape: CollisionShape3D, body_mass: float) -> void:
 	pm.bounce = 0.05
 	physics_material_override = pm
 	continuous_cd = true
+	contact_monitor = true           # (Phase B) the first knock throws its cast-off arc
+	max_contacts_reported = 2
 
 
 func _physics_process(delta: float) -> void:
@@ -37,6 +40,10 @@ func _physics_process(delta: float) -> void:
 	if _drip <= 0.0 and _age < 3.0:
 		_drip = randf_range(0.08, 0.2)
 		Blood.add_droplet(global_position, linear_velocity * 0.4 + Vector3(randf_range(-0.5, 0.5), 0.3, randf_range(-0.5, 0.5)), randf_range(0.04, 0.09), oil)
+	# flung blood: the first fast knock against the world throws an arc on it
+	if not _cast and _age > 0.05 and _age < 2.5 and linear_velocity.length() > 2.5 and get_contact_count() > 0:
+		_cast = true
+		Blood.cast_off(global_position, linear_velocity, 0.8, oil)
 	_still = _still + delta if linear_velocity.length() < 0.25 else 0.0
 	if _still > 0.5 or _age > 8.0:
 		var q := PhysicsRayQueryParameters3D.create(global_position + Vector3.UP * 0.1, global_position + Vector3.DOWN * 0.6, 1)

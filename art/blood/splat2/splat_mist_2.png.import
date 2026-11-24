@@ -2,22 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bpbmvmu1orlo5"
-path.bptc="res://.godot/imported/splat_mist_2.png-9dc957761afffc3ae6230d8c5da630a3.bptc.ctex"
+uid="uid://c2ayablu7cej4"
+path="res://.godot/imported/splat_mist_2.png-9dc957761afffc3ae6230d8c5da630a3.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
-"vram_texture": true
+"vram_texture": false
 }
 
 [deps]
 
 source_file="res://art/blood/splat2/splat_mist_2.png"
-dest_files=["res://.godot/imported/splat_mist_2.png-9dc957761afffc3ae6230d8c5da630a3.bptc.ctex"]
+dest_files=["res://.godot/imported/splat_mist_2.png-9dc957761afffc3ae6230d8c5da630a3.ctex"]
 
 [params]
 
-compress/mode=2
-compress/high_quality=true
+compress/mode=0
+compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
 compress/rdo_quality_loss=0.0

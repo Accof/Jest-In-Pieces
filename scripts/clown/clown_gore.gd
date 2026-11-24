@@ -548,6 +548,14 @@ func _physics_process(delta: float) -> void:
 			if not hit.is_empty() and hit.normal.y > 0.6:
 				Blood.spawn_pool(hit.position, hit.normal, (0.2 + 0.24 * b.amount) * _rng.randf_range(0.9, 1.15), clown.mechanical)
 				b.pooled = true
+				# (Phase B) bled out against a wall: the drops that ran down it
+				var wd := Vector3(_rng.randf_range(-1, 1), 0, _rng.randf_range(-1, 1)).normalized()
+				for k in 4:
+					var wq := PhysicsRayQueryParameters3D.create(pos + Vector3.UP * 0.25, pos + Vector3.UP * 0.25 + wd.rotated(Vector3.UP, k * TAU / 4.0) * 0.55, LAYER_WORLD)
+					var wall := space.intersect_ray(wq)
+					if not wall.is_empty() and absf(wall.normal.y) < 0.4:
+						Blood.drip_field(wall.position + Vector3.UP * 0.3, wall.normal, (0.8 + 0.4 * b.amount) * _rng.randf_range(0.85, 1.2), clown.mechanical)
+						break
 			elif clown.ragdoll.is_settled:
 				b.pooled = true
 	if not open and clown.ragdoll.is_settled and _spurts.is_empty() and _impact_left <= 0.0:

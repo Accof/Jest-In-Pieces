@@ -129,6 +129,10 @@ func _run() -> void:
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 	Blood.clear()
+	if "--regimes" in OS.get_cmdline_user_args():
+		await _regimes()
+		get_tree().quit()
+		return
 	if "--legacy" in OS.get_cmdline_user_args():
 		Blood.use_legacy_splatters = true
 		Blood._load_splatters()
@@ -176,4 +180,34 @@ func _run() -> void:
 	cam.position = Vector3(-W * 2.0, 1.1, -0.6)
 	cam.look_at(Vector3(-W * 2.5 + 0.2, 0.9, -D * 0.5))
 	await _shot("close_wall")
+	await _regimes()
 	get_tree().quit()
+
+
+## (Phase B) the regimes against the wall, one a strip, a man's height off the
+## wall, as the game fires them: a rifle chest hit at 1.3 m, a revolver headshot
+## at 0.8 m, a shotgun at 2 m, a graze along the wall, a cast-off and a drip field.
+func _regimes() -> void:
+	Blood.clear()
+	await get_tree().physics_frame
+	var n := STRIPS.size()
+	var wz := -D * 0.5
+	var xs: Array[float] = []
+	for i in n:
+		xs.append((float(i) - (n - 1) * 0.5) * W)
+	Blood.spawn_hit(Vector3(xs[0], 1.3, wz + 1.3), Vector3(0.0, -0.05, -1.0), 1.0, false, "", "Rifle", 1)
+	Blood.spawn_hit(Vector3(xs[1], 1.6, wz + 0.8), Vector3(0.05, -0.1, -1.0), 1.4, false, "head", "Revolver", 2)
+	for k in 8:
+		Blood.spawn_hit(Vector3(xs[2] + randf_range(-0.12, 0.12), 1.2 + randf_range(-0.15, 0.15), wz + 2.0), Vector3(randf_range(-0.08, 0.08), randf_range(-0.12, 0.0), -1.0), 0.5, false, "", "Shotgun", 3)
+	Blood.spawn_hit(Vector3(xs[3] - 0.5, 1.2, wz + 0.25), Vector3(0.9, -0.1, -0.35).normalized(), 1.0, false, "", "Rifle", 4)
+	Blood.cast_off(Vector3(xs[4], 1.1, wz + 0.5), Vector3(3.0, 1.0, -2.0), 1.0)
+	Blood.drip_field(Vector3(xs[5], 1.1, wz + 0.02), Vector3(0, 0, 1), 1.1)
+	await _wait(1.0)
+	for i in n:
+		cam.position = Vector3(xs[i], 1.3, wz + 2.4)
+		cam.look_at(Vector3(xs[i], 1.1, wz))
+		await _shot("regime_%d" % i)
+	cam.position = Vector3(0.0, 1.6, wz + 5.5)
+	cam.look_at(Vector3(0.0, 1.0, wz))
+	await _shot("regimes_wide")
+
