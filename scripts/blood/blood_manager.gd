@@ -26,6 +26,18 @@ var _tint := PackedColorArray()         # each decal's own colour variation (dry
 ## glossy ORM) is kept and comes back with this switch.
 @export var use_legacy_splatters := false
 const SPLAT_KINDS := {spray = 6, impact = 5, small = 4, streak = 4, drip = 3, death = 4}
+## (24 Nov, the blood overhaul's Phase A) The v2 library (tools/gen_blood_splatters_v2.py,
+## art/blood/splat2/): built against Andrew's reference photographs - a gunshot's
+## mist of thousands of specks, impacts with fingers and drips, cast-off arcs,
+## drip fields, heavy masses, dragged streaks, single droplets. 1024 colour,
+## 512 normal/ORM. `splat_version = 1` brings the old set back. The old kind
+## names callers use map onto it (SPLAT2_MAP); castoff and dripfield wait for
+## Phase B's placement. `SPLAT2_FILL` is how much of the texture's height each
+## kind's shape fills, so a size asked for in metres is the shape's size.
+const SPLAT2_KINDS := {mist = 6, impact = 6, castoff = 4, dripfield = 4, heavy = 4, streak = 4, small = 8}
+const SPLAT2_MAP := {spray = "mist", drip = "small", death = "heavy", impact = "impact", streak = "streak", small = "small", mist = "mist", castoff = "castoff", dripfield = "dripfield", heavy = "heavy"}
+const SPLAT2_FILL := {mist = 0.62, impact = 0.5, castoff = 0.75, dripfield = 0.8, heavy = 0.7, streak = 0.6, small = 0.3}
+static var splat_version := 2
 var _decals: Array[Decal] = []
 var _born := PackedFloat32Array()
 var _next := 0
@@ -122,6 +134,15 @@ func _load_splatters() -> void:
 			_tex_oil[spec[0]] = oil
 		_tex["small"] = _tex["spray"]; _tex_oil["small"] = _tex_oil["spray"]
 		_tex["death"] = _tex["impact"]; _tex_oil["death"] = _tex_oil["impact"]
+	elif splat_version == 2:
+		# oil has no textures of its own in v2: the same shapes, modulated near-black
+		for kind: String in SPLAT2_KINDS:
+			var list := []
+			for i in int(SPLAT2_KINDS[kind]):
+				var base := "res://art/blood/splat2/splat_%s_%d" % [kind, i]
+				list.append([load(base + ".png"), load(base + "_n.png"), load(base + "_orm.png")])
+			_tex[kind] = list
+			_tex_oil[kind] = list
 	else:
 		for kind: String in SPLAT_KINDS:
 			var list := []
@@ -209,6 +230,14 @@ func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along
 	_next = (_next + 1) % MAX_DECALS
 	if kind == "impact" and size >= 0.6:
 		kind = "death"                  # a body's worth: the broad death splatters
+	if splat_version == 2 and not use_legacy_splatters:
+		kind = SPLAT2_MAP.get(kind, kind)
+		size /= float(SPLAT2_FILL.get(kind, 0.6))      # the shape is `size` across, not the texture
+		# on a wall the kinds with drips hang them downward: the texture's up
+		# is the world's up there (a mist keeps the travel direction: it is
+		# the fan of the shot, and a shot straight at a wall fans every way)
+		if kind in ["impact", "heavy", "dripfield", "streak"] and absf(normal.normalized().y) < 0.6:
+			along = Vector3.UP
 	var set_: Dictionary = _tex_oil if oil else _tex
 	var pair: Array = set_[kind][_rng.randi() % set_[kind].size()]
 	d.texture_albedo = pair[0]
@@ -220,7 +249,7 @@ func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along
 		along = along.rotated(normal.normalized(), _rng.randf_range(-0.18, 0.18))
 	var shade := _rng.randf_range(0.82, 1.06)
 	var brown := _rng.randf_range(0.0, 0.12)
-	_tint[(_next - 1 + MAX_DECALS) % MAX_DECALS] = Color(shade, shade * (1.0 + brown * 1.6), shade * (1.0 + brown * 0.6), 1.0) if not oil else FRESH
+	_tint[(_next - 1 + MAX_DECALS) % MAX_DECALS] = Color(shade, shade * (1.0 + brown * 1.6), shade * (1.0 + brown * 0.6), 1.0) if not oil else (Color(0.12, 0.11, 0.1, 1.0) if splat_version == 2 else FRESH)
 	var y := normal.normalized()
 	var z := along - y * along.dot(y)
 	if z.length() < 0.01:

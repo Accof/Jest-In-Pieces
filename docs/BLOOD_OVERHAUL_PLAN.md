@@ -202,3 +202,15 @@ A–D. Each phase ends with renders in the look room and the real game at night 
 5. More references of spray in the air still welcome.
 
 Phase A starts on his word.
+
+## 8. Phase A — done 24 Nov (commit below), awaiting his eye
+`tools/gen_blood_splatters_v2.py` → `art/blood/splat2/` (36 textures: mist ×6, impact ×6, castoff
+×4, dripfield ×4, heavy ×4, streak ×4, small ×8; 1024 colour + 512 normal/ORM, BC7; plus
+`drip_mask.png` for Phase D). Built as thickness fields at 2048: specks on a power-law size spread
+flung in fans with tails pointing back at the origin, torn masses, splash fingers, drips with beads
+and a slow wander, a translucent haze round every mass, dragged streaks; coloured by thickness (thin
+edges bright arterial, thick centres dark), box-filtered to 1024. Three passes against the five
+references (`blood_phaseA_vs_references.png`). Wired into `BloodManager` (`splat_version = 2`,
+`SPLAT2_MAP` for the old kind names, `SPLAT2_FILL` so a size in metres is the shape's size, drips
+hang downward on walls, oil by modulate). The look room renders with it; pools/death/blast suites
+unchanged. Sizes and placement are still the old ones — that is Phase B.
