@@ -20,7 +20,7 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 10 | Enemy trench suspense (catalogue 7–8, region pacing, audio foreground) | **done, awaiting playtest** | commit `1c98bed` | user playtest |
 | 11 | Procedural variants (smoke / barrage / MG / flare-lit) + the light dimension | **done, awaiting review** | commits `0c9dcfa`, `8e246c6`, `96f381e`, `1c8a0b8` | user review |
 | 12 | Performance and polish | **done, awaiting his measurements** | commit `46e76e6` | user review |
-| 13 | Final integration | **done, awaiting FINAL APPROVAL** | commit M13 | **final approval (his)** |
+| 13 | Final integration | **done, awaiting FINAL APPROVAL** | commit `2a48880` | **final approval (his)** |
 
 **Performance baseline on the Mac: MEASURED 23 Nov** (Apple M2, ~1900 × 1000, Metal/Forward+): bunker 27 → 60 fps, Front 12–22 → 58 fps standing still, after the light, fog, batching and shadow fixes and FSR 1 at 0.75 recorded in the performance note below; combat not yet measured (M12).
 
