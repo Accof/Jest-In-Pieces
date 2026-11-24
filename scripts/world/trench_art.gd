@@ -555,7 +555,7 @@ func _revetments() -> void:
 					_broken(planks, timber, foot, up, along, inn, length, h)
 			if t != "broken":
 				# collision for the lining: thin, just behind its face
-				_collide(foot + up * (h * 0.5) - inn * 0.03, basis, Vector3(length, h, 0.08), {"timber": "wood", "iron": "metal", "wattle": "wattle", "sandbag": "sandbag"}.get(t, "earth"))
+				_lining_collide(t, foot, up, inn, basis, length, h)
 
 
 ## How much of a wall a lining covers, the same along a stretch of trench.
@@ -575,6 +575,12 @@ func _posts(mat: Material, foot: Vector3, up: Vector3, along: Vector3, inn: Vect
 
 
 ## Sandbags laid in courses, header and stretcher, set back a little each course.
+## The lining's collision and what a bullet finds there (Impacts, M5). The
+## Front overrides it for its sandbag walls (M13).
+func _lining_collide(t: String, foot: Vector3, up: Vector3, inn: Vector3, basis: Basis, length: float, h: float) -> void:
+	_collide(foot + up * (h * 0.5) - inn * 0.03, basis, Vector3(length, h, 0.08), {"timber": "wood", "iron": "metal", "wattle": "wattle", "sandbag": "sandbag"}.get(t, "earth"))
+
+
 func _bag_wall(mesh: Mesh, mat: Material, foot: Vector3, along: Vector3, inn: Vector3, length: float, h: float) -> void:
 	var rows := int(h / (BAG.y * 0.92))
 	for r in rows:

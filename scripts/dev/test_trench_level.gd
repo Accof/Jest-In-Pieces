@@ -774,7 +774,7 @@ func _top() -> void:
 			var r0 := d.brain.rounds_fired
 			d.brain.alert(below, false)
 			await _frames(60 * 10)
-			print("        %s %s up top, the player %.1f m off and %.1f m below: %d rounds, now %s" % [d.name_of(), d.clown.body, Vector2(below.x - me.x, below.z - me.z).length(), me.y - 1.5 - below.y, d.brain.rounds_fired - r0, "on top" if m.on_top(d.clown.global_position) else "in the trench"])
+			print("        %s %s up top, the player %.1f m off and %.1f m below: %d rounds, now %s (mind %s, aim_t %.2f, cooldown %.2f, cycling %s, aim %.2f, tier %d, cover %d)" % [d.name_of(), d.clown.body, Vector2(below.x - me.x, below.z - me.z).length(), me.y - 1.5 - below.y, d.brain.rounds_fired - r0, "on top" if m.on_top(d.clown.global_position) else "in the trench", d.brain.mind, d.brain._aim_t, d.brain._cooldown, d.clown.cycling(), d.clown.aim_amount, d.brain.sim_every(), d.brain._cover_state] + (" cover_t %.1f peek_rise %s linger %.2f supp %.2f muzzle %s to_peek %.2f unseen %.1f aim_time %.2f" % [d.brain._cover_t, d.brain._peek_rise, d.brain._linger, d.brain.suppression, d.brain._muzzle_clear(), d.clown.global_position.distance_to(d.brain._peek) if d.brain._peek != Vector3.INF else -1.0, d.brain._unseen, d.brain.aim_time]) + " muzzle %s -> hit %s" % [d.clown.muzzle_position(), str(_hit(d.clown.muzzle_position(), pl.global_position + Vector3.UP * pl.chest_height()))])
 			if d.brain.rounds_fired > r0:
 				down[1] += 1
 			pl.global_position = Vector3(-400, 0, -400)
@@ -2787,3 +2787,11 @@ func _light() -> void:
 			cam.look_at(views[name_][1])
 			await _frames(40 if gi < 0.5 else 150)
 			await _shot("light_%s_%s" % [name_, v.replace("=", "").replace(",", "_").replace(".", "")])
+
+
+func _hit(a: Vector3, b: Vector3) -> Dictionary:
+	var q := PhysicsRayQueryParameters3D.create(a, b, 1)
+	var h := get_tree().root.get_world_3d().direct_space_state.intersect_ray(q)
+	if h.is_empty():
+		return {}
+	return {"at": h.position, "what": h.collider.name, "parent": h.collider.get_parent().name if h.collider.get_parent() else ""}

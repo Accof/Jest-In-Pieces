@@ -643,18 +643,28 @@ func _walls() -> void:
 				await get_tree().physics_frame
 			c.begin_curse({}, c.global_position + Vector3.UP * 1.3, -c.global_basis.z)
 			var deep := -9.0
+			var who := ""
+			var when := 0.0
 			var t := 0.0
 			while t < 5.0:
 				await get_tree().physics_frame
 				t += get_physics_process_delta_time()
 				for pb: PhysicalBone3D in c.ragdoll.bones.values():
-					deep = maxf(deep, (pb.global_position.x - face_x) * side)
+					var dd := (pb.global_position.x - face_x) * side
+					if dd > deep:
+						deep = dd
+						who = pb.name + " (ragdoll)"
+						when = t
 				var sk := c.skeleton
 				if not c.ragdoll.active:
 					for b: String in ["LeftHand", "RightHand", "LeftLowerArm", "RightLowerArm"]:
 						var p := sk.global_transform * sk.get_bone_global_pose(sk.find_bone(b)).origin
-						deep = maxf(deep, (p.x - face_x) * side)
-			print("      wall %.2f m to his %s, ceiling at 2.25 m: deepest %.2f m past the wall face" % [gap, "left" if side > 0 else "right", deep])
+						var dd := (p.x - face_x) * side
+						if dd > deep:
+							deep = dd
+							who = b
+							when = t
+			print("      wall %.2f m to his %s, ceiling at 2.25 m: deepest %.2f m past the wall face (%s at %.2f s)" % [gap, "left" if side > 0 else "right", deep, who, when])
 			worst = maxf(worst, deep)
 			c.queue_free()
 			wall.queue_free()

@@ -199,7 +199,20 @@ filtering: none beyond distance attenuation and `AudioStreamPlayer3D` defaults.
 | `scenes/test_front.tscn` (`scripts/dev/test_front.gd`) | | sections `layouts`, `geo`, `game`, `views` (render). |
 
 Build cost headless in the container: ~3.8 s a floor (carve ~2.5 s of it) for 336k heightfield
-samples; the legacy floor was ~4.2 s with its battle. The Mac is unmeasured (D-10 pending).
+samples; the legacy floor was ~4.2 s with its battle. The Mac: measured 23 Nov (D-10), see the
+tracker's performance note.
+
+### 8b. The Front as finished (Milestones 3–13, where to look)
+| Area | Files |
+|---|---|
+| Terrain, craters, wire, crossings, art | `front_maze.gd`, `front_art.gd` (merged water, batching by 20 m tile), `front_fog.gd` (banks, `roll_across`), `front_atmosphere.gd` (environment, sun per light, `visibility()`) |
+| Hazards | `front_threats.gd` (nests, flares), `front_mg.gd`, `front_artillery.gd`, `front_flares.gd` |
+| Director | `front_director.gd` (catalogue of 10 events, modes, budgets, lifecycle, region pacing, overlay), `squad.gd` |
+| Variants and light | `front_variant.gd` (`Kind` BASE/SMOKE/BARRAGE/MG × `Light` DAY/DAWN/NIGHT; `knobs()`) |
+| Shared systems touched | `clown_brain.gd` (perception through visibility, simulation tiers, cover robustness), `battle_duty.gd` (`relocate`), `clown.gd` (enemy rifle hold, rifle deaths, wall slide), `trench_ambience.gd` (muffle/foreground), `sfx_synth.gd` (voices), `level_art.gd` (bulb budget respects the graphics choice), `game.gd` (environments per light, director spawner, Graphics page) |
+| Player-facing settings | `scripts/ui/graphics_settings.gd` → `user://graphics.cfg` |
+| Tests | `test_front` (layouts, geo, crossing, atmosphere, variants, renders), `test_threats`, `test_objective`, `test_director` (11 sections), `test_impacts` |
+| Dev entry | `scenes/play_front.tscn` with `seed= variant= light= god perf= director_log noshadows nopost nofog scale= fsr1=`; keys F3 overlay, F4 director off, F5 force event, F6 flare, G god |
 
 ## 9. Integration risks found in the code
 

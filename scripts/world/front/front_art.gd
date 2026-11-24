@@ -224,6 +224,20 @@ func _fire_steps() -> void:
 var _wire_body: StaticBody3D
 
 
+## (M13) The Front's walls are battered back 0.6 m (D-18) but a sandbag wall
+## is stacked upright at the foot, so the legacy collision box (thin, leaning
+## back with the wall) ended up inside the mound and a round into the bags
+## found mud. The sandbag lining's collision is the stack itself: upright,
+## a bag deep, at the face. The other linings keep the legacy placement.
+func _lining_collide(t: String, foot: Vector3, up: Vector3, inn: Vector3, basis: Basis, length: float, h: float) -> void:
+	if t != "sandbag":
+		super._lining_collide(t, foot, up, inn, basis, length, h)
+		return
+	var along := basis.x
+	var upright := Basis(along, Vector3.UP, along.cross(Vector3.UP)).orthonormalized()
+	_collide(foot + Vector3.UP * (h * 0.5) + inn * (TrenchArt.BAG.z * 0.5), upright, Vector3(length, h, TrenchArt.BAG.z), "sandbag")
+
+
 func _wire() -> void:
 	if front == null:
 		super._wire()

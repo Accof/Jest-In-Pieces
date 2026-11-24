@@ -18,17 +18,19 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | **done, awaiting playtest** | commit `b76ea70` | user playtest |
 | 9 | Expanded battlefield activity (catalogue 4–6, 9–10, squad) | **done, awaiting review** | commit `f3bc059` | user review |
 | 10 | Enemy trench suspense (catalogue 7–8, region pacing, audio foreground) | **done, awaiting playtest** | commit `1c98bed` | user playtest |
-| 11 | Procedural variants (smoke / barrage / MG / flare-lit) | **done, awaiting review** | commit M11 | user review |
-| 12 | Performance and polish | not started | | user review |
-| 13 | Final integration | not started | | final approval |
+| 11 | Procedural variants (smoke / barrage / MG / flare-lit) + the light dimension | **done, awaiting review** | commits `0c9dcfa`, `8e246c6`, `96f381e`, `1c8a0b8` | user review |
+| 12 | Performance and polish | **done, awaiting his measurements** | commit `46e76e6` | user review |
+| 13 | Final integration | **done, awaiting FINAL APPROVAL** | commit M13 | **final approval (his)** |
 
 **Performance baseline on the Mac: MEASURED 23 Nov** (Apple M2, ~1900 × 1000, Metal/Forward+): bunker 27 → 60 fps, Front 12–22 → 58 fps standing still, after the light, fog, batching and shadow fixes and FSR 1 at 0.75 recorded in the performance note below; combat not yet measured (M12).
 
-**Next action:** Andrew reviews **Milestone 7** — press **F3** on the Front for the director overlay and
-watch tension/alertness as he plays (shoot, get shot at, cross into their lines; note that their
-lines' alertness only moves when one of theirs sees or hears something). Milestone 8 (the first three
-events: lone silhouette, bridge reinforcements, parapet firefight) only on his word. Still his: the
-brightness of the cold grey (D-18) by eye, the M6 feel under fire, whether FSR 0.75 reads fine.
+**Next action (24 Nov): the project is built; Andrew plays it.** Everything in the package's thirteen
+milestones is implemented and committed; what remains is his: the playtests he has not yet done
+(M2–M11 — in practice one run of `scenes/play_front.tscn` across a few seeds and lights covers them),
+the Mac budget numbers for M12, the `project.godot` / `override.cfg` decision, `_to_delete/` to the
+bin, and `git push origin main --tags`. The Milestone 13 record below has the regression table
+against the Session-Zero baseline, the restore proof and the acceptance walk with its known limits;
+his word on that list is the final approval.
 
 ### Decisions taken by Andrew on 22 Nov (answers to Session Zero's questions)
 1. Performance: 60 fps at his normal development resolution; measure the real baseline on the Mac
@@ -1252,4 +1254,116 @@ gives it back.
 guard), `scripts/world/level_art.gd` (bulb budget), 29 `*.import` files under `art/`,
 `scripts/dev/test_director.gd` (perf), this tracker, `DROWNED_FRONT_DECISIONS.md` (D-25), README.
 
-(Milestone 13: the final integration pass; detailed when done.)
+## Milestone 13 — Final integration (24 Nov 2026) — DONE, AWAITING FINAL APPROVAL
+
+Authorised with M12. No new features: the whole headless suite against the Session-Zero baseline,
+the legacy restore proved again from the archive alone, the docs brought current, and the package's
+twenty acceptance points walked one by one with their known limits. Two things were found and fixed
+on the way (below); nothing else changed.
+
+### Regression (headless, container, Godot 4.7.2, `--headless --fixed-fps 60`; `/tmp/final/run_suite.sh`)
+Same scenes and command as Session Zero's table, plus the Front's own suites.
+
+| Scene | Result | Against the baseline |
+|---|---|---|
+| test_front | **0 failed** (120 checks) | new (M2–M11) |
+| test_threats | **0 failed** (33) | new (M6) |
+| test_objective | **0 failed** (76) | new (M1) |
+| test_director | **0 failed** (all 11 sections incl. M12 `perf`) | new (M7–M12) |
+| test_impacts | **0 failed** after the sandbag collision fix (below) | new (M5); 1 failed before the fix |
+| test_game, test_trench, test_events, test_cover, test_nav, test_nav -- trench | 0 FAIL | as baseline |
+| test_trench_level (legacy) | 1 failed → see below | baseline had 1 failed (a different, flaky check) |
+| test_death, test_legs, test_joints, test_smg, test_blast, test_rifle, test_mp18, test_crossbow, test_grenade, test_arms, test_anim_ref, test_stairs_walk, test_wander, test_base, test_locker, test_witz_looks, test_pools, test_drum_clear | 0 failed | as baseline (crossbow's one baseline failure did not recur) |
+| test_killcam | 1 failed, then 0 on re-run | baseline 1 failed (different check); its explosion/low-side checks vary run to run |
+| test_curse | 1–3 failed across runs | baseline 2 (the neck 49/50°). The third, "beside a wall: his arms are kept in" (0.08–0.20 m), **also fails with the baseline clown code** (re-run three times in a scratch copy with the tag's `scripts/clown/*`: 0.17 / 0.05 / 0.10 m) — pre-existing spread at the 0.35 m wall, not a regression |
+| test_limbs, test_revolver | 1 failed each | identical to baseline |
+| test_motion | 1 failed in the suite, 0 in four re-runs (with and without the tiers) | baseline 1 failed (another check); flaky |
+| test_rattlejack, test_throat, test_zornhauptmann, test_klapper | as baseline (5 / 2 / 2 / 1) | pre-existing, documented in Session Zero and M12 |
+| test_soldier_anim, test_soldier_pose, test_punch, test_seethrough | not headless tests | render tools that need a window; they were never in the baseline table |
+
+**Found and fixed 1 — `test_impacts` "the trench walls answer by their lining": a round into a
+Front sandbag wall found mud.** The check casts rays from the middle of 160 trench cells at the four
+walls and expects sandbag among the linings hit; it found none (0 of 640, where M5 had 89). Not the
+test's fault: since D-18 the Front's walls are battered back 0.6 m, and the legacy lining collision
+(a thin box leaning back with the wall, `TrenchArt._revetments`) ended up inside the mound behind the
+upright bag stack, so the terrain took the hit first and classified as mud. A probe over one floor's
+sandbag walls: 3 of 13 rays reached the sandbag box. **Fix:** `TrenchArt._lining_collide()` (the same
+call, now overridable; legacy result identical) and `FrontArt._lining_collide()` — on the Front a
+sandbag wall's collision is the stack itself, upright, a bag deep, at the face. Probe 12 of 13; the
+check 53 of 640 with the untouched test. The other linings keep their placement. A collision change
+in the trenches, so the crossing, nav and director suites were run again after it: test_front,
+test_threats, test_objective, test_director, test_nav, test_trench all 0 failed.
+
+**Found and fixed 2 — `test_trench_level` "a man up top fires down into the trench" (legacy scene):**
+with the M12 simulation tiers one seeded top rifleman fired 0 rounds in his 10 s where he had fired 1
+(the test passes with `NO_LOD=1`). Instrumenting him showed a man **stuck in his cover routine**: risen
+behind low cover with the muzzle ray to the player blocked by a prop on the ground, resetting his aim
+every half second for ever; and the same routine could wait for ever on a step-out point it cannot
+reach. The tiers only changed where he came to stand; the deadlocks were there before. Fixed in
+`ClownBrain`: a fresh alert drops a hiding place chosen against the old player position; a blocked
+muzzle in cover stands him up, edges him out, and after 3 s gives the cover up; an unreachable
+step-out point gives it up after 4 s; in the open a rifleman whose muzzle is blocked steps toward
+the player (or round the obstacle when forward is a ledge) instead of aiming at a wall. With the
+fixes the full `test_trench_level` run has the man firing again (1 round, from his cover) and the
+check passing; run as the `top` section alone it still fails two runs in three (his muzzle→chest ray
+blocked by a ground prop 2 m ahead from that lip, and he cannot step off the edge). The baseline's
+single round was the same luck of position. Classified with the baseline's own flaky suspense check,
+which is what the full run failed on this time ("men cross the player's way ahead of him") — exactly
+the baseline's failure.
+
+### Restore proof (again, from the archive alone)
+`archive/legacy_drowned_trenches/check.sh` → 34 archive copies intact. In a scratch copy with
+`scripts/world/trench_maze.gd` overwritten with junk and `trench_art.gd` deleted: `restore.sh` →
+7 files restored (the trench-only set), `restore.sh --shared` → the 6 shared files (`game.gd`,
+`clown_brain.gd`, `battle_duty.gd`, `sfx_synth.gd`, `level_art.gd`, `mud_terrain.gdshader` …) →
+`check.sh --live` reports every legacy file byte-identical (the 4 "could not be read" lines were art
+files not copied into the scratch). On the live tree `check.sh --live` lists the 12 shared files the
+Front touched, as expected and as `RESTORE.md` says; `git archive legacy-drowned-trenches-baseline`
+remains the whole-tree restore. The legacy scene (`scenes/legacy_drowned_trenches.tscn`) and its
+suite (`test_trench`, `test_trench_level`, `test_nav -- trench`) run as before.
+
+### Acceptance walk (package Part G)
+1. **Backed up, independently recoverable** — yes: archive + tag; proved twice (Session Zero, today).
+2. **Bunkers, events, saves, progression still work** — yes: test_game, test_events, test_base,
+   test_locker, test_objective (bunkers ELIMINATION) 0 failed; save format unchanged (D-03).
+3. **Starting trenches, No Man's Land, enemy trenches, H.Q. exit** — yes (M2; test_front `layout`).
+4. **A continuous route, preferably several** — yes: 3 crossings per seed, verified on 60 seeds (M3).
+5. **No kill-all; exit usable while enemies live** — yes: SURVIVAL (M1; test_objective).
+6. **Craters are cover; wire shapes, does not break routes** — yes (M3; crossing tests; M12's
+   firing-spot-off-the-wire polish). *Limit:* cover is physical, not "scored" by the AI.
+7. **MG and artillery: real, telegraphed, avoidable** — yes (M6: tracers, the gun's idle rhythm,
+   whistle-before-impact, lulls). *Limit:* combat frame rate not yet measured on the Mac.
+8. **Green-grey lighting/fog/smoke match the approved direction** — yes: D-16 approved 22 Nov,
+   D-18 cold grey ("i like it"), D-24 dawn/night by his word on the renders. *Open:* dawn glint and
+   night brightness by his eye.
+9. **Silhouettes through fog; visibility changes with smoke** — yes (M4, M9 smoke event, M11 smoke
+   lean; `FrontAtmosphere.visibility()` drives perception).
+10. **Activity independent of the player** — yes (M8–M10 director lifecycle; `_lifecycle`, despawn
+    far and unseen).
+11. **Director events varied, bounded, geographically plausible** — yes: 10-event catalogue, budgets
+    per mode, placement from the event graph; test_director 0 failed.
+12. **Awareness local and perception-based** — yes (M7 `_alerted_sector`, sight/hearing, no global
+    alert; D-13).
+13. **Existing enemies keep their identities** — yes: their suites as baseline; the dark WitzSoldat
+    rebuilt at full detail; the enemy rifle held correctly (Andrew's two complaints fixed 23 Nov).
+14. **Materials react distinctly** — yes (M5; test_impacts range).
+15. **Marks persist within budget; MG bursts strike the terrain** — yes (M5 ring + aggregation;
+    `walk` test).
+16. **Weapons, gore, ragdolls, Carnival Curse, killcam intact** — yes by the suites (curse/killcam
+    flakiness is the baseline's). Rifle deaths no longer snap the arms (3596b01).
+17. **Performance tiers near / far / horizon** — yes: brain tiers (M12), despawn beyond 150 m, field
+    dressing cosmetic (D-13), merged water, VRAM. *Limit:* measured on the Mac only up to M6.
+18. **Automated tests pass or failures explicitly approved** — the table above; the pre-existing
+    failures were disclosed in Session Zero and are unchanged; the two new classifications
+    (curse wall spread, the seeded top rifleman) are for his approval.
+19. **Rendered screenshots and playthrough tests** — renders in `docs/reference/` (approved
+    atmosphere, D-18, M11 dawn/night/flare); automated playthroughs in test_front/test_director
+    (the bot crosses, the director plays). *Limit:* his own M2–M11 playtests are still owed.
+20. **README, architecture, tracker, decisions, restore instructions current** — yes as of this
+    commit (architecture §8a covers the Front as built; RESTORE.md unchanged and true).
+
+### Files
+`scripts/clown/clown_brain.gd` (cover deadlocks, the creep), `scripts/world/trench_art.gd`
+(`_lining_collide`, legacy result identical), `scripts/world/front/front_art.gd` (upright sandbag
+collision), `scripts/dev/test_trench_level.gd` (the diagnostic print), `scripts/dev/test_curse.gd`
+(which bone, when), this tracker, `DROWNED_FRONT_ARCHITECTURE.md` (§8b), README.

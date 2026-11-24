@@ -157,9 +157,9 @@ The war stays far off: nothing out there can hurt you.
 
 Settings on the game: `trench_every`, `trench_enemy_scale`, `trench_soldier_share`.
 
-## Operation Drowned Front (in progress)
+## Operation Drowned Front (built; Andrew's final approval pending)
 
-The Drowned Trenches are being rebuilt as a survival crossing (starting trenches → No Man's Land →
+The Drowned Trenches have been rebuilt as a survival crossing (starting trenches → No Man's Land →
 enemy trenches → H.Q.), one authorised milestone at a time. The plan, architecture, decisions and
 progress are in `docs/DROWNED_FRONT_*.md`; the brief itself is `docs/DROWNED_FRONT_PACKAGE_v1.0.md`.
 The trench level as it was before the rebuild is archived in `archive/legacy_drowned_trenches/`
@@ -221,6 +221,8 @@ moonlit crossing — a cold moon's sheen on No Man's Land, a blue-black sky, and
 To see the flares: `light=night` (the first goes up 18–40 s in) and press **F6** for one on demand.
 
 Milestone 12: performance bought where it is invisible — far, unaware men think on a coarser beat (same metres, same seconds), the ~150 crater water planes are 30 merged meshes, and 29 model textures that were imported lossless are VRAM-compressed (~500 MB of video memory back). The one visible knob, the render scale, moved to the title screen's Graphics page. The M2 budget runs (`-- god perf=10`, now also in a fire-fight) are Andrew's to repeat.
+
+Milestone 13 (24 Nov): no new features — the whole headless suite against the Session-Zero baseline (the Front's own suites 0 failed; the old suites as the baseline, every difference classified), the legacy restore proved again from the archive alone, and the package's twenty acceptance points walked with their known limits (the tracker's M13 record). Two things came out of it: the impacts test's picture of the trench predated the D-18 re-cut, and a soldier could wait for ever in his cover routine with the muzzle blocked — he now stands up, edges out, and gives the spot up. The remaining asks are Andrew's: the playtests, the M2 budget runs, the push.
 
 Floors now have an objective (`Game.Objective`): bunker floors are **ELIMINATION** (every enemy must die
 before the exit opens; the last kill runs the final-kill camera), trench floors are **SURVIVAL** (the

@@ -86,6 +86,9 @@ var _attack_t := -1.0           # >= 0 while a melee swing is in progress
 var _attack_hit := false
 var _cooldown := 0.0
 var _aim_t := -1.0              # >= 0 while lining up a shot
+var _creep := 0.0               # seconds of stepping toward the player to get the muzzle clear of a lip
+var _creep_side := 1.0          # and which way round it when forward is a ledge
+var _peek_up := false           # stepped out and something low took the muzzle: stands up to shoot
 var _last_known := Vector3.ZERO  # where it last saw or heard the player
 var _unseen := 0.0              # seconds since it last saw the player
 var _notice := 0.0              # builds while the player is in view
@@ -188,6 +191,9 @@ func alert(where: Vector3, startled: bool = true, firsthand: bool = true) -> voi
 	if mind != Mind.HUNT:
 		mind = Mind.HUNT
 		_repath = 0.0
+		if _cover_state != 0:
+			_drop_cover()          # the hiding place was chosen against where the player was last time
+			_cover_cooldown = 0.0
 		if startled:
 			_react = randf_range(0.25, 0.6)
 		alerted.emit(where, firsthand)
@@ -538,6 +544,10 @@ func _think(delta: float) -> void:
 				_lmg_acc = 1.0 / fire_rate              # the first round goes at once
 				bursts += 1
 				_burst_step(0.0, dist)
+			elif weighty and _aim_t > aim_time * (1.0 + 0.5 * suppression) and clown.aim_amount > 0.9 and not _muzzle_clear():
+				_creep = 0.6                       # the lip or a ledge takes the muzzle: a step toward him first
+				_creep_side = [-1.0, 1.0].pick_random()
+				_aim_t = aim_time * 0.6
 			elif _aim_t > aim_time * (1.0 + 0.5 * suppression) and clown.aim_amount > 0.9 and (not weighty or _muzzle_clear()):
 				var landed := _fire(dist)
 				_aim_t = -1.0
@@ -575,6 +585,11 @@ func _think(delta: float) -> void:
 				want = (side * 0.3 + toward).normalized()       # (M12) not from inside the wire: a step on first
 		elif dist > keep_distance * 1.6:
 			want = (side * 0.5 + toward).normalized()          # too far: close up
+		if _creep > 0.0:
+			_creep -= delta
+			want = (side * 0.2 + toward).normalized()          # edging forward to clear the muzzle
+			if not _free(want):
+				want = Vector3(toward.z, 0, -toward.x) * _creep_side   # a ledge ahead: round the thing instead
 		if want.length() > 0.05 and not _free(want):
 			if weighty:
 				_strafe_dir = 0.0                               # wall or ledge: stops there, stands and shoots
@@ -704,9 +719,12 @@ func _cover_fight(delta: float, dist: float, seen: bool, flat: Vector3) -> bool:
 			_face(flat, delta, 8.0)
 			clown.aim_point = player.global_position + Vector3.UP * 1.3
 			if weighty:
-				crouch_want = 0.0 if _peek_rise else 0.25
+				crouch_want = 0.0 if (_peek_rise or _peek_up) else 0.25
 				clown.lean = _lean_side() * 0.8 if not _peek_rise else 0.0
 			if not _peek_rise and not _go_to(_peek, delta, move_speed * (0.55 if weighty else 1.0)):
+				if _cover_t > 4.0:
+					_drop_cover()                 # the step-out point is not reachable from here: fight in the open
+					return false
 				clown.aim_amount = move_toward(clown.aim_amount, 1.0, delta * 3.0)
 				return true
 			if _peek_rise:
@@ -732,9 +750,18 @@ func _cover_fight(delta: float, dist: float, seen: bool, flat: Vector3) -> bool:
 			_aim_t += delta
 			if _aim_t > aim_time * 0.85 * (1.0 + 0.5 * suppression) and clown.aim_amount > 0.9 and not clown.cycling():
 				if not _muzzle_clear():
+					if _cover_t > 3.0:
+						_drop_cover()                     # edged out and still nothing but wall: fight in the open
+						return false
 					_aim_t = aim_time * 0.5               # the wall is in the way: edge out further / wait
 					if not _peek_rise:
-						_peek = _peek.lerp(_peek + (_peek - _cover).normalized() * 0.3, 0.5)
+						_peek = _peek + (_peek - _cover).normalized() * 0.3
+						_peek_up = true
+					else:
+						# risen behind low cover and the lip still takes the muzzle
+						# (the player below him, say): steps forward over it
+						_peek = clown.global_position + Vector3(flat.x, 0, flat.z).normalized() * 0.5
+						_peek_rise = false
 					return true
 				_fire(dist)
 				_peeks += 1
@@ -755,6 +782,7 @@ func _drop_cover() -> void:
 	_peek = Vector3.INF
 	_peeks = 0
 	_peek_rise = false
+	_peek_up = false
 	clown.lean = 0.0
 	_cover_cooldown = randf_range(5.0, 9.0) if weighty else randf_range(3.0, 6.0)
 
