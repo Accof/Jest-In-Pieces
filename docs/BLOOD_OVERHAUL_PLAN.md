@@ -191,14 +191,14 @@ runtime system: 1 session. C (spray) next: the plume/mist/liquid shader and the 
 1 session. D (persistence/drips): half a session. E and the world mask: on his word after seeing
 A–D. Each phase ends with renders in the look room and the real game at night and day.
 
-## 7. Questions for Andrew (answer any; the rest get my best guess)
-1. **Amount:** today's quantity ×2, ×3? The references are generous; I will default to "a man
-   shot in the chest with a rifle leaves a 1 m mist on the wall behind him" and a headshot twice that.
-2. **Colour:** bright fresh arterial red that dries to brown (TLOU) or the darker, thicker Wolfenstein
-   red? Default: fresh red on impact, darkening over a minute.
-3. **Drips that animate** — yes? (Costs a little; it is the detail that sells a wall hit.)
-4. **Lens spatter** at point blank — yes, no, or a setting?
-5. **The world blood mask** (permanent, unlimited marks, bigger job) — now, or only if 1,200 fading
-   decals prove not enough?
-6. Any more references welcome, especially of *spray in the air* (video frames) — that is the part
-   the still images do not show.
+## 7. Andrew's answers (24 Nov, 18:30)
+1. **Amount:** generous, like the references — roughly 2–3× today; a rifle chest hit leaves a ~1 m
+   mist on the wall behind, a headshot about twice that.
+2. **Colour:** fresh arterial red on impact, drying to brown over about a minute (the TLOU look).
+3. **Extras:** animated drips — yes. Lens spatter, blood on the player's weapon and hands, and
+   spatter on the man standing beside the one you shot — not for now (Phase E parked).
+4. **Persistence:** fading decals first (Phase D, 1,200 with fades); the world blood mask only if a
+   30-kill fight shows the budget still bites.
+5. More references of spray in the air still welcome.
+
+Phase A starts on his word.
