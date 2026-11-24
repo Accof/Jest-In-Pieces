@@ -3,7 +3,7 @@ extends Node
 ## (Operation Drowned Front, Milestone 2: two trench systems across No Man's
 ## Land, SURVIVAL, the H.Q. in the enemy's rear).
 ##
-##   godot --path . res://scenes/play_front.tscn -- [seed=N] [variant=base|smoke|barrage|mg|flare] [floor=N] [god] [perf=SECONDS]
+##   godot --path . res://scenes/play_front.tscn -- [seed=N] [variant=base|smoke|barrage|mg] [light=day|dawn|night] [floor=N] [god] [perf=SECONDS]
 ##
 ## `floor=` picks the floor number it is played as (3 by default: the first
 ## trench floor of a run); `seed=` fixes the layout; `god` god mode; `perf=30`
@@ -23,7 +23,12 @@ func _ready() -> void:
 		if a.begins_with("seed="):
 			seed_ = int(a.substr(5))
 		elif a.begins_with("variant="):
-			FrontVariant.forced = FrontVariant.from_name(a.substr(8))
+			if a.substr(8) == "flare":
+				FrontVariant.forced_light = FrontVariant.Light.NIGHT   # the old name for the night crossing
+			else:
+				FrontVariant.forced = FrontVariant.from_name(a.substr(8))
+		elif a.begins_with("light="):
+			FrontVariant.forced_light = FrontVariant.light_from_name(a.substr(6))
 		elif a.begins_with("perf="):
 			perf = float(a.substr(5))
 		elif a.begins_with("floor="):

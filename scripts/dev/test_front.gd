@@ -905,48 +905,69 @@ func _atmos() -> void:
 # --- variants (Milestone 11) -------------------------------------------------------------
 func _variants() -> void:
 	print("-- variants")
-	# the seed's choice: all five over 400 seeds, the base the commonest, the flare the rarest
-	var counts := [0, 0, 0, 0, 0]
+	# the seed's choice: all leans and all lights over 400 seeds, base and day the commonest
+	var counts := [0, 0, 0, 0]
+	var lights := [0, 0, 0]
 	FrontVariant.forced = -1
+	FrontVariant.forced_light = -1
 	for i in 400:
 		counts[FrontVariant.pick(1000 + i * 37)] += 1
-	print("      picks over 400 seeds: ", counts)
+		lights[FrontVariant.pick_light(1000 + i * 37)] += 1
+	print("      leans over 400 seeds: %s   lights: %s" % [str(counts), str(lights)])
 	var all_present := true
-	for c: int in counts:
+	for c: int in counts + lights:
 		if c == 0:
 			all_present = false
-	_check(all_present and counts[0] > counts[1] and counts[0] > counts[2] and counts[4] < counts[3], "every configuration turns up, the base most, the flare least")
-	_check(FrontVariant.pick(1916) == FrontVariant.pick(1916) and FrontVariant.from_name("mg") == FrontVariant.Kind.MG and FrontVariant.from_name("x") == -1, "deterministic by seed; names resolve")
+	_check(all_present and counts[0] > counts[1] and counts[0] > counts[2] and lights[0] > lights[1] and lights[1] > lights[2], "every lean and every light turns up; base and day most, night least")
+	_check(FrontVariant.pick(1916) == FrontVariant.pick(1916) and FrontVariant.from_name("mg") == FrontVariant.Kind.MG and FrontVariant.light_from_name("dawn") == FrontVariant.Light.DAWN and FrontVariant.from_name("x") == -1, "deterministic by seed; names resolve")
 	var base_craters := 0
-	for v in FrontVariant.Kind.size():
+	# the four leans by day, then dawn and night on the base
+	var cases: Array = [[0, 0], [1, 0], [2, 0], [3, 0], [0, 1], [0, 2]]
+	var day_exposure := 0.0
+	var day_sun_y := 0.0
+	for cs: Array in cases:
+		var v: int = cs[0]
+		var li: int = cs[1]
 		FrontVariant.forced = v
+		FrontVariant.forced_light = li
 		await _new_game(1916)
 		var m := game.maze as FrontMaze
 		var k: Dictionary = m.knobs
-		var nm: String = FrontVariant.NAMES[v]
-		_check(m.variant == v and k.name == nm, "%s: the maze carries the configuration" % nm)
+		var nm: String = k.name
+		_check(m.variant == v and m.light == li, "%s: the maze carries the configuration" % nm)
 		_check(m.route.size() > 2 and m.path_cells(m.start_cell, m.exit_cell) < 9999, "%s: a route from the start to the H.Q. (%d cells)" % [nm, m.route.size()])
 		var threats = game.threats
 		_check(threats.nests.size() == int(k.nests), "%s: %d nests" % [nm, threats.nests.size()])
 		var art = threats.artillery
-		var lull_hi: float = FrontArtillery.LULL.y * float(k.art_lull)
 		_check(art.next_in() <= FrontArtillery.FIRST.y * float(k.art_first) + 0.01, "%s: the first salvo within %.0f s (%.0f)" % [nm, FrontArtillery.FIRST.y * float(k.art_first), art.next_in()])
 		var atmos := get_tree().get_first_node_in_group(&"fog") as FrontAtmosphere
 		_check(atmos.smoke_patches.size() >= int(k.smoke_patches), "%s: %d smoke patches" % [nm, atmos.smoke_patches.size()])
 		var fog = atmos.front_fog
 		_check(fog.banks.size() == int(k.fog_prerolled) and absf(float(fog.every_scale) - float(k.fog_every)) < 0.001, "%s: %d banks pre-rolled, cadence x%.2f" % [nm, fog.banks.size(), fog.every_scale])
-		if v == FrontVariant.Kind.BASE:
+		if v == FrontVariant.Kind.BASE and li == 0:
 			base_craters = m.crater_list.size()
 		elif v == FrontVariant.Kind.BARRAGE:
 			_check(m.crater_list.size() > base_craters * 1.2, "barrage: %d shell holes (base %d)" % [m.crater_list.size(), base_craters])
 		var env: Environment = game._world_env.environment
-		var dusk_want: bool = bool(k.dusk)
-		_check((env.tonemap_exposure < 0.8) == dusk_want and (threats.flares != null) == bool(k.flares), "%s: %s, %s" % [nm, "dusk" if env.tonemap_exposure < 0.8 else "day", "flares" if threats.flares != null else "no flares"])
+		var sun: DirectionalLight3D = game._sun
+		var sun_dir: Vector3 = -sun.global_basis.z          # the light travels this way
+		_check((threats.flares != null) == bool(k.flares), "%s: %s" % [nm, "flares" if threats.flares != null else "no flares"])
+		match li:
+			0:
+				day_exposure = env.tonemap_exposure
+				day_sun_y = sun_dir.y
+				_check(sun.light_specular == 0.0 and game._world_env.camera_attributes.auto_exposure_enabled, "day: no glint, the eye adapting (as approved)")
+			1:
+				_check(env.tonemap_exposure < day_exposure and env.tonemap_exposure > day_exposure * 0.7, "dawn: exposure between (%.2f vs day %.2f)" % [env.tonemap_exposure, day_exposure])
+				_check(sun.light_specular > 0.0 and sun_dir.y > day_sun_y and sun_dir.y > -0.3 and sun_dir.z > 0.8, "dawn: a low sun over their side glancing toward us (dir %s), glint on" % sun_dir.snapped(Vector3(0.01, 0.01, 0.01)))
+				_check(game._world_env.camera_attributes.auto_exposure_enabled and game._world_env.camera_attributes.auto_exposure_max_sensitivity < 190.0, "dawn: the eye adapts, but less")
+			2:
+				_check(env.tonemap_exposure < day_exposure * 0.7 and not game._world_env.camera_attributes.auto_exposure_enabled, "night: dark (exposure %.2f), the eye not adapting" % env.tonemap_exposure)
+				_check(sun.light_specular > 0.0 and sun.light_energy < 0.6 and sun.light_color.b > sun.light_color.r, "night: a cold moon (%.2f), the sheen on" % sun.light_energy)
 		var d := game.director as FrontDirector
 		var dw: Dictionary = k.director
 		var w_ok := true
 		for ev_name: String in dw.keys():
-			# the weight carries the multiplier (against the base at the same mode/sector)
 			var base_w: float = float(FrontDirector.CATALOGUE[ev_name].weights[d.mode])
 			if base_w > 0.0 and ev_name != "smoke" and ev_name != "investigate":
 				var got: float = d._weight(ev_name)
@@ -956,7 +977,6 @@ func _variants() -> void:
 		if v == FrontVariant.Kind.MG:
 			# fairness: three guns, and still a place on the field no gun can see (the holes)
 			var unseen := 0
-			var p: FpsPlayer = game.player
 			for pt: Dictionary in d.pick_points("holes", d.Sector.FIELD, 0.0, 1000.0, false):
 				var any_sees := false
 				for mg: FrontMg in threats.nests:
@@ -967,35 +987,19 @@ func _variants() -> void:
 				if not any_sees:
 					unseen += 1
 			_check(unseen >= 1, "mg: %d shell-hole clusters no gun can see (fairness, J5)" % unseen)
-		if v == FrontVariant.Kind.FLARE:
+		if render and (li == 1 or li == 2):
+			await _render_light(nm, m, d)
+		if li == 2:
 			var fl: FrontFlares = threats.flares
 			var atm := atmos
 			var p: FpsPlayer = game.player
-			# a line across the field: visibility before, at the top of the burn, after
 			var a := Vector3(m.w * m.cell * 0.5, 1.6, d.z_field_max - 2.0)
 			var b := Vector3(m.w * m.cell * 0.5, 1.6, d.z_field_max - 50.0)
 			var v0: float = atm.visibility(a, b)
-			if render:
-				# the player at our parapet looking across: dusk, then the flare up
-				# up on the top at the head of one of our assault ramps, looking across
-				var head := Vector3.INF
-				for r: Dictionary in m.assault_ramps:
-					if r.dir.y == -1:
-						head = Vector3(r.head.x, 0, r.head.y - 1.5)
-						break
-				if head == Vector3.INF:
-					head = Vector3(m.w * m.cell * 0.5, 0, d.z_field_max - 1.0)
-				head.y = m.floor_height(head) + 0.1
-				p.global_position = head
-				p.rotation.y = 0.0          # facing -z: across the field at their line
-				p.camera.rotation.x = deg_to_rad(10.0)
-				await _frames(20)
-				get_viewport().get_texture().get_image().save_png("/tmp/front_flare_dusk.png")
 			fl.launch_now()
 			_check(fl.flares == 1 and fl.glow < 0.5, "flare: launched, a spark climbing (glow %.2f)" % fl.glow)
 			for i in int((FrontFlares.CLIMB + 1.0) * 60):
 				await get_tree().physics_frame
-			# the same instant with and without the glow (the banks drift meanwhile, so not against v0)
 			var g: float = atm.flare_glow
 			atm.flare_glow = 0.0
 			var v_plain: float = atm.visibility(a, b)
@@ -1005,22 +1009,29 @@ func _variants() -> void:
 			_check(fl._light.visible and fl._light.light_energy > 5.0 and fl._light.global_position.y > 15.0, "flare: a light %.0f m up over the field" % fl._light.global_position.y)
 			if render:
 				await _frames(2)
-				var img := get_viewport().get_texture().get_image()
-				img.save_png("/tmp/front_flare_up.png")
-				var lp: Vector3 = fl._light.global_position
-				print("      flare light at %s, %.0f m from the player, in frustum %s, energy %.1f, spark visible %s" % [lp.snapped(Vector3.ONE), lp.distance_to(p.global_position), p.camera.is_position_in_frustum(lp), fl._light.light_energy, fl._spark.visible])
-				var bright := 0
-				for yy in range(0, img.get_height(), 4):
-					for xx in range(0, img.get_width(), 4):
-						if img.get_pixel(xx, yy).get_luminance() > 0.9:
-							bright += 1
-				print("      bright pixels (sampled): %d" % bright)
-				for i in 150:
-					await get_tree().physics_frame
-				get_viewport().get_texture().get_image().save_png("/tmp/front_flare_down.png")
+				get_viewport().get_texture().get_image().save_png("/tmp/front_light_night_flare.png")
 			for i in int((FrontFlares.BURN + FrontFlares.FADE + 0.5) * 60):
 				await get_tree().physics_frame
 			_check(fl.glow == 0.0 and atm.flare_glow == 0.0 and not fl._light.visible, "flare: out, the light gone, the glow off the haze")
 			_check(fl.next_in() > 0.0 and fl.next_in() <= FrontFlares.EVERY.y, "the next in %.0f s" % fl.next_in())
 	FrontVariant.forced = -1
+	FrontVariant.forced_light = -1
 	print("      craters on the base crossing: %d" % base_craters)
+
+
+## A capture of the light from the head of our assault ramp, looking across.
+func _render_light(nm: String, m: FrontMaze, d: FrontDirector) -> void:
+	var p: FpsPlayer = game.player
+	var head := Vector3.INF
+	for r: Dictionary in m.assault_ramps:
+		if r.dir.y == -1:
+			head = Vector3(r.head.x, 0, r.head.y - 1.5)
+			break
+	if head == Vector3.INF:
+		head = Vector3(m.w * m.cell * 0.5, 0, d.z_field_max - 1.0)
+	head.y = m.floor_height(head) + 0.1
+	p.global_position = head
+	p.rotation.y = 0.0          # facing -z: across the field at their line
+	p.camera.rotation.x = deg_to_rad(6.0)
+	await _frames(20)
+	get_viewport().get_texture().get_image().save_png("/tmp/front_light_%s.png" % nm.replace(" ", "_"))

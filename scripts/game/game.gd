@@ -97,7 +97,7 @@ var _world_env: WorldEnvironment
 var _bunker_env: Environment
 var _trench_env: Environment
 var _front_env: Environment
-var _front_dusk_env: Environment
+var _front_envs: Dictionary = {}       # by FrontVariant.Light
 var _sun: DirectionalLight3D
 var _exit_light: OmniLight3D
 var _ui: CanvasLayer
@@ -871,18 +871,14 @@ func _apply_floor_look(outdoor: bool) -> void:
 		return
 	if outdoor and maze is FrontMaze:
 		# the Front's weather (FrontAtmosphere): the green-grey haze
-		# (M11) the crossing's configuration: the flare-lit one is dusk
-		var dusk: bool = bool((maze as FrontMaze).knobs.get("dusk", false))
-		if dusk:
-			if _front_dusk_env == null:
-				_front_dusk_env = FrontAtmosphere.make_environment(true)
-			_world_env.environment = _front_dusk_env
-		else:
-			if _front_env == null:
-				_front_env = FrontAtmosphere.make_environment()
-			_world_env.environment = _front_env
-		_world_env.camera_attributes = FrontAtmosphere.make_camera_attributes(dusk)
-		FrontAtmosphere.setup_sun(_sun, dusk)
+		# (M11, 24 Nov) the crossing's light: day, dawn or night (FrontVariant.Light)
+		var light: int = (maze as FrontMaze).light
+		if not _front_envs.has(light):
+			_front_envs[light] = FrontAtmosphere.make_environment(light)
+		_front_env = _front_envs[light]
+		_world_env.environment = _front_env
+		_world_env.camera_attributes = FrontAtmosphere.make_camera_attributes(light)
+		FrontAtmosphere.setup_sun(_sun, light)
 	elif outdoor:
 		if _trench_env == null:
 			_trench_env = TrenchArt.make_environment()

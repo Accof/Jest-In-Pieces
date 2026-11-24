@@ -18,7 +18,7 @@ at a time; **the next one starts only when the user says so**. Milestone 4 is a 
 | 8 | Initial director events (silhouette, bridge reinforcements, parapet firefight) | **done, awaiting playtest** | commit `b76ea70` | user playtest |
 | 9 | Expanded battlefield activity (catalogue 4–6, 9–10, squad) | **done, awaiting review** | commit `f3bc059` | user review |
 | 10 | Enemy trench suspense (catalogue 7–8, region pacing, audio foreground) | **done, awaiting playtest** | commit `1c98bed` | user playtest |
-| 11 | Procedural variants (smoke / barrage / MG / flare-lit) | **done, awaiting review** | commit `0c9dcfa` | user review |
+| 11 | Procedural variants (smoke / barrage / MG / flare-lit) | **done, awaiting review** | commit M11 | user review |
 | 12 | Performance and polish | not started | | user review |
 | 13 | Final integration | not started | | final approval |
 
@@ -1098,7 +1098,7 @@ meat and bone inside" — the same single failure as every baseline run since 21
   counters, `ambience` group), `scripts/clown/clown.gd` (footsteps), `scripts/clown/klappersoldat.gd`
   (`idle_tick_db`), `scripts/fx/sfx_synth.gd` (cough, mutter, tin_cup), `scripts/dev/test_director.gd`.
 
-## Milestone 11 — Procedural variants (24 Nov 2026) — DONE, AWAITING REVIEW
+## Milestone 11 — Procedural variants (24 Nov 2026) — DONE, AWAITING REVIEW (amended the same morning: the light is its own dimension, see below)
 
 Authorised by Andrew's "just continue" (taken as M11 only).
 
@@ -1156,5 +1156,35 @@ instant, a light 28 m up, out with the glow off the haze, the next in ≤ 90 s. 
   peak, pre-rolled), `front_threats.gd` (nests, flares), `front_artillery.gd`, `front_mg.gd`,
   `front_atmosphere.gd` (dusk, `flare_glow`), `front_director.gd` (weights, overlay), `game.gd` (dusk
   env, banner), `play_front.gd` (`variant=`), `test_front.gd` (variants).
+
+### M11 amendment (24 Nov 08:40–10:30) — the light of the crossing: day, dawn, night (D-24)
+Andrew, on the flare renders: "the atmosphere in this screenshot is amazing … the light shining off no
+man's land … almost like a moonlit battlefield", then "is there a way to have the sun do that during the
+day? like at dawn so it's not totally bright and not totally dark either?" So the dusk-with-flares
+"FLARE" lean became a second, independent dimension:
+- **`FrontVariant.Light` {DAY 50 %, DAWN 30 %, NIGHT 20 %}**, picked from the seed separately from the
+  lean (`pick_light`, salt 101; over 400 seeds 208/101/91), forced by `light=day|dawn|night`
+  (`variant=flare` still means the night light). Any lean at any light; `knobs(kind, light)`; the maze
+  carries `light`; the banner and the overlay name both ("mg night").
+- **DAY** — exactly the approved M4/D-18 look (specular 0, the eye adapting 90–190).
+- **DAWN** — the sun 12° up over their side (`LIGHT_DIR_DAWN`), warm (0.96, 0.86, 0.72), energy 1.0,
+  **specular 0.35** — the first glint the Front has had since the puddles blinded in M4 pass 2; at this
+  angle it lies out on the field, not down in the trench — the sky's glow warmed (the "warm" colour the
+  sun's), energy ×0.62, ambient ×0.72, exposure ×0.85, the eye adapting but capped (70–135): not bright,
+  not dark. `docs/reference/front_m11/dawn.png`.
+- **NIGHT** — the moon 31° up over their side, cold (0.70, 0.77, 0.96), energy 0.42, **specular 0.55**
+  (the sheen); the sky tinted blue and taken to 0.16, the haze dark (fog colour (0.16, 0.18, 0.24): a
+  grey wall at night read as fog-lit), ambient blue ×0.36, exposure ×0.58, the eye **not** adapting;
+  **flares** (M11's `FrontFlares`, unchanged; F6 for one). The director leans on silhouettes ×1.5 and
+  investigations ×1.3. `night.png`, `night_flare.png`.
+- Game caches one Environment per light (`_front_envs`); `make_environment(light)`,
+  `make_camera_attributes(light)`, `setup_sun(sun, light)`.
+- Tests (`test_front variants`, 68 checks, 0 failed): the seed spread over both dimensions; the four
+  leans by day and dawn/night on the base; dawn's exposure between, its sun low over their side glancing
+  toward us with glint on, its eye adapting less; night dark with the eye fixed, a cold moon with the
+  sheen on, flares; the flare lifecycle as before.
+- Honest: the dawn glint on the near water is a bright patch (see `dawn.png`); Andrew's eye decides
+  between 0.35 and lower. Night's brightness likewise. Neither re-measured for frame rate (one light each,
+  no extra shadow).
 
 (Milestones 12–13: scope as in the package; detailed when authorised.)

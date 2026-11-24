@@ -33,19 +33,38 @@ const FOG_DENSITY := 0.9           # what is left of the far trees: shapes
 static var _grade: ImageTexture3D
 
 
-static func make_environment(dusk := false) -> Environment:
+## (24 Nov) The light of the crossing (FrontVariant.Light): DAY is the look
+## Andrew approved (M4, D-16/D-18); DAWN keeps the eye adapting but caps it,
+## warms the glow over their side and lowers the sun to graze the field;
+## NIGHT is the moonlit one - the sky near black and blue, a cold moon low
+## over their side for the sheen on the wet ground, the eye not adapting.
+const LIGHT_DIR_DAWN := Vector3(-0.3, 0.2, -0.93)    # 12 deg up, over their side
+const LIGHT_DIR_NIGHT := Vector3(-0.25, 0.5, -0.83)  # the moon, 31 deg up, over their side
+static func light_dir(light: int) -> Vector3:
+	match light:
+		1: return LIGHT_DIR_DAWN.normalized()
+		2: return LIGHT_DIR_NIGHT.normalized()
+	return LIGHT_DIR
+
+
+static func make_environment(light: int = 0) -> Environment:
+	var dawn := light == 1
+	var night := light == 2
 	var sky_mat := ShaderMaterial.new()
 	sky_mat.shader = load("res://shaders/overcast_sky.gdshader")
 	sky_mat.set_shader_parameter("noise_tex", TrenchArt.tex("noise"))
-	sky_mat.set_shader_parameter("light_dir", LIGHT_DIR)
+	sky_mat.set_shader_parameter("light_dir", light_dir(light))
 	# a flat pale overcast, faintly yellow-green, hardly any cloud structure
-	sky_mat.set_shader_parameter("mass", Color(0.29, 0.305, 0.33))
-	sky_mat.set_shader_parameter("body", Color(0.43, 0.445, 0.47))
-	sky_mat.set_shader_parameter("opening", Color(0.64, 0.65, 0.67))
-	sky_mat.set_shader_parameter("warm", Color(0.90, 0.88, 0.82))   # the glow where the sun hides, low over their side
-	sky_mat.set_shader_parameter("horizon", Color(0.62, 0.635, 0.655))
+	var tint := Color(1, 1, 1)
+	if night:
+		tint = Color(0.62, 0.70, 0.95)          # the sky goes blue before it goes black
+	sky_mat.set_shader_parameter("mass", Color(0.29, 0.305, 0.33) * tint)
+	sky_mat.set_shader_parameter("body", Color(0.43, 0.445, 0.47) * tint)
+	sky_mat.set_shader_parameter("opening", Color(0.64, 0.65, 0.67) * tint)
+	sky_mat.set_shader_parameter("warm", Color(0.90, 0.88, 0.82) if not dawn else Color(1.0, 0.86, 0.68))   # the glow where the sun hides, low over their side; at dawn it is the sun
+	sky_mat.set_shader_parameter("horizon", Color(0.62, 0.635, 0.655) * tint if not dawn else Color(0.70, 0.64, 0.58))
 	sky_mat.set_shader_parameter("ground", Color(0.24, 0.235, 0.22))
-	sky_mat.set_shader_parameter("energy", 0.9 * (0.28 if dusk else 1.0))
+	sky_mat.set_shader_parameter("energy", 0.9 * (0.62 if dawn else (0.16 if night else 1.0)))
 	sky_mat.set_shader_parameter("coverage", 0.5)   # in this shader more coverage = fewer openings, and past ~0.7 the whole sky is one pale plate (M4 pass 1-3 had 0.82: bland, no cloud); 0.56 gives the legacy day's layered masses in this palette
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
@@ -59,11 +78,11 @@ static func make_environment(dusk := false) -> Environment:
 	# image's weight the ambient it gave fell with it, and on the Mac the
 	# ground went black (Andrew: "really so hard to see where I'm going")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.68, 0.70, 0.74)      # cold
-	env.ambient_light_energy = 0.92 * (0.55 if dusk else 1.0)   # (23 Nov) "a bit too dark": lifted from 0.85 (1.0 washed it out in the render); (M11) the flare crossing is dusk
+	env.ambient_light_color = Color(0.68, 0.70, 0.74) if not night else Color(0.50, 0.56, 0.72)      # cold; at night the sky's blue
+	env.ambient_light_energy = 0.92 * (0.72 if dawn else (0.36 if night else 1.0))   # (23 Nov) "a bit too dark": lifted from 0.85 (1.0 washed it out in the render); (24 Nov) dawn and night below it
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 0.9 * (0.72 if dusk else 1.0)
+	env.tonemap_exposure = 0.9 * (0.85 if dawn else (0.58 if night else 1.0))
 	env.tonemap_white = 6.0
 	env.ssr_enabled = true
 	env.ssr_max_steps = 48
@@ -82,7 +101,9 @@ static func make_environment(dusk := false) -> Environment:
 	# the sky taking its colour at the horizon so ground and sky merge
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
-	env.fog_light_color = FOG_COLOR
+	env.fog_light_color = FOG_COLOR if not night else Color(0.16, 0.18, 0.24)    # at night the haze is dark, not a grey wall
+	if dawn:
+		env.fog_light_color = Color(0.56, 0.55, 0.555)
 	env.fog_light_energy = 1.0
 	env.fog_sun_scatter = 0.3           # the haze lit from behind, toward the hidden sun
 	env.fog_density = FOG_DENSITY
@@ -150,22 +171,34 @@ static func make_grade() -> ImageTexture3D:
 
 ## The eye: it adjusts a little in a dugout; out in the open the exposure
 ## stays put, so the mud stays dark under the bright haze.
-static func make_camera_attributes(dusk := false) -> CameraAttributesPractical:
+static func make_camera_attributes(light: int = 0) -> CameraAttributesPractical:
+	var dawn := light == 1
+	var night := light == 2
 	var ca := CameraAttributesPractical.new()
-	ca.auto_exposure_enabled = not dusk        # (M11) at dusk the eye does not adapt: it stays dark
+	ca.auto_exposure_enabled = not night       # (M11) at night the eye does not adapt: it stays dark
 	ca.auto_exposure_scale = 0.22
 	ca.auto_exposure_speed = 0.5
-	ca.auto_exposure_min_sensitivity = 90.0 if not dusk else 50.0
-	ca.auto_exposure_max_sensitivity = 190.0 if not dusk else 80.0   # (pass 6) the eye opens more for the dark ground; (M11) at dusk it cannot open enough: it stays dark
+	ca.auto_exposure_min_sensitivity = 90.0 if not dawn else 70.0
+	ca.auto_exposure_max_sensitivity = 190.0 if not dawn else 135.0   # (pass 6) the eye opens more for the dark ground; at dawn it opens less: not bright, not dark
 	return ca
 
 
 ## No sun: a weak, very soft directional light from high behind the cloud,
 ## only enough to give the ground its relief and the parapets a face.
-static func setup_sun(sun: DirectionalLight3D, dusk := false) -> void:
-	sun.light_color = Color(0.84, 0.87, 0.92) if not dusk else Color(0.70, 0.72, 0.82)   # cold daylight through cloud; at dusk bluer and low
-	sun.light_energy = 0.8 if not dusk else 0.3
+static func setup_sun(sun: DirectionalLight3D, light: int = 0) -> void:
+	var dawn := light == 1
+	var night := light == 2
+	sun.light_color = Color(0.84, 0.87, 0.92)             # cold daylight through cloud
+	sun.light_energy = 0.8
 	sun.light_specular = 0.0             # hidden behind cloud: no glint on the water (its reflection sat right where you look down into a trench and blinded)
+	if dawn:
+		sun.light_color = Color(0.96, 0.86, 0.72)         # the low sun through the haze over their side
+		sun.light_energy = 1.0
+		sun.light_specular = 0.35        # it grazes the wet field and glints: the moonlit sheen, by day (24 Nov)
+	if night:
+		sun.light_color = Color(0.70, 0.77, 0.96)         # the moon
+		sun.light_energy = 0.42
+		sun.light_specular = 0.55
 	sun.light_angular_distance = 6.0
 	sun.light_volumetric_fog_energy = 0.25
 	sun.shadow_enabled = true
@@ -176,7 +209,7 @@ static func setup_sun(sun: DirectionalLight3D, dusk := false) -> void:
 	# split re-draws the field's 4.5 M triangles
 	sun.directional_shadow_max_distance = 36.0
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL       # one split: half the shadow draws again (M2, 23 Nov); in this haze the difference past 10 m is not there
-	sun.look_at_from_position(Vector3.ZERO, -LIGHT_DIR, Vector3.UP)
+	sun.look_at_from_position(Vector3.ZERO, -light_dir(light), Vector3.UP)
 	sun.position = Vector3.ZERO
 
 

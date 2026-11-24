@@ -215,6 +215,10 @@ shell more, a third more holes to use); MG-defended (three Maxims, firing more);
 crossing** — dusk, and every minute or so a flare goes up from their parapet, arcs out over the field and
 hangs burning for ten seconds, lighting it from above while everyone (their guns, their men, you) sees
 further through the haze. Fairness is not a knob in any of them.
+And the **light** is its own roll (`light=day|dawn|night`): day is the approved look (50 %); **dawn** (30 %) a low
+warm sun over their side glancing off the wet field — the one glint the Front allows; **night** (20 %) the
+moonlit crossing — a cold moon's sheen on No Man's Land, a blue-black sky, and the flares going up over it.
+To see the flares: `light=night` (the first goes up 18–40 s in) and press **F6** for one on demand.
 
 Floors now have an objective (`Game.Objective`): bunker floors are **ELIMINATION** (every enemy must die
 before the exit opens; the last kill runs the final-kill camera), trench floors are **SURVIVAL** (the

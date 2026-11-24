@@ -67,12 +67,14 @@ var wire_cells := {}
 ## (M11) The crossing's configuration (FrontVariant.Kind) and its knobs,
 ## picked from the seed before the layout so the craters follow it.
 var variant := 0
+var light := 0
 var knobs: Dictionary = FrontVariant.knobs(0)
 
 
 func generate(_width: int, _depth: int, seed_value: int) -> void:
 	variant = FrontVariant.pick(seed_value)
-	knobs = FrontVariant.knobs(variant)
+	light = FrontVariant.pick_light(seed_value)
+	knobs = FrontVariant.knobs(variant, light)
 	cell = FCELL
 	w = GRID_W
 	d = GRID_D * 2 + nml_rows

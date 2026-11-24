@@ -311,3 +311,12 @@ Add a record whenever a choice closes a door.
 - Dusk turns the eye's adaptation off; a darker crossing that the exposure quietly undid would be no
   variant at all.
 
+### D-24 · The light of the crossing is its own dimension: day, dawn, night — decided (24 Nov, Andrew)
+- Andrew on the flare renders: the light off No Man's Land "almost like a moonlit battlefield"; asked for
+  a dawn with "the best of both worlds". Day stays the approved look and the most common (50 %); dawn
+  (30 %) brings the one glint the Front allows, a low warm sun over their side; night (20 %) the moon's
+  sheen, a blue-black sky, flares.
+- Lean and light are picked independently, so the smoke/barrage/MG leans come at any hour.
+- The glint is placed by the sun's angle, not by turning specular up in general: low over their side it
+  lies out on the field; the M4 lesson (a high sun's reflection down in the trench blinded) holds.
+
