@@ -141,5 +141,28 @@ func _run() -> void:
 		if e.size.y > 0.41 or e.size.y < 0.11:
 			depth_ok = false
 	_check(depth_ok, "decal depth stays 0.12-0.4 m (by size)")
+	# 9. (Phase D) persistence: a big mark placed first outlives 1,300 small
+	#    ones that follow; recycling takes the small and the far first; a
+	#    recycled mark fades on a spare instead of popping
+	Blood.clear()
+	Blood.spawn_decal(Vector3(0, 1.2, -2.99), Vector3(0, 0, 1), 1.2, "mist", Vector3.UP)
+	var first: Decal = null
+	for d: Decal in Blood._decals:
+		if d.visible:
+			first = d
+	Blood.recycled = 0
+	for i in 1300:
+		Blood.spawn_decal(Vector3(randf_range(-6, 6), 0.0, randf_range(-2.5, 6)), Vector3.UP, randf_range(0.03, 0.1), "small")
+	await _frames(2)
+	_check(first != null and first.visible and first.texture_albedo.resource_path.contains("mist"), "the 1.2 m mist placed first is still there after 1,300 small drops")
+	_check(Blood.recycled >= 100 and Blood.recycled <= 160, "about a hundred small drops were recycled for them (%d)" % Blood.recycled)
+	_check(Blood._fading.size() > 0 and Blood._fading.size() <= Blood.SPARE_DECALS, "recycled marks are fading on spares (%d)" % Blood._fading.size())
+	var visible := 0
+	for d: Decal in Blood._decals:
+		if d.visible:
+			visible += 1
+	_check(visible == Blood.MAX_DECALS, "the pool is full and every slot shows a mark (%d)" % visible)
+	await _frames(int(Blood.FADE_OUT * 60) + 10)
+	_check(Blood._fading.is_empty() and Blood._spares.size() == Blood.SPARE_DECALS, "and the fades finished, spares all back (%d)" % Blood._spares.size())
 	print("BLOOD: %d failed" % fails)
 	get_tree().quit()

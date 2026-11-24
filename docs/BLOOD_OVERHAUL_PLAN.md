@@ -252,3 +252,19 @@ masses under a lamp were the decal's ORM/normal maps — a wet roughness turned 
 highlight across every thick mass. v2 decals now carry no ORM (the surface keeps its own roughness)
 and a half-strength normal; the masses are dark red under the harshest light in the room. The wet
 sheen can come back under control in Phase D if wanted.
+
+## 10. Phase D (persistence half) — done 24 Nov, pulled forward
+Andrew, after Phase B in game: "the wall and floor blood splats disappear or cull way too quickly
+still." Cause: the 320-slot ring with no fade — Phase B spends 15–30 decals a hit (a shotgun fight
+wrapped the ring in a few shots) and the first kill's marks popped out one at a time.
+Done (`blood_manager.gd`): `MAX_DECALS` 320 → **1,200**; when the ring is full the slot is taken
+from the next 40 by lowest priority — **small before big, farther than 25 m from the camera before
+near** — so the splat in front of you goes last; the mark a slot held is handed to one of **48 spare
+decals** that fades `modulate.a` over 2.5 s (`FADE_OUT`) so nothing pops; `clear()` on a new floor
+returns the spares. `project.godot`: `rendering/limits/cluster_builder/max_clustered_elements`
+512 → **1,024** (Forward+ per-view budget: decals in the frustum plus lights; the 30 m distance fade
+keeps a fight's marks under it) — committed as its own minimal hunk so his Main Run Args stay local.
+Tests: `test_blood` +5 (a 1.2 m mist placed first survives 1,300 small drops after it; ~100 small
+drops recycled for them; the recycled marks fade on spares; the pool stays full; fades finish and the
+spares return) — 20 checks, 0 failed. `test_pools` 0 failed. The drips-that-run half of Phase D
+(the `drip_mask.png` scroll) is still to do, with Phase C.

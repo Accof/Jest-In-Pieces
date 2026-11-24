@@ -8,7 +8,18 @@ extends Node
 ## until the floor is cleared.
 
 const LAYER_WORLD := 1
-const MAX_DECALS := 320
+## (Phase D, 24 Nov) 320 was a ring with no fade, and Phase B spends 15-30 a
+## hit: a shotgun fight wrapped it in a few shots and the first kill's marks
+## popped out one by one. Now 1,200, and a slot is only taken from the small
+## and the far marks first (the big splat you are looking at goes last); a
+## mark that is taken is handed to a spare decal that fades over FADE_OUT so
+## nothing pops. The renderer's per-view budget is 1,024 clustered elements
+## (decals in the frustum plus lights): the 30 m distance fade keeps a fight's
+## marks under it.
+const MAX_DECALS := 1200
+const SPARE_DECALS := 48
+const FADE_OUT := 2.5
+const RECYCLE_LOOK := 40           # slots inspected when the ring is full
 const MAX_DROPLETS := 160
 const MAX_POOLS := 28
 const POOL_QUAD_RADIUS := 1.2          # metres; the largest pool that can form (kept for callers)
@@ -42,6 +53,9 @@ static var flat_decals := OS.get_environment("BLOOD_FLAT") == "1"   # dev: albed
 var _decals: Array[Decal] = []
 var _born := PackedFloat32Array()
 var _next := 0
+var _spares: Array[Decal] = []       # (Phase D) decals that carry a recycled mark while it fades
+var _fading: Array = []              # [[Decal, t]]
+var recycled := 0                    # for the tests
 var _dry_cursor := 0
 
 var _drop_pos := PackedVector3Array()
@@ -103,6 +117,18 @@ func _ready() -> void:
 	_born.resize(MAX_DECALS)
 	_tint.resize(MAX_DECALS)
 	_decal_oil.resize(MAX_DECALS)
+	for i in SPARE_DECALS:
+		var d := Decal.new()
+		d.visible = false
+		d.normal_fade = 0.35
+		d.upper_fade = 0.25
+		d.lower_fade = 0.25
+		d.cull_mask = 1
+		d.distance_fade_enabled = true
+		d.distance_fade_begin = 30.0
+		d.distance_fade_length = 10.0
+		add_child(d)
+		_spares.append(d)
 	_pool_material = ShaderMaterial.new()
 	_pool_material.shader = load("res://shaders/blood_pool.gdshader")
 	_pool_material.set_shader_parameter("noise_tex", load("res://art/blood/pool_noise.png"))
@@ -161,6 +187,10 @@ func _load_splatters() -> void:
 func clear() -> void:
 	for d in _decals:
 		d.visible = false
+	for e: Array in _fading:
+		(e[0] as Decal).visible = false
+		_spares.append(e[0])
+	_fading.clear()
 	for p in _pools:
 		if is_instance_valid(p):
 			p.queue_free()
@@ -327,6 +357,45 @@ func drip_field(pos: Vector3, normal: Vector3, size: float, oil := false) -> voi
 	spawn_decal(pos, normal, size, "dripfield", Vector3.UP, 1.0, 1.0, oil)
 
 
+## (Phase D) The slot for a new mark: the ring's next if it is free; else, of
+## the next RECYCLE_LOOK slots, the one that matters least - small before big,
+## far from the camera before near - so the splat in front of you goes last.
+func _pick_slot() -> int:
+	if not _decals[_next].visible:
+		return _next
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+	var best := _next
+	var best_score := INF
+	for k in RECYCLE_LOOK:
+		var i := (_next + k) % MAX_DECALS
+		var d := _decals[i]
+		if not d.visible:
+			return i
+		var score: float = maxf(d.size.x, d.size.z)
+		if cam != null and cam.global_position.distance_to(d.global_position) < 25.0:
+			score += 2.0
+		if score < best_score:
+			best_score = score
+			best = i
+	return best
+
+
+## The mark a recycled slot held goes on a spare decal and fades out.
+func _hand_to_spare(d: Decal) -> void:
+	recycled += 1
+	if _spares.is_empty():
+		return
+	var sp: Decal = _spares.pop_back()
+	sp.texture_albedo = d.texture_albedo
+	sp.texture_normal = d.texture_normal
+	sp.texture_orm = d.texture_orm
+	sp.global_transform = d.global_transform
+	sp.size = d.size
+	sp.modulate = d.modulate
+	sp.visible = true
+	_fading.append([sp, 0.0])
+
+
 ## A single falling drop, for wounds that keep bleeding.
 func add_droplet(pos: Vector3, vel: Vector3, size: float = 0.07, oil := false) -> void:
 	if _drop_pos.size() >= MAX_DROPLETS:
@@ -351,10 +420,13 @@ func _splat_on(pos: Vector3, normal: Vector3, travel: Vector3, size: float, oil 
 
 ## Place one decal. `along` (optional) points the texture's "up" along the surface.
 func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along: Vector3 = Vector3.ZERO, stretch_x: float = 1.0, stretch_z: float = 1.0, oil := false) -> void:
-	var d := _decals[_next]
-	_born[_next] = Time.get_ticks_msec() / 1000.0
-	_decal_oil[_next] = 1 if oil else 0
-	_next = (_next + 1) % MAX_DECALS
+	var slot := _pick_slot()
+	var d := _decals[slot]
+	if d.visible:
+		_hand_to_spare(d)
+	_born[slot] = Time.get_ticks_msec() / 1000.0
+	_decal_oil[slot] = 1 if oil else 0
+	_next = (slot + 1) % MAX_DECALS
 	if kind == "impact" and size >= 0.6:
 		kind = "death"                  # a body's worth: the broad death splatters
 	if splat_version == 2 and not use_legacy_splatters:
@@ -381,7 +453,7 @@ func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along
 		along = along.rotated(normal.normalized(), _rng.randf_range(-0.18, 0.18))
 	var shade := _rng.randf_range(0.82, 1.06)
 	var brown := _rng.randf_range(0.0, 0.12)
-	_tint[(_next - 1 + MAX_DECALS) % MAX_DECALS] = Color(shade, shade * (1.0 + brown * 1.6), shade * (1.0 + brown * 0.6), 1.0) if not oil else (Color(0.12, 0.11, 0.1, 1.0) if splat_version == 2 else FRESH)
+	_tint[slot] = Color(shade, shade * (1.0 + brown * 1.6), shade * (1.0 + brown * 0.6), 1.0) if not oil else (Color(0.12, 0.11, 0.1, 1.0) if splat_version == 2 else FRESH)
 	var y := normal.normalized()
 	var z := along - y * along.dot(y)
 	if z.length() < 0.01:
@@ -392,7 +464,7 @@ func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along
 	var x := y.cross(z).normalized()
 	d.size = Vector3(size * stretch_x, (clampf(0.1 + 0.2 * size, 0.12, 0.4) if splat_version == 2 else 0.3), size * stretch_z)
 	d.global_transform = Transform3D(Basis(x, y, z), pos)
-	d.modulate = _tint[(_next - 1 + MAX_DECALS) % MAX_DECALS]
+	d.modulate = _tint[slot]
 	d.visible = true
 
 
@@ -523,6 +595,18 @@ func _update_pools(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	_update_pools(delta)
+	# recycled marks fading out
+	for k in range(_fading.size() - 1, -1, -1):
+		var e: Array = _fading[k]
+		e[1] += delta
+		var sp: Decal = e[0]
+		var m: Color = sp.modulate
+		m.a = clampf(1.0 - float(e[1]) / FADE_OUT, 0.0, 1.0)
+		sp.modulate = m
+		if e[1] >= FADE_OUT:
+			sp.visible = false
+			_spares.append(sp)
+			_fading.remove_at(k)
 	# Darken a few decals each frame as the blood dries.
 	var now := Time.get_ticks_msec() / 1000.0
 	for i in 12:
