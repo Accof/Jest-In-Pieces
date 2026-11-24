@@ -63,6 +63,8 @@ uniform float wall_normal_strength = 0.6;   // how hard the wall relief bends th
 uniform float brightness = 1.15;     // the textures are authored dark
 uniform vec3 water_col : source_color = vec3(0.3, 0.27, 0.235);
 uniform float puddles = 0.55;
+uniform float puddle_rough = 0.13;        // the field's standing water: how glassy (the Front's dawn/night raise it, or a low sun's glint blows out)
+uniform float floor_water_rough = 0.035;  // the trench floor's pools: glassy by default
 uniform bool debug_grey = false;
 uniform int debug_view = 0;               // 1: show the shading normal (world, 0.5 + n/2) instead of the surface
 
@@ -270,7 +272,7 @@ void fragment() {
 	pm *= mix(0.6, 1.0, on_floor) * (1.0 - fw);       // the floor has its own pools
 	vec3 wcol = water_col * mix(0.85, 1.15, nz.b);
 	alb = mix(alb, wcol, pm * 0.9);
-	rough = mix(rough, 0.13, pm);
+	rough = mix(rough, puddle_rough, pm);
 	wn_world = normalize(mix(wn_world, n, pm));
 	alb = mix(alb, f_alb, fw);
 	rough = mix(rough, f_rough, fw);
@@ -290,7 +292,7 @@ void fragment() {
 		rough = mix(rough, rough * 0.5, rim);
 		vec3 pc = puddle_col * mix(0.85, 1.15, nz.b);
 		alb = mix(alb, pc, water * 0.94);
-		rough = mix(rough, 0.035, water);
+		rough = mix(rough, floor_water_rough, water);
 		vec2 st = wpos.xz * 3.0 + vec2(TIME * 0.05, TIME * 0.03);
 		vec3 stir = vec3(texture(noise_tex, st * 0.11).r - 0.5, 0.0, texture(noise_tex, st * 0.11 + 0.5).g - 0.5) * 0.06;
 		wn_world = normalize(mix(wn_world, normalize(n + stir), water));

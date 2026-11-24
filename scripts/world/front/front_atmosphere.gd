@@ -194,11 +194,11 @@ static func setup_sun(sun: DirectionalLight3D, light: int = 0) -> void:
 	if dawn:
 		sun.light_color = Color(0.96, 0.86, 0.72)         # the low sun through the haze over their side
 		sun.light_energy = 1.0
-		sun.light_specular = 0.35        # it grazes the wet field and glints: the moonlit sheen, by day (24 Nov)
+		sun.light_specular = 0.3         # it grazes the wet field and glints: the moonlit sheen, by day (24 Nov)
 	if night:
 		sun.light_color = Color(0.70, 0.77, 0.96)         # the moon
 		sun.light_energy = 0.42
-		sun.light_specular = 0.55
+		sun.light_specular = 0.4          # (24 Nov) 0.55 blew the trench pools out
 	sun.light_angular_distance = 6.0
 	sun.light_volumetric_fog_energy = 0.25
 	sun.shadow_enabled = true

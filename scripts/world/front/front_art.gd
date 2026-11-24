@@ -76,6 +76,18 @@ func ground_material() -> ShaderMaterial:
 		mat.set_shader_parameter("brightness", 0.95)
 		mat.set_shader_parameter("water_col", Color(0.26, 0.26, 0.22))
 		mat.set_shader_parameter("puddle_col", Color(0.07, 0.07, 0.06))
+		# (24 Nov) with a low sun or a moon on the water (dawn/night: the only
+		# lights with specular), glassy pools blow out into white blobs down
+		# in the trench ("blindingly bright"); the water goes a little
+		# rougher there, so the sheen stays broad and the blobs go. By day
+		# (no specular) nothing changes.
+		var light_: int = front.light if front else 0
+		if light_ == FrontVariant.Light.DAWN:
+			mat.set_shader_parameter("floor_water_rough", 0.22)
+			mat.set_shader_parameter("puddle_rough", 0.2)
+		elif light_ == FrontVariant.Light.NIGHT:
+			mat.set_shader_parameter("floor_water_rough", 0.26)
+			mat.set_shader_parameter("puddle_rough", 0.22)
 	return mat
 
 

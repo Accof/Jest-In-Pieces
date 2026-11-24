@@ -66,6 +66,11 @@ func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	render = args.has("render")
 	for a in args:
+		if a.begins_with("light="):
+			FrontVariant.forced_light = FrontVariant.light_from_name(a.substr(6))
+		elif a.begins_with("variant="):
+			FrontVariant.forced = FrontVariant.from_name(a.substr(8))
+	for a in args:
 		if a.begins_with("seed="):
 			fixed_seed = int(a.substr(5))
 	var secs := ["layouts", "geo", "cover", "wire", "crossing", "game", "views", "atmos", "variants"]
