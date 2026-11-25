@@ -65,6 +65,17 @@ func _ready() -> void:
 func _run() -> void:
 	print("-- blood placement")
 	Blood._rng.seed = 7
+	# pin the body/limb chances for the deterministic checks; 1c tests the odds
+	# a splash (a bleeding body hitting a wall; the gore module placed the
+	# mark): no mark from here, drops only
+	Blood.clear()
+	Blood.spawn_hit(Vector3(0, 1.0, -2.9), Vector3(0, 0.3, 1).normalized(), 1.5, false, "splash")
+	await _frames(2)
+	_check(_count("mist") == 0 and _count("heavy") == 0, "a splash adds no mark of its own")
+	Blood.BODY_MARK_CHANCE = 1.0
+	Blood.BODY_PLUME_CHANCE = 1.0
+	Blood.LIMB_MARK_CHANCE = 1.0
+	Blood.LIMB_PLUME_CHANCE = 1.0
 	# 1. a rifle chest hit, 1.5 m from the wall: one mist of the right size, a
 	#    few small drops, no mass; back spatter and floor drops
 	Blood.clear()
@@ -72,16 +83,21 @@ func _run() -> void:
 	await _frames(2)
 	var mists := _count("mist")
 	var smalls := _count("small")
-	_check(mists >= 1 and mists <= 2, "rifle at 1.5 m: one mist on the wall (+ a back-spatter mist at most): %d" % mists)
+	_check(mists == 1, "rifle at 1.5 m: one mist on the wall and no second mark over it: %d" % mists)
 	_check(_count("impact") == 0 and _count("heavy") == 0, "rifle at 1.5 m: no mass, it is a mist")
-	_check(smalls >= 3, "rifle: small drops round it, behind and beneath (%d)" % smalls)
+	_check(smalls >= 1 and smalls <= 3, "rifle: a drop or two beneath, none on the wall (%d)" % smalls)
 	var big := 0.0
 	for e in _decals():
 		if _kind(e.tex) == "mist" and e.pos.z < -2.5:
 			big = maxf(big, maxf(e.size.x, e.size.z) * Blood.SPLAT2_FILL.mist)
-	_check(big >= 0.45 and big <= 0.75, "rifle body mist on the wall is %.2f m across (0.45-0.75: a body shot, not a headshot)" % big)
+	_check(big >= 0.4 and big <= 0.75, "rifle body mist on the wall is %.2f m across (0.4-0.75: a body shot, not a headshot)" % big)
 	var total := _decals().size()
-	_check(total <= 10, "a rifle body hit spends at most 10 decals (%d)" % total)
+	_check(total <= 4, "a rifle body hit spends at most 4 decals (%d)" % total)
+	var wall_marks := 0
+	for e in _decals():
+		if e.pos.z < -2.5:
+			wall_marks += 1
+	_check(wall_marks == 1, "and exactly one of them is on the wall (%d)" % wall_marks)
 	# 1b. (25 Nov) tiers: a body shot reaches 1.6 m and no farther - a wall
 	#     across the room gets nothing; a limb shot is small; a headshot has
 	#     the reach and the mass
@@ -108,7 +124,41 @@ func _run() -> void:
 	for e in _decals():
 		if _kind(e.tex) == "mist":
 			big = maxf(big, maxf(e.size.x, e.size.z) * Blood.SPLAT2_FILL.mist)
-	_check(big > 0.0 and big <= 0.42 and _decals().size() <= 6, "a limb hit: a small mist (%.2f m) and at most 6 decals (%d)" % [big, _decals().size()])
+	_check(big > 0.0 and big <= 0.42 and _decals().size() <= 2, "a limb hit: a small mist (%.2f m) and at most 2 decals (%d)" % [big, _decals().size()])
+	# 1c. the odds: a pistol round stays in the body - no wall mark, no plume;
+	#     rifle body shots mark the wall about 7 times in 10, limbs 4 in 10
+	Blood.BODY_MARK_CHANCE = 0.7
+	Blood.BODY_PLUME_CHANCE = 0.5
+	Blood.LIMB_MARK_CHANCE = 0.4
+	Blood.LIMB_PLUME_CHANCE = 0.3
+	Blood.clear()
+	var sp0: int = Blood.sprays
+	for k in 40:
+		Blood.spawn_hit(Vector3(0, 1.3, -2.0), Vector3(0, -0.05, -1).normalized(), 0.3 + 0.015 * k, false, "", "Pistol", 100 + k)
+	await _frames(2)
+	wall_marks = 0
+	for e in _decals():
+		if e.pos.z < -2.5:
+			wall_marks += 1
+	_check(wall_marks == 0 and Blood.sprays == sp0, "40 pistol body hits: nothing on the wall, no plume (%d marks, %d plumes)" % [wall_marks, Blood.sprays - sp0])
+	Blood.clear()
+	sp0 = Blood.sprays
+	for k in 100:
+		Blood.spawn_hit(Vector3(0, 1.3, -2.0), Vector3(0, -0.05, -1).normalized(), 1.6, false, "", "Rifle", 200 + k)
+	await _frames(2)
+	var rifle_mists := _count("mist")
+	_check(rifle_mists >= 55 and rifle_mists <= 85, "100 rifle body hits: about 70 exit mists (%d)" % rifle_mists)
+	_check(Blood.sprays - sp0 >= 35 and Blood.sprays - sp0 <= 65, "and about 50 small plumes (%d)" % (Blood.sprays - sp0))
+	Blood.clear()
+	for k in 100:
+		Blood.spawn_hit(Vector3(0, 1.0, -2.2), Vector3(0, -0.05, -1).normalized(), 1.6, false, "limb", "Rifle", 300 + k)
+	await _frames(2)
+	var limb_mists := _count("mist")
+	_check(limb_mists >= 25 and limb_mists <= 55, "100 limb hits: about 40 small marks (%d)" % limb_mists)
+	Blood.BODY_MARK_CHANCE = 1.0
+	Blood.BODY_PLUME_CHANCE = 1.0
+	Blood.LIMB_MARK_CHANCE = 1.0
+	Blood.LIMB_PLUME_CHANCE = 1.0
 	# 2. a revolver headshot close to the wall: heavy with drips on the mist,
 	#    the heavy's up along the world's up
 	Blood.clear()
@@ -182,10 +232,23 @@ func _run() -> void:
 	var pm0 := last_plume.process_material as ParticleProcessMaterial
 	_check(pm0.initial_velocity_max <= 5.0 and last_plume.amount_ratio <= 0.36, "a body plume is slow and sparse (%.0f m/s, ratio %.2f)" % [pm0.initial_velocity_max, last_plume.amount_ratio])
 	var last_haze: GPUParticles3D = Blood._hazes[(Blood._haze_next - 1 + Blood.HAZES) % Blood.HAZES]
-	_check(last_haze.emitting and last_haze.lifetime > 1.0 and last_haze.amount_ratio <= 0.2, "a faint puff hangs for over a second (%.1f s, ratio %.2f)" % [last_haze.lifetime, last_haze.amount_ratio])
+	_check(not last_haze.emitting, "a body shot has no haze")
 	await _frames(1)
 	var drawn: int = Blood._drop_mm.visible_instance_count
-	_check(drawn >= 5 and drawn == Blood._drop_pos.size(), "the flying droplets are drawn, one quad each (%d)" % drawn)
+	_check(drawn >= 1 and drawn <= 2 and drawn == Blood._drop_pos.size(), "its drop or two is drawn, one quad each (%d)" % drawn)
+	await _frames(240)
+	var wall_after := 0
+	for e in _decals():
+		if e.pos.z < -2.5 and absf(e.up.y) < 0.5:       # on the wall (a decal's Y is its projection axis, the surface normal)
+			wall_after += 1
+	_check(wall_after == 1, "and when they have landed the wall still has its one mark (%d)" % wall_after)
+	# a headshot's droplets: many, some flying with the plume
+	Blood.spawn_hit(Vector3(0, 1.6, -1.7), Vector3(0, -0.05, -1), 1.4, false, "head", "Revolver", 81)
+	last_haze = Blood._hazes[(Blood._haze_next - 1 + Blood.HAZES) % Blood.HAZES]
+	_check(last_haze.emitting and last_haze.lifetime > 1.0, "a headshot's haze hangs for over a second (%.1f s)" % last_haze.lifetime)
+	await _frames(1)
+	drawn = Blood._drop_mm.visible_instance_count
+	_check(drawn >= 8 and drawn == Blood._drop_pos.size(), "a headshot's droplets are drawn, one quad each (%d)" % drawn)
 	var fast := 0
 	for v: Vector3 in Blood._drop_vel:
 		if v.length() >= Blood.PLUME_SPEED_MIN * 0.8:

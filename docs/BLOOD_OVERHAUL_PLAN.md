@@ -323,3 +323,25 @@ Now a hit is a **tier**, by where it landed before how hard (`hit_tier`, `TIER_R
 Tests: `test_blood` 35 checks, 0 failed (body shot 2.4 m from a wall marks nothing on it; the same
 shot to the head reaches it with the heavy; a limb hit ≤ 6 decals; six pellets one spray; a limb
 hit no haze; a body plume slow and sparse). `test_pools` 0. Look: `wall_regimes_tiered.png`.
+
+## 13. His second test (25 Nov) — chance, and one coherent mark
+Andrew: "still too much spurt in general from the body and limbs. Also it shouldn't happen all
+the time. Too many different incoherent decals painting the same area and cause a mess."
+- **It does not always happen.** A torso hit throws blood only when the round goes through
+  (amount ≥ 0.9: rifle, revolver, Maxim, a shotgun charge) and then 7 times in 10 for the mark,
+  5 in 10 for the small plume (`BODY_MARK_CHANCE`, `BODY_PLUME_CHANCE`); pistol, SMG and single
+  pellets stay in the body and throw nothing on the wall. A limb: 4 in 10 a mark, 3 in 10 a plume.
+  The body plume is also thinner (ratio 0.12–0.25) and has **no haze**; a limb's ratio 0.08.
+- **One mark.** A body or limb hit on a wall is its one mist and nothing else on that wall — no
+  fan of small drops over it, no back spatter, no streak for a limb; one or two drops fall to the
+  floor and, new, the drops it throws are **floor-only** (`add_droplet(..., floor_only)`): they
+  stamp where they land on a floor, never on the wall over the mist. A headshot's small drops are
+  placed in a **ring** round the mark (0.3–0.55 rad off the axis), outside the mist, not on it.
+- **Bodies hitting walls.** `clown_gore._impacts` (a bleeding ragdoll striking a surface at speed,
+  every 0.18 s per bone) placed an impact AND a streak AND a head-tier `spawn_hit` (mist, heavy,
+  ring, back spatter, plume, haze) on the same spot — the mess in a corner after a shotgun kill.
+  Now one mark (the streak if it slid, else the impact, sized by speed, from 4 m/s not 3) and
+  `spawn_hit(..., "splash")`: no mark of its own, a small plume half the time, two floor drops.
+Tests: `test_blood` 43 checks, 0 failed, three runs (40 pistol body hits: nothing on the wall, no
+plume; 100 rifle body hits ≈ 70 mists, ≈ 50 plumes; 100 limb hits ≈ 40 marks; a body hit is one
+wall mark before and after its drops land; a splash adds no mark). `test_impacts` 0, `test_pools` 0.

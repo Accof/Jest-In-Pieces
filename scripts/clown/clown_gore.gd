@@ -651,7 +651,7 @@ func _impacts(delta: float) -> void:
 			continue
 		var v: Vector3 = PhysicsServer3D.body_get_state(pb.get_rid(), PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY)
 		var sp := v.length()
-		if sp < 3.0:
+		if sp < 4.0:
 			continue
 		var q := PhysicsRayQueryParameters3D.create(pb.global_position, pb.global_position + v / sp * (0.28 + sp * delta * 2.0), LAYER_WORLD)
 		var hit := space.intersect_ray(q)
@@ -660,11 +660,14 @@ func _impacts(delta: float) -> void:
 		_impact_next[bn] = _impact_clock + 0.18
 		var n: Vector3 = hit.normal
 		var slide := v - n * v.dot(n)
-		var size := clampf(0.4 + sp * 0.05, 0.45, 1.1)
-		Blood.spawn_decal(hit.position, n, size, "impact", Vector3.ZERO, 1.0, 1.0, clown.mechanical)
+		# (25 Nov) one mark - the impact, or the streak if it slid - and a
+		# splash of drops; not a headshot's spray on top of them
+		var size := clampf(0.25 + sp * 0.06, 0.3, 1.0)
 		if slide.length() > 0.5:
-			Blood.spawn_decal(hit.position + slide.normalized() * size * 0.5, n, size * 0.8, "streak", slide, 1.0, 1.6, clown.mechanical)
-		Blood.spawn_hit(hit.position + n * 0.05, (n + slide.normalized() * 0.5).normalized(), clampf(sp / 6.0, 0.6, 1.8), clown.mechanical)
+			Blood.spawn_decal(hit.position + slide.normalized() * size * 0.3, n, size * 0.9, "streak", slide, 1.0, 1.6, clown.mechanical)
+		else:
+			Blood.spawn_decal(hit.position, n, size, "impact", Vector3.ZERO, 1.0, 1.0, clown.mechanical)
+		Blood.spawn_hit(hit.position + n * 0.05, (n + slide.normalized() * 0.5).normalized(), clampf(sp / 6.0, 0.6, 1.8), clown.mechanical, "splash")
 
 
 ## Torn in half at the waist: the pelvis and each leg piece come away as

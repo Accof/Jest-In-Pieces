@@ -250,36 +250,66 @@ const TIER_REACH := {head = 2.6, body = 1.6, limb = 1.2}
 var _shot_pellets := 0
 
 
+## Zones: "head", "limb", "" (the torso), or "splash" - a bleeding body hitting
+## a surface: the caller placed the mark, this is only the drops thrown.
 func hit_tier(amount: float, zone: String, weapon: String) -> String:
-	if zone == "head" or (weapon == "" and amount >= 1.3):
+	if zone == "head" or (weapon == "" and zone != "splash" and amount >= 1.3):
 		return "head"
 	if zone == "limb":
 		return "limb"
 	return "body"
 
 
+## (25 Nov, his second test: "still too much spurt in general from the body
+## and limbs. Also it shouldn't happen all the time. Too many different
+## incoherent decals painting the same area") A body or limb hit does not
+## always throw blood, and when it does it is ONE mark: a round that goes
+## through (amount >= 0.9: rifle, revolver, Maxim) throws an exit mist 7 times
+## in 10; a limb 4 in 10; pistol, SMG and single pellets stay in the body and
+## throw nothing on the wall. The small plume comes half the time at most, no
+## haze; the drops arc to the floor and stamp only there, never over the mist.
+static var BODY_MARK_CHANCE := 0.7       # static vars so the tests can pin them
+static var BODY_PLUME_CHANCE := 0.5
+static var LIMB_MARK_CHANCE := 0.4
+static var LIMB_PLUME_CHANCE := 0.3
+
+
 func spawn_hit(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false, zone := "", weapon := "", shot_id := -1) -> void:
 	dir = dir.normalized()
 	var tier := hit_tier(amount, zone, weapon)
 	var pellet := shot_id >= 0 and shot_id == _last_shot
-	if not pellet:
+	var through := amount >= 0.9 or weapon.containsn("shotgun")
+	var mark := true
+	var plume := true
+	if zone == "splash":
+		mark = false
+		plume = _rng.randf() < BODY_PLUME_CHANCE
+	elif tier == "body":
+		mark = through and _rng.randf() < BODY_MARK_CHANCE
+		plume = through and _rng.randf() < BODY_PLUME_CHANCE
+	elif tier == "limb":
+		mark = _rng.randf() < LIMB_MARK_CHANCE
+		plume = _rng.randf() < LIMB_PLUME_CHANCE
+	if not pellet and plume:
 		_burst(pos, dir, amount, oil, tier)
 	if splat_version == 2 and not use_legacy_splatters:
-		_place_gunshot(pos, dir, amount, oil, tier, weapon, shot_id)
+		_place_gunshot(pos, dir, amount, oil, tier, weapon, shot_id, mark)
 		if pellet:
 			return
-		# (Phase C) a few of the plume's drops are real: they fly with it, land
-		# and stamp where it would have; and the heavy drops arc to the floor
-		var smin: float = PLUME_SPEED_MIN if tier == "head" else 2.5
-		var smax: float = PLUME_SPEED_MAX if tier == "head" else 4.5
-		var fast := 3 + int(amount * 4.0) if tier == "head" else (2 if tier == "limb" else 2 + int(amount * 2.0))
-		var arcs := 2 + int(amount * 4.0) if tier == "head" else (1 if tier == "limb" else 1 + int(amount * 2.0))
-		for i in fast:
-			var v := dir * _rng.randf_range(smin, smax) + _rand_unit() * 0.9
-			add_droplet(pos, v, _rng.randf_range(0.04, 0.09), oil)
-		for i in arcs:
-			var v := dir * _rng.randf_range(0.8, 3.0) + Vector3.UP * _rng.randf_range(0.3, 2.2) + _rand_unit() * 1.1
-			add_droplet(pos, v, _rng.randf_range(0.05, 0.13), oil)
+		if tier == "head":
+			# (Phase C) a few of the plume's drops are real: they fly with it,
+			# land and stamp where it would have; and the heavy drops arc away
+			for i in 3 + int(amount * 4.0):
+				var v := dir * _rng.randf_range(PLUME_SPEED_MIN, PLUME_SPEED_MAX) + _rand_unit() * 0.9
+				add_droplet(pos, v, _rng.randf_range(0.04, 0.09), oil)
+			for i in 2 + int(amount * 4.0):
+				var v := dir * _rng.randf_range(0.8, 3.0) + Vector3.UP * _rng.randf_range(0.3, 2.2) + _rand_unit() * 1.1
+				add_droplet(pos, v, _rng.randf_range(0.05, 0.13), oil)
+		else:
+			# a body or limb: one or two drops that fall to the floor
+			for i in (1 if tier == "limb" or not plume else 2):
+				var v := dir * _rng.randf_range(0.6, 2.0) + Vector3.UP * _rng.randf_range(0.2, 1.4) + _rand_unit() * 0.8
+				add_droplet(pos, v, _rng.randf_range(0.05, 0.1), oil, true)
 		return
 	# Exit spray onto whatever is behind the target.
 	var rays := 2 + int(amount * 4.0)
@@ -315,7 +345,7 @@ var _last_shot := -1               # a shotgun's pellets share one big mark
 ## A handful of small drops are re-raycast round it, a little back spatter
 ## toward the shooter, a few drops on the floor beneath. A shotgun's pellets
 ## share the one big mark (the first pellet of a shot places it).
-func _place_gunshot(pos: Vector3, dir: Vector3, amount: float, oil: bool, tier: String, weapon: String, shot_id: int) -> void:
+func _place_gunshot(pos: Vector3, dir: Vector3, amount: float, oil: bool, tier: String, weapon: String, shot_id: int, mark := true) -> void:
 	var pellet := shot_id >= 0 and shot_id == _last_shot
 	if shot_id >= 0:
 		if pellet:
@@ -330,7 +360,7 @@ func _place_gunshot(pos: Vector3, dir: Vector3, amount: float, oil: bool, tier: 
 	var reach: float = TIER_REACH[tier]
 	if shotgun:
 		reach = maxf(reach, 2.2)
-	var hit := _ray(pos + d * 0.05, pos + d * reach)
+	var hit := _ray(pos + d * 0.05, pos + d * reach) if mark else {}
 	if not hit.is_empty() and not pellet:
 		var n: Vector3 = (hit.normal as Vector3).normalized()
 		var dist: float = pos.distance_to(hit.position)
@@ -358,10 +388,11 @@ func _place_gunshot(pos: Vector3, dir: Vector3, amount: float, oil: bool, tier: 
 			spawn_decal(hit.position + along.normalized() * 0.04, n, clampf(0.5 + 0.3 * amount, 0.5, 0.95), "heavy", Vector3.ZERO, 1.0, 1.0, oil)
 		elif head or (not limb and dist < 0.9 and amount >= 1.2):
 			spawn_decal(hit.position, n, clampf(0.28 + 0.3 * amount, 0.3, 0.7), "impact", Vector3.ZERO, 1.0, 1.0, oil)
-		# small drops re-raycast round the mark, inside the fan
-		var drops := 5 + int(amount * 4.0) if head else (2 if limb else 3)
+		# a headshot's small drops: a ring round the mark, outside the mist,
+		# not on it (a body or limb is its one mark and nothing else)
+		var drops := 4 + int(amount * 2.0) if head else 0
 		for i in drops:
-			var dd := (d + _rand_unit() * 0.32).normalized()
+			var dd := (d + _rand_unit() * _rng.randf_range(0.3, 0.55)).normalized()
 			var h2 := _ray(pos + dd * 0.05, pos + dd * (reach + 0.1))
 			if not h2.is_empty():
 				var sl: Vector3 = dd - h2.normal * dd.dot(h2.normal)
@@ -378,22 +409,21 @@ func _place_gunshot(pos: Vector3, dir: Vector3, amount: float, oil: bool, tier: 
 			spawn_decal(hit.position, n, 0.55, "impact", Vector3.ZERO, 1.0, 1.0, oil)
 	if pellet:
 		return
-	# back spatter toward the shooter: a headshot's small mist and a few drops;
-	# a body shot's one drop
+	# back spatter toward the shooter: a headshot's small mist and a few drops
 	if head:
 		var bd := (-d + _rand_unit() * 0.5).normalized()
 		var bh := _ray(pos + bd * 0.05, pos + bd * 1.8)
 		if not bh.is_empty():
 			var bal: Vector3 = bd - bh.normal * bd.dot(bh.normal)
 			spawn_decal(bh.position, bh.normal, _rng.randf_range(0.22, 0.4) * (0.8 + 0.4 * amount), "mist", bal, 1.0, 1.0, oil)
-	var back := 1 + int(amount * 2.0) if head else (0 if limb else 1)
+	var back := 1 + int(amount * 2.0) if head else 0
 	for i in back:
 		var bd2 := (-d + _rand_unit() * 0.8).normalized()
 		var bh2 := _ray(pos + bd2 * 0.05, pos + bd2 * 1.6)
 		if not bh2.is_empty():
 			spawn_decal(bh2.position, bh2.normal, _rng.randf_range(0.03, 0.07), "small", Vector3.ZERO, 1.0, 1.0, oil)
 	# drops straight down onto the floor beneath the wound
-	var floor_drops := 2 + int(amount * 2.0) if head else (1 if limb else 2)
+	var floor_drops := 2 + int(amount * 2.0) if head else (0 if limb else 1)
 	for i in floor_drops:
 		var fd := (Vector3.DOWN + _rand_unit() * 0.32).normalized()
 		var fh := _ray(pos, pos + fd * 2.6)
@@ -478,11 +508,13 @@ func _hand_to_spare(d: Decal) -> void:
 
 
 ## A single falling drop, for wounds that keep bleeding.
-func add_droplet(pos: Vector3, vel: Vector3, size: float = 0.07, oil := false) -> void:
+## `floor_only`: the drop stamps where it lands on a floor but not on a wall
+## (a body shot's drops must not paint a second set of marks over its mist).
+func add_droplet(pos: Vector3, vel: Vector3, size: float = 0.07, oil := false, floor_only := false) -> void:
 	if _drop_pos.size() >= MAX_DROPLETS:
 		return
 	_drop_pos.append(pos); _drop_vel.append(vel); _drop_size.append(size); _drop_life.append(4.0)
-	_drop_oil.append(1 if oil else 0)
+	_drop_oil.append((1 if oil else 0) | (2 if floor_only else 0))
 
 
 func _splat_on(pos: Vector3, normal: Vector3, travel: Vector3, size: float, oil := false) -> void:
@@ -709,7 +741,8 @@ func _physics_process(delta: float) -> void:
 			var s := _drop_size[i]
 			var along: Vector3 = v - hit.normal * v.dot(hit.normal)
 			var slant: float = clampf(along.length() / maxf(v.length(), 0.01), 0.0, 1.0)
-			spawn_decal(hit.position, hit.normal, s * 2.2, "drip", along, 1.0, 1.0 + slant * 0.8, _drop_oil[i] == 1)
+			if (_drop_oil[i] & 2) == 0 or absf(hit.normal.y) > 0.6:
+				spawn_decal(hit.position, hit.normal, s * 2.2, "drip", along, 1.0, 1.0 + slant * 0.8, (_drop_oil[i] & 1) == 1)
 			_drop_life[i] = 0.0
 		if _drop_life[i] <= 0.0:
 			var last := _drop_pos.size() - 1
@@ -883,7 +916,7 @@ func mist(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false) -> void
 ## and the strings die as they reach it; the Phase B marks are already there.
 ## The tier sets the plume's speed, span and count: a headshot's 4-9 m/s for
 ## 0.45 s (up to 4 m into open air) with the haze; a body shot's 2.5-5 m/s for
-## 0.32 s (1.6 m) and a faint puff; a limb's 2-4 m/s, a few strings, no haze.
+## 0.32 s (1.6 m), no haze; a limb's 2-4 m/s, a few strings, no haze.
 func _burst(pos: Vector3, dir: Vector3, amount: float, oil := false, tier := "head") -> void:
 	sprays += 1
 	if not draw_spray:
@@ -896,11 +929,11 @@ func _burst(pos: Vector3, dir: Vector3, amount: float, oil := false, tier := "he
 	var haze_ratio := clampf(0.3 + amount * 0.4, 0.2, 1.0)
 	if tier == "body":
 		smin = 2.5; smax = 5.0; span = 0.32
-		ratio = clampf(0.18 + amount * 0.1, 0.15, 0.36)
-		haze_ratio = 0.16
+		ratio = clampf(0.12 + amount * 0.08, 0.12, 0.25)
+		haze_ratio = 0.0
 	elif tier == "limb":
 		smin = 2.0; smax = 4.0; span = 0.28
-		ratio = 0.12
+		ratio = 0.08
 		haze_ratio = 0.0
 	var plumes := _plumes_oil if oil else _plumes
 	var p := plumes[_plume_next % plumes.size()]
@@ -955,4 +988,4 @@ func _draw_drops() -> void:
 		_drop_mm.set_instance_transform(i, Transform3D(b, _drop_pos[i]))
 		# the frame: drops for a slow one, strings for a fast one (sheet rows 0-1 / 2-3)
 		var frame := ((i * 7) % 8 + (8 if speed > 2.5 else 0)) / 16.0 + 0.01
-		_drop_mm.set_instance_custom_data(i, Color(0.0, 0.0, frame, float(_drop_oil[i])))
+		_drop_mm.set_instance_custom_data(i, Color(0.0, 0.0, frame, float(_drop_oil[i] & 1)))
