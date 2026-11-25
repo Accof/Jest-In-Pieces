@@ -437,3 +437,9 @@ own height in the top 30 % from a small swelling where the mass fed it; lengths 
 2–9 px. The run shader fades the quad's top 10 % so nothing begins on a line, and the quad is
 narrower than the mass (0.65 × size) so the runs come out of it, not beside it.
 `runs_staggered.png`. `test_blood` 48, 0 failed.
+
+## 20. "The drips are too shiny compared to the splat" (25 Nov)
+The v2 decals carry no ORM (Phase B: a wet roughness washed the colour out), so a mark takes the
+wall's roughness and reads matt; the run shader was at roughness 0.18 wet with specular 0.5 — a
+varnish. Now roughness 0.62–0.92 (a little sheen on the moving head only, matt once dried),
+specular 0.2. `shaders/blood_run.gdshader` only.

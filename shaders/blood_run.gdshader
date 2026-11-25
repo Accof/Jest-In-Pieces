@@ -40,6 +40,9 @@ void fragment() {
 	ALBEDO = col;
 	ALPHA = a * tint.a;
 	METALLIC = 0.0;
-	ROUGHNESS = mix(0.85, 0.18, wet * clamp(head * 3.0 + thick, 0.0, 1.0));
-	SPECULAR = 0.5;
+	// (25 Nov, "too shiny compared to the splat") the marks carry no gloss map
+	// and take the wall's roughness, so a run must sit close to matt too: a
+	// little sheen on the moving head only, none once it has dried
+	ROUGHNESS = mix(0.92, 0.62, wet * clamp(head * 2.0 + thick * 0.4, 0.0, 1.0));
+	SPECULAR = 0.2;
 }
