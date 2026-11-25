@@ -90,7 +90,7 @@ func _run() -> void:
 	for e in _decals():
 		if _kind(e.tex) == "mist" and e.pos.z < -2.5:
 			big = maxf(big, maxf(e.size.x, e.size.z) * Blood.SPLAT2_FILL.mist)
-	_check(big >= 0.4 and big <= 0.75, "rifle body mist on the wall is %.2f m across (0.4-0.75: a body shot, not a headshot)" % big)
+	_check(big >= 0.3 and big <= 0.65, "rifle body mist on the wall is %.2f m across (0.3-0.65: a body shot, not a headshot)" % big)
 	var total := _decals().size()
 	_check(total <= 4, "a rifle body hit spends at most 4 decals (%d)" % total)
 	var wall_marks := 0

@@ -82,7 +82,7 @@ var _decal_oil := PackedByteArray()
 @export var pool_settling_duration := Vector2(1.0, 3.0)
 @export var shape_variation := 1.0                            ## 0: round pools
 @export var edge_irregularity := 1.0
-@export var maximum_pool_radius := 0.6                        ## metres
+@export var maximum_pool_radius := 0.5                        ## metres (25 Nov: 0.6 -> 0.5, "pools too large")
 @export var pool_size := 0.7                                  ## every blood pool's radius is scaled by this (oil is not)
 @export var maximum_active_spreading_pools := 8               ## beyond this the oldest spreading one settles at once
 @export var surface_sampling_quality := 1                     ## 0 low, 1 medium, 2 high (grid spacing 0.12 / 0.085 / 0.065 m)
@@ -370,14 +370,14 @@ func _place_gunshot(pos: Vector3, dir: Vector3, amount: float, oil: bool, tier: 
 		# 1.3 m; it thins with distance rather than growing
 		var size: float
 		if head:
-			size = clampf(0.6 + 0.4 * amount, 0.6, 1.3)
+			size = clampf(0.5 + 0.25 * amount, 0.5, 0.9)
 		elif limb:
 			size = clampf(0.22 + 0.12 * amount, 0.22, 0.4)
 		else:
-			size = clampf(0.3 + 0.25 * amount, 0.3, 0.7)
+			size = clampf(0.3 + 0.2 * amount, 0.3, 0.6)
 		size *= 1.0 - 0.3 * clampf((dist - 0.8) / 1.8, 0.0, 1.0)
 		if shotgun:
-			size = minf(size * 1.4, 1.3)          # the whole charge's fan, placed by its first pellet
+			size = minf(size * 1.3, 1.0)          # the whole charge's fan, placed by its first pellet
 		var stretch := 1.0 + (1.0 - facing) * 1.6
 		if facing < 0.45 and along.length() > 0.05 and not limb:
 			# a graze along the surface: a dragged streak, and the mist beyond it
@@ -385,9 +385,9 @@ func _place_gunshot(pos: Vector3, dir: Vector3, amount: float, oil: bool, tier: 
 		spawn_decal(hit.position, n, size, "mist", along if along.length() > 0.08 else Vector3.ZERO, 1.0 / sqrt(stretch), sqrt(stretch), oil)
 		# the mass: a headshot's heavy that drips, close and hard an impact
 		if head and amount >= 0.8:
-			spawn_decal(hit.position + along.normalized() * 0.04, n, clampf(0.5 + 0.3 * amount, 0.5, 0.95), "heavy", Vector3.ZERO, 1.0, 1.0, oil)
+			spawn_decal(hit.position + along.normalized() * 0.04, n, clampf(0.4 + 0.2 * amount, 0.4, 0.7), "heavy", Vector3.ZERO, 1.0, 1.0, oil)
 		elif head or (not limb and dist < 0.9 and amount >= 1.2):
-			spawn_decal(hit.position, n, clampf(0.28 + 0.3 * amount, 0.3, 0.7), "impact", Vector3.ZERO, 1.0, 1.0, oil)
+			spawn_decal(hit.position, n, clampf(0.25 + 0.2 * amount, 0.25, 0.55), "impact", Vector3.ZERO, 1.0, 1.0, oil)
 		# a headshot's small drops: a ring round the mark, outside the mist,
 		# not on it (a body or limb is its one mark and nothing else)
 		var drops := 4 + int(amount * 2.0) if head else 0
@@ -396,7 +396,7 @@ func _place_gunshot(pos: Vector3, dir: Vector3, amount: float, oil: bool, tier: 
 			var h2 := _ray(pos + dd * 0.05, pos + dd * (reach + 0.1))
 			if not h2.is_empty():
 				var sl: Vector3 = dd - h2.normal * dd.dot(h2.normal)
-				spawn_decal(h2.position, h2.normal, _rng.randf_range(0.03, 0.09) * (1.0 + 0.4 * amount), "small", sl, 1.0, 1.0 + sl.length() * 1.5, oil)
+				spawn_decal(h2.position, h2.normal, _rng.randf_range(0.03, 0.07) * (1.0 + 0.2 * amount), "small", sl, 1.0, 1.0 + sl.length() * 1.5, oil)
 	elif not hit.is_empty() and pellet:
 		# one more pellet of the same shot: a drop in the fan, no second mark;
 		# the fifth on one body is a close charge - the mass goes on
@@ -406,7 +406,7 @@ func _place_gunshot(pos: Vector3, dir: Vector3, amount: float, oil: bool, tier: 
 			spawn_decal(h2.position, h2.normal, _rng.randf_range(0.03, 0.08), "small", Vector3.ZERO, 1.0, 1.0, oil)
 		if _shot_pellets == 5 and not limb:
 			var n: Vector3 = (hit.normal as Vector3).normalized()
-			spawn_decal(hit.position, n, 0.55, "impact", Vector3.ZERO, 1.0, 1.0, oil)
+			spawn_decal(hit.position, n, 0.45, "impact", Vector3.ZERO, 1.0, 1.0, oil)
 	if pellet:
 		return
 	# back spatter toward the shooter: a headshot's small mist and a few drops
@@ -428,7 +428,7 @@ func _place_gunshot(pos: Vector3, dir: Vector3, amount: float, oil: bool, tier: 
 		var fd := (Vector3.DOWN + _rand_unit() * 0.32).normalized()
 		var fh := _ray(pos, pos + fd * 2.6)
 		if not fh.is_empty():
-			spawn_decal(fh.position, fh.normal, _rng.randf_range(0.04, 0.1), "small", Vector3.ZERO, 1.0, 1.0, oil)
+			spawn_decal(fh.position, fh.normal, _rng.randf_range(0.03, 0.08), "small", Vector3.ZERO, 1.0, 1.0, oil)
 
 
 ## Blood flung off something bloody moving fast (a severed limb, a swung club,
@@ -456,7 +456,8 @@ func cast_off(pos: Vector3, vel: Vector3, amount: float = 1.0, oil := false) -> 
 		return
 	var n: Vector3 = best.normal.normalized()
 	var along: Vector3 = m - n * m.dot(n)
-	var size := clampf(0.8 + 0.4 * amount + best_d * 0.3, 0.8, 1.7)
+	# (25 Nov) a gib's arc is 0.5-0.8 m, a tumbling body's up to 1.1 (was 0.8-1.7)
+	var size := clampf(0.3 + 0.35 * amount + best_d * 0.15, 0.3, 1.1)
 	spawn_decal(best.position, n, size, "castoff", along, 1.0, 1.0, oil)
 
 
@@ -742,7 +743,7 @@ func _physics_process(delta: float) -> void:
 			var along: Vector3 = v - hit.normal * v.dot(hit.normal)
 			var slant: float = clampf(along.length() / maxf(v.length(), 0.01), 0.0, 1.0)
 			if (_drop_oil[i] & 2) == 0 or absf(hit.normal.y) > 0.6:
-				spawn_decal(hit.position, hit.normal, s * 2.2, "drip", along, 1.0, 1.0 + slant * 0.8, (_drop_oil[i] & 1) == 1)
+				spawn_decal(hit.position, hit.normal, s * 1.2, "drip", along, 1.0, 1.0 + slant * 0.8, (_drop_oil[i] & 1) == 1)
 			_drop_life[i] = 0.0
 		if _drop_life[i] <= 0.0:
 			var last := _drop_pos.size() - 1
@@ -982,8 +983,8 @@ func _draw_drops() -> void:
 		var ax := ay.cross(Vector3.FORWARD if absf(ay.z) < 0.9 else Vector3.RIGHT).normalized()
 		var az := ax.cross(ay)
 		var s := _drop_size[i]
-		var w := s * 0.6
-		var l := clampf(speed * 0.03, s * 1.2, 0.32)
+		var w := s * 0.3
+		var l := clampf(speed * 0.025, s * 0.8, 0.25)
 		var b := Basis(ax * w, ay * l, az * w)
 		_drop_mm.set_instance_transform(i, Transform3D(b, _drop_pos[i]))
 		# the frame: drops for a slow one, strings for a fast one (sheet rows 0-1 / 2-3)

@@ -345,3 +345,13 @@ the time. Too many different incoherent decals painting the same area and cause 
 Tests: `test_blood` 43 checks, 0 failed, three runs (40 pistol body hits: nothing on the wall, no
 plume; 100 rifle body hits ≈ 70 mists, ≈ 50 plumes; 100 limb hits ≈ 40 marks; a body hit is one
 wall mark before and after its drops land; a splash adds no mark). `test_impacts` 0, `test_pools` 0.
+
+## 14. His third test (25 Nov) — "still a bit extreme in places and unrealistic": marks, drops, pools
+A size pass, everything smaller: a headshot's mist 0.5–0.9 m (was 0.6–1.3), its heavy 0.4–0.7
+(was 0.5–0.95), the impact mass 0.25–0.55, a shotgun charge's fan ×1.3 capped at 1.0 m (was ×1.4,
+1.3); the body mist 0.3–0.6; the "small" drops 3–7 cm × (1 + 0.2 amount) (were up to 15 cm, which is
+not small); the floor drops 3–8 cm. The CPU droplets are drawn at 0.3 × their size (1.5–4 cm wide,
+were golf balls at 0.6 ×) and stamp at 1.2 × (5–14 cm landings, were 2.2 ×). A gib's cast-off arc is
+0.5–0.8 m, a tumbling body's up to 1.1 (were 0.8–1.7). The drip field beside a pooling body
+0.6–0.9 m (was 1.0–1.4). Pools cap at 0.5 m radius (was 0.6). `test_blood` 43, 0 failed; `test_pools`
+0. Look: `wall_regimes_restrained.png`.
