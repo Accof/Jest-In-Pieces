@@ -464,7 +464,10 @@ def gen_small(i):
 def gen_dripmask(out_dir):
     """Phase D's animated runs: R = time of arrival (0 at the top of each run,
     1 at its end), G = the run's shape (coverage), B = the bead's growth.
-    Eight runs across a 512 x 1024 texture; the shader shows G where R < t."""
+    Eight runs across a 512 x 1024 texture; the shader shows G where R < t.
+    (25 Nov) Runs wander as a random walk, not a sine; widths vary 3-9 px and
+    swell where the run slows; each starts a little later than the last (an
+    R offset) and some are short; the edges are soft."""
     W, H = 512, 1024
     rmap = np.ones((H, W), dtype=np.float32)
     gmap = np.zeros((H, W), dtype=np.float32)
@@ -472,22 +475,27 @@ def gen_dripmask(out_dir):
     yy, xx = np.mgrid[0:H, 0:W]
     g = np.random.default_rng(5)
     for k in range(8):
-        x = W * (k + 0.5) / 8 + g.normal(0, 8)
-        length = g.uniform(H * 0.35, H * 0.95)
-        width = g.uniform(5, 11)
-        ph = g.random() * 6.28
+        x = W * (k + 0.5) / 8 + g.normal(0, 10)
+        length = g.uniform(H * 0.25, H * 0.95) if g.random() < 0.8 else g.uniform(H * 0.12, H * 0.3)
+        width = g.uniform(3.0, 9.0)
+        delay = g.uniform(0.0, 0.22)                  # starts a little after the first
+        drift = 0.0
+        swell_at = g.uniform(0.3, 0.8)
         for yi in range(int(length)):
-            s = yi / length
-            xc = x + 7 * math.sin(yi * 0.03 + ph) * s + 3 * math.sin(yi * 0.11 + ph * 3)
-            w = width * (1.0 - 0.5 * s)
+            s_ = yi / length
+            drift += g.normal(0, 0.35)
+            drift *= 0.985                           # a slow wander, not a zigzag
+            xc = x + drift
+            w = width * (1.0 - 0.45 * s_) * (1.0 + 0.6 * math.exp(-((s_ - swell_at) / 0.06) ** 2))
             d = np.abs(xx[yi] - xc)
-            cov = np.clip(1.0 - (d - w * 0.6) / (w * 0.5), 0, 1)
+            cov = np.clip(1.0 - (d - w * 0.45) / (w * 0.75), 0, 1)       # soft edge
             gmap[yi] = np.maximum(gmap[yi], cov)
-            rmap[yi] = np.where(cov > 0.05, np.minimum(rmap[yi], s ** 1.2), rmap[yi])
-        # the bead
-        bx = x + 7 * math.sin(length * 0.03 + ph)
-        d = np.sqrt((xx - bx) ** 2 + (yy - length) ** 2)
-        bead = np.clip(1.0 - (d - width * 1.4) / (width * 0.8), 0, 1)
+            arrive = delay + (1.0 - delay) * s_ ** 1.15
+            rmap[yi] = np.where(cov > 0.05, np.minimum(rmap[yi], arrive), rmap[yi])
+        # the bead at rest
+        bx = x + drift
+        d = np.sqrt((xx - bx) ** 2 + ((yy - length) * 0.8) ** 2)
+        bead = np.clip(1.0 - (d - width * 1.1) / (width * 0.9), 0, 1)
         bmap = np.maximum(bmap, bead)
         gmap = np.maximum(gmap, bead)
         rmap = np.where(bead > 0.05, np.minimum(rmap, 1.0), rmap)
@@ -509,6 +517,11 @@ def main():
             rng = np.random.default_rng(int(args[i + 1])); i += 2
         elif args[i] == "--sheet":
             sheet = args[i + 1]; i += 2
+        elif args[i] == "--dripmask":
+            os.makedirs(out_dir, exist_ok=True)
+            gen_dripmask(out_dir)
+            print("wrote drip_mask")
+            return
         else:
             out_dir = args[i]; i += 1
     os.makedirs(out_dir, exist_ok=True)

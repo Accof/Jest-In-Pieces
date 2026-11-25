@@ -117,6 +117,22 @@ var _liquid_oil: ShaderMaterial
 var _drop_mm: MultiMesh
 var _drop_mmi: MultiMeshInstance3D
 var sprays := 0                      # plumes fired (tests)
+
+## (Phase D, 25 Nov) Drips that run. A heavy wall mark (a headshot's mass, a
+## close impact) grows runs downward over RUN_TIME: a quad hung under the mark
+## with shaders/blood_run.gdshader scrolling the drip mask's reveal channel,
+## a glistening head on each run while it moves, a bead where it stops. RUNS
+## live at once; the oldest is baked to a dripfield decal when its quad is
+## needed again, so a dried run stays as a mark.
+const RUNS := 24
+const RUN_TIME := Vector2(3.0, 7.0)
+var _runs: Array[MeshInstance3D] = []
+var _run_t: Array[float] = []        # seconds since start (-1 = free)
+var _run_dur: Array[float] = []
+var _run_tint: Array[Color] = []
+var _run_next := 0
+var _run_mask: Texture2D
+var runs_started := 0               # tests
 var _oil_material: ShaderMaterial
 ## Oil puddles: permanent until clear() (a new floor).
 var _oil_pools: Array[BloodPool] = []
@@ -165,6 +181,7 @@ func _ready() -> void:
 	_oil_material.set_shader_parameter("sheen", 1.0)
 	_apply_pool_settings()
 	_build_spray()
+	_build_runs()
 
 
 ## Load the splatter library (or, with use_legacy_splatters, the first set).
@@ -215,6 +232,7 @@ func clear() -> void:
 		(e[0] as Decal).visible = false
 		_spares.append(e[0])
 	_fading.clear()
+	_clear_runs()
 	for p in _pools:
 		if is_instance_valid(p):
 			p.queue_free()
@@ -580,6 +598,9 @@ func spawn_decal(pos: Vector3, normal: Vector3, size: float, kind: String, along
 	d.global_transform = Transform3D(Basis(x, y, z), pos)
 	d.modulate = _tint[slot]
 	d.visible = true
+	# (Phase D) a heavy on a wall runs; a close impact on a wall half the time
+	if absf(y.y) < 0.6 and (kind == "heavy" or (kind == "impact" and _rng.randf() < 0.5)):
+		start_run(pos, y, size * (1.0 if kind == "heavy" else 0.7), _tint[slot], oil)
 
 
 # --- pools --------------------------------------------------------------------
@@ -721,6 +742,7 @@ func _process(delta: float) -> void:
 			sp.visible = false
 			_spares.append(sp)
 			_fading.remove_at(k)
+	_tick_runs(delta)
 	# Darken a few decals each frame as the blood dries.
 	var now := Time.get_ticks_msec() / 1000.0
 	for i in 12:
@@ -766,6 +788,104 @@ func _ray(from: Vector3, to: Vector3) -> Dictionary:
 
 func _rand_unit() -> Vector3:
 	return Vector3(_rng.randf_range(-1, 1), _rng.randf_range(-1, 1), _rng.randf_range(-1, 1)).limit_length(1.0)
+
+
+# --- Phase D: drips that run (25 Nov) --------------------------------------------------
+func _build_runs() -> void:
+	_run_mask = load("res://art/blood/splat2/drip_mask.png")
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1.0, 1.0)
+	quad.center_offset = Vector3(0.0, -0.5, 0.0)        # hangs from its top edge
+	for i in RUNS:
+		var m := MeshInstance3D.new()
+		m.mesh = quad
+		var mat := ShaderMaterial.new()
+		mat.shader = load("res://shaders/blood_run.gdshader")
+		mat.set_shader_parameter("mask", _run_mask)
+		m.material_override = mat
+		m.visible = false
+		m.layers = 2
+		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(m)
+		_runs.append(m)
+		_run_t.append(-1.0)
+		_run_dur.append(1.0)
+		_run_tint.append(Color.WHITE)
+
+
+## Start runs under a wall mark of `size` metres at `pos` on a wall with
+## `normal`. The quad is `width` wide and runs down `height`.
+func start_run(pos: Vector3, normal: Vector3, size: float, tint: Color, oil := false) -> void:
+	if use_legacy_splatters or splat_version != 2:
+		return
+	normal = normal.normalized()
+	if absf(normal.y) > 0.6:
+		return
+	runs_started += 1
+	var i := _run_next
+	_run_next = (_run_next + 1) % RUNS
+	if _run_t[i] >= 0.0:
+		_bake_run(i)
+	var m := _runs[i]
+	var width := clampf(size * 0.8, 0.2, 0.7)
+	var height := clampf(size * 1.4, 0.3, 0.9)
+	var up := Vector3.UP - normal * normal.dot(Vector3.UP)
+	if up.length() < 0.01:
+		return
+	up = up.normalized()
+	var right := up.cross(normal).normalized()
+	# the quad faces +Z in its own space; its Y is up; it hangs from pos
+	m.global_transform = Transform3D(Basis(right * width, up * height, normal), pos + normal * 0.006 + up * size * 0.1)      # the first of each run is under the mass
+	var mat := m.material_override as ShaderMaterial
+	# a different slice of the eight runs each time, 3-6 of them across the width
+	mat.set_shader_parameter("uv_scale", Vector2(_rng.randf_range(0.4, 0.75), clampf(height / 0.9, 0.5, 1.0)))
+	mat.set_shader_parameter("uv_offset", Vector2(_rng.randf(), 0.0))
+	mat.set_shader_parameter("progress", 0.0)
+	mat.set_shader_parameter("wet", 1.0)
+	if oil:
+		mat.set_shader_parameter("deep", Color(0.012, 0.011, 0.01))
+		mat.set_shader_parameter("thin", Color(0.06, 0.055, 0.045))
+	else:
+		mat.set_shader_parameter("deep", Color(0.045, 0.003, 0.004))
+		mat.set_shader_parameter("thin", Color(0.26, 0.014, 0.011))
+	mat.set_shader_parameter("tint", tint)
+	_run_tint[i] = tint
+	_run_t[i] = 0.0
+	_run_dur[i] = _rng.randf_range(RUN_TIME.x, RUN_TIME.y)
+	m.visible = true
+
+
+func _tick_runs(delta: float) -> void:
+	for i in RUNS:
+		if _run_t[i] < 0.0:
+			continue
+		_run_t[i] += delta
+		var mat := _runs[i].material_override as ShaderMaterial
+		var t: float = clampf(_run_t[i] / _run_dur[i], 0.0, 1.0)
+		# fast at first, slowing as the blood thins: 1 - (1 - t)^2
+		mat.set_shader_parameter("progress", 1.0 - (1.0 - t) * (1.0 - t))
+		if _run_t[i] > _run_dur[i]:
+			var dry: float = clampf((_run_t[i] - _run_dur[i]) / DRY_TIME, 0.0, 1.0)
+			mat.set_shader_parameter("tint", _run_tint[i].lerp(_run_tint[i] * DRIED, dry))
+			mat.set_shader_parameter("wet", 1.0 - dry)
+
+
+## A run's quad is needed again: what it left stays as a dripfield decal.
+func _bake_run(i: int) -> void:
+	var m := _runs[i]
+	var xf := m.global_transform
+	var height := xf.basis.y.length()
+	var width := xf.basis.x.length()
+	var normal := xf.basis.z.normalized()
+	spawn_decal(xf.origin - xf.basis.y.normalized() * height * 0.5, normal, maxf(height, width) * 0.9, "dripfield", Vector3.UP, width / maxf(height, 0.01), 1.0, false)
+	m.visible = false
+	_run_t[i] = -1.0
+
+
+func _clear_runs() -> void:
+	for i in RUNS:
+		_runs[i].visible = false
+		_run_t[i] = -1.0
 
 
 # --- Phase C: spray you can see (25 Nov) ----------------------------------------------

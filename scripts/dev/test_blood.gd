@@ -271,6 +271,40 @@ func _run() -> void:
 	Blood.spawn_hit(Vector3(0, 1.0, 6.0), Vector3(0, 0.3, 1), 1.6, false, "limb", "Rifle", 80)
 	_check(Blood.sprays == s0 + 1 and Blood._hazes[(Blood._haze_next - 1 + Blood.HAZES) % Blood.HAZES] == last_haze, "a limb hit: a few strings and no haze")
 
+	# 8c. (Phase D) drips that run: a headshot's heavy on the wall starts runs
+	#     under it that advance over seconds; a body hit starts none; when all
+	#     the run quads are taken the oldest is baked to a dripfield decal
+	Blood.clear()
+	await _frames(2)
+	var runs0: int = Blood.runs_started
+	Blood.spawn_hit(Vector3(0, 1.6, -2.2), Vector3(0.05, -0.1, -1).normalized(), 1.4, false, "head", "Revolver", 90)
+	await _frames(2)
+	_check(Blood.runs_started == runs0 + 1, "a headshot's heavy on the wall starts a run (%d)" % (Blood.runs_started - runs0))
+	var ri: int = (Blood._run_next - 1 + Blood.RUNS) % Blood.RUNS
+	var rq: MeshInstance3D = Blood._runs[ri]
+	var rmat := rq.material_override as ShaderMaterial
+	var p0: float = rmat.get_shader_parameter("progress")
+	_check(rq.visible and rq.global_transform.basis.y.length() >= 0.3 and rq.global_transform.basis.z.dot(Vector3(0, 0, 1)) > 0.9, "its quad hangs on the wall facing out, %.2f m long" % rq.global_transform.basis.y.length())
+	await _frames(90)
+	var p1: float = rmat.get_shader_parameter("progress")
+	_check(p1 > p0 + 0.15 and p1 < 1.0, "the run advances over the seconds (%.2f -> %.2f at 1.5 s)" % [p0, p1])
+	runs0 = Blood.runs_started
+	Blood.spawn_hit(Vector3(0, 1.3, -1.8), Vector3(0, -0.05, -1).normalized(), 1.6, false, "", "Rifle", 91)
+	await _frames(2)
+	_check(Blood.runs_started == runs0, "a body shot's mist starts no run")
+	var dripfields0 := _count("dripfield")
+	for k in Blood.RUNS:
+		Blood.start_run(Vector3(-3 + k * 0.25, 1.5, -2.99), Vector3(0, 0, 1), 0.6, Color.WHITE)
+	await _frames(2)
+	_check(_count("dripfield") == dripfields0 + 1, "the 25th run bakes the oldest to a dripfield decal (%d)" % (_count("dripfield") - dripfields0))
+	Blood.clear()
+	await _frames(1)
+	var live := 0
+	for t: float in Blood._run_t:
+		if t >= 0.0:
+			live += 1
+	_check(live == 0 and not rq.visible, "clear() ends the runs")
+
 	# 9. (Phase D) persistence: a big mark placed first outlives 1,300 small
 	#    ones that follow; recycling takes the small and the far first; a
 	#    recycled mark fades on a spare instead of popping

@@ -385,3 +385,36 @@ floor drips** in the 6 s after (were 12 and ~190). Thigh: 0–1 limb plume, 0 wa
 Tests: `test_blood` 43/0, `test_impacts` 0, `test_blast` 0, `test_rifle` 0, `test_killcam` 0,
 `test_legs` 0, `test_throat` the baseline 2 (hands), `test_revolver` the baseline 1 (rate),
 `test_limbs` its known flaky pistol/explosion checks.
+
+## 16. Phase D — drips that run — done 25 Nov
+A heavy on a wall (a headshot's mass) — and a close impact on a wall half the time — now **runs**:
+`start_run` hangs a quad under the mark (`shaders/blood_run.gdshader`, a few millimetres off the
+wall, hung from its top edge which sits inside the mass) and over 3–7 s (`RUN_TIME`, fast then
+slowing) scrolls the drip mask's reveal channel: each run wanders down at its own pace, starting a
+little after the last, some short, with a glistening head riding its front and a bead where it
+stops; then it dries with the rest (tint and gloss over `DRY_TIME`). The mask was regenerated
+(`gen_blood_splatters_v2.py --dripmask`): a random-walk wander instead of a sine zigzag, widths
+3–9 px with a swell where the run slows, soft edges, per-run start delays. 24 runs live at once;
+when a quad is needed again the oldest is **baked to a dripfield decal** so a dried run stays as a
+mark; `clear()` ends them. Tests: `test_blood` +5 (a headshot's heavy starts a run; its quad hangs
+on the wall facing out; the run advances over the seconds; a body mist starts none; the 25th run
+bakes the oldest; clear ends them) — 48 checks, 0 failed; `test_pools` 0. Look: `look_blood --runs`
+(`runs_2s.png`, `runs_8s.png`). Skipped: a run on sloped or bumpy walls follows the quad, not the
+bumps (sandbags) — fine at a glance, a decal-based run would need a per-kind decal animation Godot
+does not offer.
+
+## 17. Phase F — the look room — sheet made 25 Nov, his eye next
+`docs/reference/blood_phase_c/phase_f_sheet.png`: the six wall regimes at their restrained sizes,
+the headshot's heavy with its runs at 2 and 8 s, the rifle plume side-on, a headshot from behind
+with the haze, and an arterial stream — all under the container's software renderer, which runs
+darker than the Mac. His references (Wolfenstein, The Last of Us, DieselFrag) are not in the repo;
+the comparison is his, in game. **Phase E stays parked** (lens, weapon and neighbour spatter: he
+said no). The world blood mask is not needed: 1,200 fading decals with priority recycling have not
+been reported short since Phase D's persistence half.
+
+### Where the overhaul stands
+A–D and F built; E parked. The knobs he is most likely to want, all in `blood_manager.gd`:
+`BODY_MARK_CHANCE 0.7`, `BODY_PLUME_CHANCE 0.5`, `LIMB_MARK_CHANCE 0.4`, `LIMB_PLUME_CHANCE 0.3`,
+`TIER_REACH {head 2.6, body 1.6, limb 1.2}`, the `_burst` ratios (head 0.3+0.45·amount, body
+0.12–0.25, limb 0.08), `RUN_TIME (3, 7)`, `maximum_pool_radius 0.5`, `DRY_TIME 50`,
+`MAX_DECALS 1200`. `scenes/probe_blood_sources.tscn` prints what a revolver kill spends.

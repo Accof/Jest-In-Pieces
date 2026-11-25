@@ -137,6 +137,10 @@ func _run() -> void:
 		await _spray()
 		get_tree().quit()
 		return
+	if "--runs" in OS.get_cmdline_user_args():
+		await _runs()
+		get_tree().quit()
+		return
 	if "--legacy" in OS.get_cmdline_user_args():
 		Blood.use_legacy_splatters = true
 		Blood._load_splatters()
@@ -260,3 +264,19 @@ func _spray() -> void:
 		await get_tree().process_frame
 		if f == 4 or f == 16 or f == 38:
 			get_viewport().get_texture().get_image().save_png("/tmp/look_blood_%s_stream_%d.png" % [tag, f])
+
+
+## (Phase D) the runs under a headshot's heavy, close up, at 0.5, 2, 5 and
+## 8 s (run with --fixed-fps 30: frames are moments).
+func _runs() -> void:
+	Blood.clear()
+	await get_tree().physics_frame
+	var wz := -D * 0.5
+	cam.position = Vector3(0.0, 1.45, wz + 1.6)
+	cam.look_at(Vector3(0.0, 1.3, wz))
+	Blood.spawn_hit(Vector3(0.0, 1.6, wz + 0.8), Vector3(0.05, -0.1, -1.0).normalized(), 1.4, false, "head", "Revolver", 12)
+	var frames := {15: "0.5s", 60: "2s", 150: "5s", 240: "8s"}
+	for f in 241:
+		await get_tree().process_frame
+		if frames.has(f):
+			get_viewport().get_texture().get_image().save_png("/tmp/look_blood_%s_runs_%s.png" % [tag, frames[f]])
