@@ -133,6 +133,10 @@ func _run() -> void:
 		await _regimes()
 		get_tree().quit()
 		return
+	if "--spray" in OS.get_cmdline_user_args():
+		await _spray()
+		get_tree().quit()
+		return
 	if "--legacy" in OS.get_cmdline_user_args():
 		Blood.use_legacy_splatters = true
 		Blood._load_splatters()
@@ -211,3 +215,48 @@ func _regimes() -> void:
 	cam.look_at(Vector3(0.0, 1.0, wz))
 	await _shot("regimes_wide")
 
+
+
+## (Phase C) the spray in flight. Run with --fixed-fps 30 so the frames are
+## moments: a rifle chest hit 1.3 m off the wall seen side-on at 0.07, 0.17,
+## 0.3 and 0.8 s (the plume reaching the wall, then the haze hanging), a
+## revolver headshot from behind the shooter's shoulder, and an arterial
+## stream (the throat's spurts) against the wall.
+func _spray() -> void:
+	Blood.clear()
+	await get_tree().physics_frame
+	var wz := -D * 0.5
+	# side-on: the round flies -z, the camera looks along +x at the plume
+	cam.position = Vector3(-2.0, 1.35, wz + 0.9)
+	cam.look_at(Vector3(0.0, 1.25, wz + 0.7))
+	Blood.spawn_hit(Vector3(0.0, 1.3, wz + 1.3), Vector3(0.0, -0.05, -1.0), 1.0, false, "", "Rifle", 11)
+	var frames := {2: "a", 5: "b", 9: "c", 24: "d"}
+	for f in 25:
+		await get_tree().process_frame
+		if frames.has(f):
+			get_viewport().get_texture().get_image().save_png("/tmp/look_blood_%s_spray_side_%s.png" % [tag, frames[f]])
+	# over the shoulder: a headshot at 0.8 m from behind the round
+	Blood.clear()
+	await get_tree().physics_frame
+	cam.position = Vector3(W * 0.3, 1.7, wz + 3.0)
+	cam.look_at(Vector3(W, 1.5, wz + 0.4))
+	Blood.spawn_hit(Vector3(W, 1.6, wz + 0.8), Vector3(0.05, -0.1, -1.0), 1.4, false, "head", "Revolver", 12)
+	for f in 25:
+		await get_tree().process_frame
+		if frames.has(f):
+			get_viewport().get_texture().get_image().save_png("/tmp/look_blood_%s_spray_head_%s.png" % [tag, frames[f]])
+	# an arterial stream: a beat of fast drops toward the wall, side-on
+	Blood.clear()
+	await get_tree().physics_frame
+	cam.position = Vector3(-W * 2 - 1.5, 1.35, wz + 1.0)
+	cam.look_at(Vector3(-W * 2, 1.25, wz + 0.8))
+	var from := Vector3(-W * 2, 1.45, wz + 1.4)
+	var out := Vector3(0.1, 0.35, -1.0).normalized()
+	for f in 40:
+		if f % 12 == 0:
+			for k in 14:
+				Blood.add_droplet(from, out * randf_range(2.6, 4.2) + Vector3(randf_range(-0.3, 0.3), randf_range(-0.1, 0.4), randf_range(-0.3, 0.3)), randf_range(0.05, 0.1))
+			Blood.mist(from, out, 0.6)
+		await get_tree().process_frame
+		if f == 4 or f == 16 or f == 38:
+			get_viewport().get_texture().get_image().save_png("/tmp/look_blood_%s_stream_%d.png" % [tag, f])

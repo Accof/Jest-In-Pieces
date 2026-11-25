@@ -141,6 +141,33 @@ func _run() -> void:
 		if e.size.y > 0.41 or e.size.y < 0.11:
 			depth_ok = false
 	_check(depth_ok, "decal depth stays 0.12-0.4 m (by size)")
+	# 8b. (Phase C) spray: a hit fires a plume and a haze; the plume's life is
+	#     cut to the wall behind; the droplets are drawn while they fly and
+	#     gone from the draw when they have landed
+	Blood.clear()
+	await _frames(2)
+	var sprays0: int = Blood.sprays
+	Blood.spawn_hit(Vector3(0, 1.3, -1.7), Vector3(0, -0.05, -1), 1.0, false, "", "Rifle", 77)
+	_check(Blood.sprays == sprays0 + 1, "a rifle hit fires one plume (%d)" % (Blood.sprays - sprays0))
+	var last_plume: GPUParticles3D = Blood._plumes[(Blood._plume_next - 1 + Blood.PLUMES) % Blood.PLUMES]
+	_check(last_plume.emitting and last_plume.lifetime < Blood.PLUME_LIFE and last_plume.lifetime > 0.1, "the plume is emitting and lives only to the wall 1.3 m behind (%.2f s)" % last_plume.lifetime)
+	var last_haze: GPUParticles3D = Blood._hazes[(Blood._haze_next - 1 + Blood.HAZES) % Blood.HAZES]
+	_check(last_haze.emitting and last_haze.lifetime > 1.0, "the haze hangs for over a second (%.1f s)" % last_haze.lifetime)
+	await _frames(1)
+	var drawn: int = Blood._drop_mm.visible_instance_count
+	_check(drawn >= 5 and drawn == Blood._drop_pos.size(), "the flying droplets are drawn, one quad each (%d)" % drawn)
+	var fast := 0
+	for v: Vector3 in Blood._drop_vel:
+		if v.length() >= Blood.PLUME_SPEED_MIN * 0.8:
+			fast += 1
+	_check(fast >= 3, "some of them fly with the plume, fast enough to draw as strings (%d)" % fast)
+	await _frames(240)
+	_check(Blood._drop_mm.visible_instance_count == 0, "and the draw is empty once they have all landed (%d)" % Blood._drop_mm.visible_instance_count)
+	# the spray into open air: the plume lives its full span
+	Blood.spawn_hit(Vector3(0, 1.3, 6.0), Vector3(0, 0.3, 1), 1.0, false, "", "Rifle", 78)
+	last_plume = Blood._plumes[(Blood._plume_next - 1 + Blood.PLUMES) % Blood.PLUMES]
+	_check(is_equal_approx(last_plume.lifetime, Blood.PLUME_LIFE), "into open air the plume lives its full %.2f s" % last_plume.lifetime)
+
 	# 9. (Phase D) persistence: a big mark placed first outlives 1,300 small
 	#    ones that follow; recycling takes the small and the far first; a
 	#    recycled mark fades on a spare instead of popping

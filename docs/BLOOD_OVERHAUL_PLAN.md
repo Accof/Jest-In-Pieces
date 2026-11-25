@@ -268,3 +268,35 @@ Tests: `test_blood` +5 (a 1.2 m mist placed first survives 1,300 small drops aft
 drops recycled for them; the recycled marks fade on spares; the pool stays full; fades finish and the
 spares return) — 20 checks, 0 failed. `test_pools` 0 failed. The drips-that-run half of Phase D
 (the `drip_mask.png` scroll) is still to do, with Phase C.
+
+## 11. Phase C — spray you can see — done 25 Nov, awaiting his eye
+The old spray was 48 dark dots of 5 cm that died in half a second. Now a hit fires three things:
+- **The plume** (`_make_plume`): 220 strings and drops of liquid thrown along the round in a 12°
+  cone at 4–9 m/s under gravity, each aligned to its own velocity and drawn as a cylindrical
+  billboard (its travel axis stays, its face turns to the camera) from a 4×4 liquid sheet
+  (`art/blood/fx_liquid_sheet.png`, `tools/gen_blood_spray_sprites.py`: teardrops and clusters,
+  ropes with beads). `shaders/blood_liquid.gdshader` colours by the sheet's thickness — bright red
+  where thin, dark only in the beads — with a specular lobe, a wet rim, backlight (light from
+  behind comes through) and a small emission floor so it never goes black in a dark corner. GPU
+  particles cannot collide here, so the plume's life is cut by a ray along the round: the strings
+  die as they reach the wall where Phase B's marks already are; into open air they live 0.45 s.
+- **The haze** (`_make_haze`): 160 soft puffs at 0.8–3 m/s that stop within a few tens of
+  centimetres and hang for 1.4 s, growing and thinning, a little turbulence, alpha 0.11 — the
+  red mist that hangs after a headshot. First try was a brown blob (alpha 0.34, 16 cm puffs):
+  it hid the marks behind it.
+- **The droplets drawn** (`_draw_drops`): the CPU droplet sim (now 400, was 160) is drawn as a
+  MultiMesh of liquid quads, Y along each drop's travel, longer the faster it goes — a falling
+  drop is a drop, a spurt is a string — in the same shader. These are the "collision → decal"
+  path: the heavy drops are seen arcing to the floor and landing where their mark appears, and
+  3–7 of each hit's droplets now fly *with* the plume (4–9 m/s) so some of its strings land and
+  stamp for real. The arterial spurts (`clown_gore` `_spurts`, the throat's heartbeat) were
+  already droplets + mist: they are visible streams now, nothing changed on their side.
+- Pools: 8 plumes + 3 oil, 6 hazes + 2 oil (layer 2, no shadows, 12 m visibility boxes).
+  `BLOOD_NO_SPRAY=1` turns the drawing off (the marks stay). Not done from the plan: screen-space
+  refraction in the liquid shader (cost for little at these sizes).
+Tests: `test_blood` +7 (a hit fires one plume; it lives only to the wall 1.3 m behind, 0.19 s;
+into open air its full 0.45 s; the haze hangs over a second; the droplets are drawn one quad each
+and the draw is empty once they have landed; some fly with the plume) — 27 checks, 0 failed.
+`test_pools` 0; `test_throat` the baseline 2. Look: `look_blood.tscn -- --spray --tag=X` with
+`--fixed-fps 30` (frames are moments: 0.07, 0.17, 0.3, 0.8 s side-on, a headshot over the
+shoulder, an arterial stream); `docs/reference/blood_phase_c/` holds the frames.

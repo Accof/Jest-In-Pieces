@@ -20,7 +20,10 @@ const MAX_DECALS := 1200
 const SPARE_DECALS := 48
 const FADE_OUT := 2.5
 const RECYCLE_LOOK := 40           # slots inspected when the ring is full
-const MAX_DROPLETS := 160
+## (Phase C, 25 Nov) the CPU droplets are drawn now (a MultiMesh of liquid
+## quads, see _draw_drops), so there are more of them: the heavy drops are seen
+## arcing to the floor and landing where their mark appears.
+const MAX_DROPLETS := 400
 const MAX_POOLS := 28
 const POOL_QUAD_RADIUS := 1.2          # metres; the largest pool that can form (kept for callers)
 const DRY_TIME := 50.0                 # seconds for fresh blood to darken
@@ -89,12 +92,34 @@ var _decal_oil := PackedByteArray()
 var _pools: Array[BloodPool] = []
 var _sampling: Array[BloodPool] = []   # waiting for (or part way through) their rays
 var _pool_material: ShaderMaterial
-var _mist: Array[GPUParticles3D] = []
-var _mist_oil: Array[GPUParticles3D] = []
+## (Phase C, 25 Nov) Spray you can see. A hit fires a PLUME (strings and drops
+## of liquid thrown along the round, velocity-stretched, dying at the wall
+## behind) and a HAZE (the fine red mist that hangs for a second and drifts).
+## Both pooled GPUParticles3D; the plume and the drawn droplets share
+## shaders/blood_liquid.gdshader and art/blood/fx_liquid_sheet.png. The old
+## 48-dot puff is gone. BLOOD_NO_SPRAY=1 turns the drawing off (the marks stay).
+const PLUMES := 8
+const PLUMES_OIL := 3
+const HAZES := 6
+const HAZES_OIL := 2
+const PLUME_SPEED_MIN := 4.0
+const PLUME_SPEED_MAX := 9.0
+const PLUME_LIFE := 0.45
+static var draw_spray := OS.get_environment("BLOOD_NO_SPRAY") != "1"
+var _plumes: Array[GPUParticles3D] = []
+var _plumes_oil: Array[GPUParticles3D] = []
+var _hazes: Array[GPUParticles3D] = []
+var _hazes_oil: Array[GPUParticles3D] = []
+var _plume_next := 0
+var _haze_next := 0
+var _liquid: ShaderMaterial
+var _liquid_oil: ShaderMaterial
+var _drop_mm: MultiMesh
+var _drop_mmi: MultiMeshInstance3D
+var sprays := 0                      # plumes fired (tests)
 var _oil_material: ShaderMaterial
 ## Oil puddles: permanent until clear() (a new floor).
 var _oil_pools: Array[BloodPool] = []
-var _mist_next := 0
 var _rng := RandomNumberGenerator.new()
 
 
@@ -139,8 +164,7 @@ func _ready() -> void:
 	_oil_material.set_shader_parameter("brown_color", Color(0.05, 0.045, 0.035))
 	_oil_material.set_shader_parameter("sheen", 1.0)
 	_apply_pool_settings()
-	_mist = _build_mist(Color(0.2, 0.01, 0.012, 0.9))
-	_mist_oil = _build_mist(Color(0.03, 0.027, 0.02, 0.92))
+	_build_spray()
 
 
 ## Load the splatter library (or, with use_legacy_splatters, the first set).
@@ -201,6 +225,9 @@ func clear() -> void:
 	_oil_pools.clear()
 	_sampling.clear()
 	_drop_pos.clear(); _drop_vel.clear(); _drop_size.clear(); _drop_life.clear(); _drop_oil.clear()
+	_draw_drops()
+	for g: GPUParticles3D in _plumes + _plumes_oil + _hazes + _hazes_oil:
+		g.emitting = false
 
 
 # --- splatter -----------------------------------------------------------------
@@ -212,7 +239,13 @@ func spawn_hit(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false, zo
 	_burst(pos, dir, amount, oil)
 	if splat_version == 2 and not use_legacy_splatters:
 		_place_gunshot(pos, dir, amount, oil, zone, weapon, shot_id)
-		for i in 3 + int(amount * 7.0):
+		# (Phase C) a few of the plume's drops are real: they fly with it, land
+		# and stamp where it would have
+		for i in 3 + int(amount * 4.0):
+			var v := dir * _rng.randf_range(PLUME_SPEED_MIN, PLUME_SPEED_MAX) + _rand_unit() * 0.9
+			add_droplet(pos, v, _rng.randf_range(0.04, 0.09), oil)
+		# and the heavy drops that arc away and land on the floor
+		for i in 2 + int(amount * 4.0):
 			var v := dir * _rng.randf_range(0.8, 4.2) + Vector3.UP * _rng.randf_range(0.3, 2.6) + _rand_unit() * 1.3
 			add_droplet(pos, v, _rng.randf_range(0.05, 0.13), oil)
 		return
@@ -639,6 +672,7 @@ func _physics_process(delta: float) -> void:
 			_drop_pos[i] = q
 			_drop_vel[i] = v
 			i += 1
+	_draw_drops()
 
 
 # --- helpers ------------------------------------------------------------------
@@ -652,56 +686,143 @@ func _rand_unit() -> Vector3:
 	return Vector3(_rng.randf_range(-1, 1), _rng.randf_range(-1, 1), _rng.randf_range(-1, 1)).limit_length(1.0)
 
 
-func _build_mist(colour: Color) -> Array[GPUParticles3D]:
-	var list: Array[GPUParticles3D] = []
-	var grad := Gradient.new()
-	grad.set_color(0, Color(1, 1, 1, 1))
-	grad.set_color(1, Color(1, 1, 1, 0))
-	var tex := GradientTexture2D.new()
-	tex.gradient = grad
-	tex.fill = GradientTexture2D.FILL_RADIAL
-	tex.fill_from = Vector2(0.5, 0.5)
-	tex.fill_to = Vector2(1.0, 0.5)
-	tex.width = 32
-	tex.height = 32
+# --- Phase C: spray you can see (25 Nov) ----------------------------------------------
+func _liquid_material(oil: bool) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/blood_liquid.gdshader")
+	m.set_shader_parameter("sheet", load("res://art/blood/fx_liquid_sheet.png"))
+	if oil:
+		m.set_shader_parameter("deep", Color(0.012, 0.011, 0.01))
+		m.set_shader_parameter("thin", Color(0.07, 0.065, 0.05))
+	return m
+
+
+func _build_spray() -> void:
+	_liquid = _liquid_material(false)
+	_liquid_oil = _liquid_material(true)
+	# the drawn droplets: one quad per CPU drop, Y along its travel
+	_drop_mm = MultiMesh.new()
+	_drop_mm.transform_format = MultiMesh.TRANSFORM_3D
+	_drop_mm.use_custom_data = true
+	var q := QuadMesh.new()
+	q.size = Vector2(1.0, 1.0)
+	_drop_mm.mesh = q
+	_drop_mm.instance_count = MAX_DROPLETS
+	_drop_mm.visible_instance_count = 0
+	_drop_mmi = MultiMeshInstance3D.new()
+	_drop_mmi.multimesh = _drop_mm
+	_drop_mmi.material_override = _liquid
+	_drop_mmi.custom_aabb = AABB(Vector3(-400, -100, -400), Vector3(800, 200, 800))
+	_drop_mmi.layers = 2
+	_drop_mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_drop_mmi)
+	for i in PLUMES:
+		_plumes.append(_make_plume(false))
+	for i in PLUMES_OIL:
+		_plumes_oil.append(_make_plume(true))
+	for i in HAZES:
+		_hazes.append(_make_haze(false))
+	for i in HAZES_OIL:
+		_hazes_oil.append(_make_haze(true))
+
+
+## The plume: 220 strings and drops thrown along the round in a 12 degree
+## cone at 4-9 m/s, under gravity, each aligned to its own velocity.
+func _make_plume(oil: bool) -> GPUParticles3D:
+	var pm := ParticleProcessMaterial.new()
+	pm.spread = 12.0
+	pm.initial_velocity_min = PLUME_SPEED_MIN
+	pm.initial_velocity_max = PLUME_SPEED_MAX
+	pm.gravity = Vector3(0, -9.8, 0)
+	pm.damping_min = 0.4
+	pm.damping_max = 1.6
+	pm.scale_min = 0.55
+	pm.scale_max = 1.5
+	pm.anim_offset_min = 0.0
+	pm.anim_offset_max = 1.0
+	pm.particle_flag_align_y = true
+	var fade := Gradient.new()
+	fade.set_color(0, Color(1, 1, 1, 1))
+	fade.add_point(0.7, Color(1, 1, 1, 1))
+	fade.set_color(fade.get_point_count() - 1, Color(1, 1, 1, 0))
+	var ramp := GradientTexture1D.new()
+	ramp.gradient = fade
+	pm.alpha_curve = ramp
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.03, 0.11)
+	var g := GPUParticles3D.new()
+	g.process_material = pm
+	g.draw_pass_1 = quad
+	g.material_override = _liquid_oil if oil else _liquid
+	g.amount = 220
+	g.lifetime = PLUME_LIFE
+	g.one_shot = true
+	g.explosiveness = 0.86
+	g.randomness = 0.35
+	g.emitting = false
+	g.layers = 2
+	g.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	g.visibility_aabb = AABB(Vector3(-6, -6, -6), Vector3(12, 12, 12))
+	add_child(g)
+	return g
+
+
+## The haze: the fine mist that hangs after a hit - slow soft puffs, low
+## alpha, a little turbulence, settling slowly.
+func _make_haze(oil: bool) -> GPUParticles3D:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = colour
-	mat.albedo_texture = tex
+	mat.albedo_color = Color(0.03, 0.025, 0.02, 1.0) if oil else Color(0.34, 0.02, 0.016, 1.0)
+	mat.albedo_texture = load("res://art/blood/fx_haze.png")
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
 	mat.vertex_color_use_as_albedo = true
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.05, 0.05)
+	quad.size = Vector2(0.12, 0.12)
 	quad.material = mat
+	var pm := ParticleProcessMaterial.new()
+	pm.spread = 38.0
+	pm.initial_velocity_min = 0.8
+	pm.initial_velocity_max = 3.0
+	pm.gravity = Vector3(0, -0.35, 0)
+	pm.damping_min = 2.5
+	pm.damping_max = 4.5
+	pm.scale_min = 0.5
+	pm.scale_max = 1.4
+	var grow := Curve.new()
+	grow.add_point(Vector2(0.0, 0.5))
+	grow.add_point(Vector2(1.0, 2.2))
+	var grow_tex := CurveTexture.new()
+	grow_tex.curve = grow
+	pm.scale_curve = grow_tex
 	var fade := Gradient.new()
-	fade.set_color(0, Color(1, 1, 1, 1))
-	fade.set_color(1, Color(1, 1, 1, 0))
+	fade.set_color(0, Color(1, 1, 1, 0.0))
+	fade.add_point(0.08, Color(1, 1, 1, 0.11))
+	fade.add_point(0.5, Color(1, 1, 1, 0.07))
+	fade.set_color(fade.get_point_count() - 1, Color(1, 1, 1, 0))
 	var ramp := GradientTexture1D.new()
 	ramp.gradient = fade
-	for i in 6:
-		var pm := ParticleProcessMaterial.new()
-		pm.spread = 32.0
-		pm.initial_velocity_min = 1.5
-		pm.initial_velocity_max = 6.5
-		pm.gravity = Vector3(0, -9.8, 0)
-		pm.scale_min = 0.4
-		pm.scale_max = 1.6
-		pm.damping_min = 1.0
-		pm.damping_max = 3.0
-		pm.color_ramp = ramp
-		var g := GPUParticles3D.new()
-		g.process_material = pm
-		g.draw_pass_1 = quad
-		g.amount = 48
-		g.lifetime = 0.55
-		g.one_shot = true
-		g.explosiveness = 0.95
-		g.emitting = false
-		g.layers = 2
-		add_child(g)
-		list.append(g)
-	return list
+	pm.color_ramp = ramp
+	pm.turbulence_enabled = true
+	pm.turbulence_noise_strength = 0.6
+	pm.turbulence_noise_scale = 2.5
+	pm.turbulence_influence_min = 0.04
+	pm.turbulence_influence_max = 0.12
+	var g := GPUParticles3D.new()
+	g.process_material = pm
+	g.draw_pass_1 = quad
+	g.amount = 160
+	g.lifetime = 1.4
+	g.one_shot = true
+	g.explosiveness = 0.9
+	g.randomness = 0.3
+	g.emitting = false
+	g.layers = 2
+	g.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	g.visibility_aabb = AABB(Vector3(-5, -5, -5), Vector3(10, 10, 10))
+	add_child(g)
+	return g
 
 
 ## A puff of fine blood spray.
@@ -709,12 +830,60 @@ func mist(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false) -> void
 	_burst(pos, dir, amount, oil)
 
 
+## The plume and the haze of one hit. The plume's life is cut to the wall
+## behind (GPU particles cannot collide here): a ray along the round finds it
+## and the strings die as they reach it; the Phase B marks are already there.
 func _burst(pos: Vector3, dir: Vector3, amount: float, oil := false) -> void:
-	var list := _mist_oil if oil else _mist
-	var g := list[_mist_next % list.size()]
-	_mist_next = (_mist_next + 1) % list.size()
-	g.global_position = pos
-	(g.process_material as ParticleProcessMaterial).direction = dir
-	g.amount_ratio = clampf(0.35 + amount * 0.45, 0.2, 1.0)
-	g.restart()
-	g.emitting = true
+	sprays += 1
+	if not draw_spray:
+		return
+	dir = dir.normalized()
+	var plumes := _plumes_oil if oil else _plumes
+	var p := plumes[_plume_next % plumes.size()]
+	_plume_next = (_plume_next + 1) % plumes.size()
+	var reach := PLUME_SPEED_MAX * PLUME_LIFE
+	var hit := _ray(pos + dir * 0.03, pos + dir * reach)
+	var life := PLUME_LIFE
+	if not hit.is_empty():
+		var dist: float = pos.distance_to(hit.position)
+		life = clampf(dist / (PLUME_SPEED_MIN + (PLUME_SPEED_MAX - PLUME_SPEED_MIN) * 0.6), 0.06, PLUME_LIFE)
+	p.global_position = pos
+	(p.process_material as ParticleProcessMaterial).direction = dir
+	p.lifetime = life
+	p.amount_ratio = clampf(0.3 + amount * 0.45, 0.2, 1.0)
+	p.restart()
+	p.emitting = true
+	var hazes := _hazes_oil if oil else _hazes
+	var h := hazes[_haze_next % hazes.size()]
+	_haze_next = (_haze_next + 1) % hazes.size()
+	h.global_position = pos + dir * 0.1
+	(h.process_material as ParticleProcessMaterial).direction = dir
+	h.amount_ratio = clampf(0.3 + amount * 0.4, 0.2, 1.0)
+	h.restart()
+	h.emitting = true
+
+
+## Draw the CPU droplets: a quad each, Y along its travel, longer the faster
+## it goes (a falling drop is a drop; a spurt is a string).
+func _draw_drops() -> void:
+	if _drop_mm == null:
+		return
+	var n := _drop_pos.size()
+	if not draw_spray:
+		_drop_mm.visible_instance_count = 0
+		return
+	_drop_mm.visible_instance_count = n
+	for i in n:
+		var v := _drop_vel[i]
+		var speed := v.length()
+		var ay := v / speed if speed > 0.05 else Vector3.UP
+		var ax := ay.cross(Vector3.FORWARD if absf(ay.z) < 0.9 else Vector3.RIGHT).normalized()
+		var az := ax.cross(ay)
+		var s := _drop_size[i]
+		var w := s * 0.6
+		var l := clampf(speed * 0.03, s * 1.2, 0.32)
+		var b := Basis(ax * w, ay * l, az * w)
+		_drop_mm.set_instance_transform(i, Transform3D(b, _drop_pos[i]))
+		# the frame: drops for a slow one, strings for a fast one (sheet rows 0-1 / 2-3)
+		var frame := ((i * 7) % 8 + (8 if speed > 2.5 else 0)) / 16.0 + 0.01
+		_drop_mm.set_instance_custom_data(i, Color(0.0, 0.0, frame, float(_drop_oil[i])))
