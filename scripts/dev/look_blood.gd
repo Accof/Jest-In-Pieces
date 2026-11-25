@@ -280,3 +280,10 @@ func _runs() -> void:
 		await get_tree().process_frame
 		if frames.has(f):
 			get_viewport().get_texture().get_image().save_png("/tmp/look_blood_%s_runs_%s.png" % [tag, frames[f]])
+	if "--noshadow" in OS.get_cmdline_user_args():
+		for l in get_children():
+			if l is OmniLight3D:
+				l.shadow_enabled = false
+		for f in 3:
+			await get_tree().process_frame
+		get_viewport().get_texture().get_image().save_png("/tmp/look_blood_%s_runs_noshadow.png" % tag)

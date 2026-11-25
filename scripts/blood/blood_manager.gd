@@ -843,11 +843,11 @@ func start_run(pos: Vector3, normal: Vector3, size: float, tint: Color, oil := f
 	mat.set_shader_parameter("progress", 0.0)
 	mat.set_shader_parameter("wet", 1.0)
 	if oil:
-		mat.set_shader_parameter("deep", Color(0.012, 0.011, 0.01))
-		mat.set_shader_parameter("thin", Color(0.06, 0.055, 0.045))
+		mat.set_shader_parameter("deep", Color(0.10, 0.09, 0.08))
+		mat.set_shader_parameter("thin", Color(0.25, 0.23, 0.2))
 	else:
-		mat.set_shader_parameter("deep", Color(0.040, 0.003, 0.004))
-		mat.set_shader_parameter("thin", Color(0.20, 0.012, 0.009))
+		mat.set_shader_parameter("deep", Color(0.27, 0.050, 0.055))
+		mat.set_shader_parameter("thin", Color(0.44, 0.100, 0.086))
 	mat.set_shader_parameter("tint", tint)
 	_run_tint[i] = tint
 	_run_t[i] = 0.0
@@ -864,10 +864,10 @@ func _tick_runs(delta: float) -> void:
 		var t: float = clampf(_run_t[i] / _run_dur[i], 0.0, 1.0)
 		# fast at first, slowing as the blood thins: 1 - (1 - t)^2
 		mat.set_shader_parameter("progress", 1.0 - (1.0 - t) * (1.0 - t))
-		if _run_t[i] > _run_dur[i]:
-			var dry: float = clampf((_run_t[i] - _run_dur[i]) / DRY_TIME, 0.0, 1.0)
-			mat.set_shader_parameter("tint", _run_tint[i].lerp(_run_tint[i] * DRIED, dry))
-			mat.set_shader_parameter("wet", 1.0 - dry)
+		# dries on the same clock as the mark it hangs from
+		var dry: float = clampf(_run_t[i] / DRY_TIME, 0.0, 1.0)
+		mat.set_shader_parameter("tint", _run_tint[i].lerp(_run_tint[i] * DRIED, dry))
+		mat.set_shader_parameter("wet", 1.0 - dry)
 
 
 ## A run's quad is needed again: what it left stays as a dripfield decal.
@@ -894,8 +894,8 @@ func _liquid_material(oil: bool) -> ShaderMaterial:
 	m.shader = load("res://shaders/blood_liquid.gdshader")
 	m.set_shader_parameter("sheet", load("res://art/blood/fx_liquid_sheet.png"))
 	if oil:
-		m.set_shader_parameter("deep", Color(0.012, 0.011, 0.01))
-		m.set_shader_parameter("thin", Color(0.07, 0.065, 0.05))
+		m.set_shader_parameter("deep", Color(0.10, 0.09, 0.08))
+		m.set_shader_parameter("thin", Color(0.27, 0.25, 0.21))
 	return m
 
 

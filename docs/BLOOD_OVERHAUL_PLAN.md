@@ -443,3 +443,18 @@ The v2 decals carry no ORM (Phase B: a wet roughness washed the colour out), so 
 wall's roughness and reads matt; the run shader was at roughness 0.18 wet with specular 0.5 — a
 varnish. Now roughness 0.62–0.92 (a little sheen on the moving head only, matt once dried),
 specular 0.2. `shaders/blood_run.gdshader` only.
+
+## 21. "They are still too dark compared to the splat" (25 Nov) — the decal atlas and sRGB
+Not a palette gap: measured in the look render, a mark's core was (106, 46, 27) and a run beside
+it (16, 3, 0) under the same lamp. A throwaway scene, `scenes/exp_runlight.tscn`
+(`exp_runlight.png`), put a heavy decal beside flat quads at candidate colours: the decal's
+darkest core renders at (50, 13, 5); a quad at the library's **linear** deep colour (0.04) renders
+(9, 3, 1); quads at the **sRGB-encoded** values of the palette (deep 0.22, thin 0.44) bracket the
+decal. So Godot's decal atlas shows a decal's albedo without the sRGB decode, and the marks have
+been displaying the palette's sRGB encoding all along (which is also why Phase A had to darken the
+library twice). The runs and the in-flight liquid now use those displayed values as plain `vec4`
+uniforms (run deep 0.27 / thin 0.44; liquid thin 0.50; emission floor 0.06); the run quads render in
+the opaque pass (`ALPHA_SCISSOR_THRESHOLD 0.3`) so they take SSAO/SSIL like the wall; a run dries on
+the same clock as its mark. Measured after: runs median (88, 38, 20), mass (93, 52, 30) —
+`runs_matched.png`. The earlier `source_color` removal (a real double conversion) stands.
+`test_blood` 48, 0 failed.

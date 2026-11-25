@@ -14,8 +14,9 @@ render_mode blend_mix, cull_disabled, depth_draw_opaque, skip_vertex_transform, 
 uniform sampler2D sheet : source_color, filter_linear_mipmap, repeat_disable;
 uniform int frames_h = 4;
 uniform int frames_v = 4;
-uniform vec4 deep : source_color = vec4(0.045, 0.003, 0.004, 1.0);
-uniform vec4 thin : source_color = vec4(0.38, 0.022, 0.014, 1.0);
+// (25 Nov) the marks' displayed palette (see blood_run.gdshader): plain vec4
+uniform vec4 deep = vec4(0.27, 0.050, 0.055, 1.0);
+uniform vec4 thin = vec4(0.50, 0.110, 0.090, 1.0);
 uniform float stretch = 1.0;       // extra length along the travel axis
 uniform float alpha_scale = 1.0;
 uniform float rim = 0.35;
@@ -56,7 +57,7 @@ void fragment() {
 	ALBEDO = col + thin.rgb * fr * rim;
 	// translucent: light from behind comes through, and it never goes black in a dark corner
 	BACKLIGHT = thin.rgb * 0.7;
-	EMISSION = col * 0.3;
+	EMISSION = col * 0.06;
 	ALPHA = a;
 	METALLIC = 0.0;
 	ROUGHNESS = 0.22;

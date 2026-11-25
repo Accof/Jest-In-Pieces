@@ -7,15 +7,24 @@
 // glistening head rides the front of each run while it moves, and the bead
 // sits where it stopped. `tint` dries the colour over the minutes after.
 shader_type spatial;
-render_mode blend_mix, depth_draw_opaque, cull_back, specular_schlick_ggx;
+// Opaque pass with an alpha cut-off, not blend_mix: a transparent quad gets no GI
+// (SDFGI / SSIL bounce) while the wall and its decal do, so the runs rendered
+// near-black beside the mark under the same lamp.
+render_mode cull_back, specular_schlick_ggx;
 
 uniform sampler2D mask : filter_linear_mipmap, repeat_enable;   // data, not colour
 uniform float progress : hint_range(0.0, 1.0) = 0.0;
 uniform vec2 uv_scale = vec2(1.0, 1.0);
 uniform vec2 uv_offset = vec2(0.0, 0.0);
-uniform vec4 tint : source_color = vec4(1.0, 1.0, 1.0, 1.0);
-uniform vec4 deep : source_color = vec4(0.040, 0.003, 0.004, 1.0);
-uniform vec4 thin : source_color = vec4(0.20, 0.012, 0.009, 1.0);
+uniform vec4 tint = vec4(1.0, 1.0, 1.0, 1.0);
+// (25 Nov) These match the marks AS THEY RENDER: Godot's decal atlas shows a
+// decal's albedo without the sRGB decode, so the library's linear palette
+// (thin 0.16 / deep 0.04) displays as its sRGB encoding (0.44 / 0.22). Measured
+// in scenes/exp_runlight.tscn: the decal's core (50,13,5) sits between flat
+// quads at these values; a quad at the linear deep colour was (9,3,1) - the
+// "drips far darker than the splat" he saw. Plain vec4, not source_color.
+uniform vec4 deep = vec4(0.27, 0.050, 0.055, 1.0);
+uniform vec4 thin = vec4(0.44, 0.100, 0.086, 1.0);
 uniform float wet = 1.0;          // 1 fresh and glossy, 0 dried and matt
 
 void fragment() {
@@ -36,9 +45,11 @@ void fragment() {
 	// the run itself thins toward its end: the lower, the thinner
 	float thick = clamp(on * (1.0 - 0.5 * reach) + head + rest, 0.0, 1.0);
 	// mostly the red of a fresh run; only the heads and beads go deep
-	vec3 col = mix(thin.rgb, deep.rgb, pow(thick, 0.5) * 0.7) * tint.rgb;
+	// the same ramp as the library's finish(): thick^0.45 toward deep
+	vec3 col = mix(thin.rgb, deep.rgb, pow(thick, 0.45)) * tint.rgb;
 	ALBEDO = col;
 	ALPHA = a * tint.a;
+	ALPHA_SCISSOR_THRESHOLD = 0.3;
 	METALLIC = 0.0;
 	// (25 Nov, "too shiny compared to the splat") the marks carry no gloss map
 	// and take the wall's roughness, so a run must sit close to matt too: a
