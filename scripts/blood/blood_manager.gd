@@ -234,19 +234,51 @@ func clear() -> void:
 ## A bullet passing through flesh at `pos` travelling along `dir`.
 ## `amount` 0..2 scales how much blood comes out. `zone` ("head", "" …) and
 ## `weapon` let the v2 placement pick the regime (Phase B).
+## (25 Nov, after Andrew's test: "too much spray on every single shot ... it
+## sprayed on a wall on the other side of the room") A hit is one of three
+## tiers, by WHERE it landed before how hard:
+##   head  - zone "head" (and the gore module's own big events: a severing, a
+##           stump, a skull opening - amount >= 1.3 with no weapon named):
+##           the plume, the haze, the full set of marks, 2.6 m reach.
+##   body  - the torso: a modest exit spray, 1.6 m reach, one mist mark and a
+##           few drops, a faint puff; a wall farther than that gets nothing,
+##           the drops just arc to the floor.
+##   limb  - arms, legs, hands, feet: a small mark and a couple of drops.
+## A shotgun's pellets share one spray and one mark per shot; the 5th pellet
+## of a shot on the same body (a close charge) adds the impact mass.
+const TIER_REACH := {head = 2.6, body = 1.6, limb = 1.2}
+var _shot_pellets := 0
+
+
+func hit_tier(amount: float, zone: String, weapon: String) -> String:
+	if zone == "head" or (weapon == "" and amount >= 1.3):
+		return "head"
+	if zone == "limb":
+		return "limb"
+	return "body"
+
+
 func spawn_hit(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false, zone := "", weapon := "", shot_id := -1) -> void:
 	dir = dir.normalized()
-	_burst(pos, dir, amount, oil)
+	var tier := hit_tier(amount, zone, weapon)
+	var pellet := shot_id >= 0 and shot_id == _last_shot
+	if not pellet:
+		_burst(pos, dir, amount, oil, tier)
 	if splat_version == 2 and not use_legacy_splatters:
-		_place_gunshot(pos, dir, amount, oil, zone, weapon, shot_id)
+		_place_gunshot(pos, dir, amount, oil, tier, weapon, shot_id)
+		if pellet:
+			return
 		# (Phase C) a few of the plume's drops are real: they fly with it, land
-		# and stamp where it would have
-		for i in 3 + int(amount * 4.0):
-			var v := dir * _rng.randf_range(PLUME_SPEED_MIN, PLUME_SPEED_MAX) + _rand_unit() * 0.9
+		# and stamp where it would have; and the heavy drops arc to the floor
+		var smin: float = PLUME_SPEED_MIN if tier == "head" else 2.5
+		var smax: float = PLUME_SPEED_MAX if tier == "head" else 4.5
+		var fast := 3 + int(amount * 4.0) if tier == "head" else (2 if tier == "limb" else 2 + int(amount * 2.0))
+		var arcs := 2 + int(amount * 4.0) if tier == "head" else (1 if tier == "limb" else 1 + int(amount * 2.0))
+		for i in fast:
+			var v := dir * _rng.randf_range(smin, smax) + _rand_unit() * 0.9
 			add_droplet(pos, v, _rng.randf_range(0.04, 0.09), oil)
-		# and the heavy drops that arc away and land on the floor
-		for i in 2 + int(amount * 4.0):
-			var v := dir * _rng.randf_range(0.8, 4.2) + Vector3.UP * _rng.randf_range(0.3, 2.6) + _rand_unit() * 1.3
+		for i in arcs:
+			var v := dir * _rng.randf_range(0.8, 3.0) + Vector3.UP * _rng.randf_range(0.3, 2.2) + _rand_unit() * 1.1
 			add_droplet(pos, v, _rng.randf_range(0.05, 0.13), oil)
 		return
 	# Exit spray onto whatever is behind the target.
@@ -272,11 +304,6 @@ func spawn_hit(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false, zo
 
 
 # --- Phase B: placement by physics (24 Nov) ----------------------------------------------
-## How much the one big exit mark grows with the distance the blood flew: the
-## fan widens. `GUN_MIST_BASE` + amount + distance × `GUN_MIST_PER_M`, in metres.
-const GUN_MIST_BASE := 0.42
-const GUN_MIST_PER_M := 0.2
-const GUN_MIST_MAX := 1.7
 var _last_shot := -1               # a shotgun's pellets share one big mark
 
 
@@ -288,65 +315,86 @@ var _last_shot := -1               # a shotgun's pellets share one big mark
 ## A handful of small drops are re-raycast round it, a little back spatter
 ## toward the shooter, a few drops on the floor beneath. A shotgun's pellets
 ## share the one big mark (the first pellet of a shot places it).
-func _place_gunshot(pos: Vector3, dir: Vector3, amount: float, oil: bool, zone: String, weapon: String, shot_id: int) -> void:
+func _place_gunshot(pos: Vector3, dir: Vector3, amount: float, oil: bool, tier: String, weapon: String, shot_id: int) -> void:
 	var pellet := shot_id >= 0 and shot_id == _last_shot
 	if shot_id >= 0:
-		_last_shot = shot_id
-	var head := zone == "head"
+		if pellet:
+			_shot_pellets += 1
+		else:
+			_last_shot = shot_id
+			_shot_pellets = 1
+	var head := tier == "head"
+	var limb := tier == "limb"
+	var shotgun := weapon.containsn("shotgun")
 	var d := (dir + _rand_unit() * 0.05).normalized()
-	var reach := 2.6 + 3.0 * amount
+	var reach: float = TIER_REACH[tier]
+	if shotgun:
+		reach = maxf(reach, 2.2)
 	var hit := _ray(pos + d * 0.05, pos + d * reach)
 	if not hit.is_empty() and not pellet:
 		var n: Vector3 = (hit.normal as Vector3).normalized()
 		var dist: float = pos.distance_to(hit.position)
 		var facing: float = absf(d.dot(n))
 		var along: Vector3 = d - n * d.dot(n)
-		var size := clampf(GUN_MIST_BASE + 0.35 * amount + dist * GUN_MIST_PER_M, 0.45, GUN_MIST_MAX)
+		# the mark: a body shot's exit mist is 0.35-0.7 m, a headshot's up to
+		# 1.3 m; it thins with distance rather than growing
+		var size: float
 		if head:
-			size *= 1.25
-		var shotgun := weapon.containsn("shotgun")
+			size = clampf(0.6 + 0.4 * amount, 0.6, 1.3)
+		elif limb:
+			size = clampf(0.22 + 0.12 * amount, 0.22, 0.4)
+		else:
+			size = clampf(0.3 + 0.25 * amount, 0.3, 0.7)
+		size *= 1.0 - 0.3 * clampf((dist - 0.8) / 1.8, 0.0, 1.0)
 		if shotgun:
-			size = minf(size * 1.6, GUN_MIST_MAX)          # the whole charge's fan, placed by its first pellet
-			amount = maxf(amount, 1.2)
+			size = minf(size * 1.4, 1.3)          # the whole charge's fan, placed by its first pellet
 		var stretch := 1.0 + (1.0 - facing) * 1.6
-		if facing < 0.45 and along.length() > 0.05:
+		if facing < 0.45 and along.length() > 0.05 and not limb:
 			# a graze along the surface: a dragged streak, and the mist beyond it
 			spawn_decal(hit.position, n, size * 0.6, "streak", along, 1.0, 1.0 + (1.0 - facing) * 1.2, oil)
 		spawn_decal(hit.position, n, size, "mist", along if along.length() > 0.08 else Vector3.ZERO, 1.0 / sqrt(stretch), sqrt(stretch), oil)
-		# the mass: close or hard, an impact on the mist; a headshot, a heavy that drips
-		if head and amount >= 0.8 and dist < 2.6:
+		# the mass: a headshot's heavy that drips, close and hard an impact
+		if head and amount >= 0.8:
 			spawn_decal(hit.position + along.normalized() * 0.04, n, clampf(0.5 + 0.3 * amount, 0.5, 0.95), "heavy", Vector3.ZERO, 1.0, 1.0, oil)
-		elif (dist < 1.3 and amount >= 0.8) or amount >= 1.3:
+		elif head or (not limb and dist < 0.9 and amount >= 1.2):
 			spawn_decal(hit.position, n, clampf(0.28 + 0.3 * amount, 0.3, 0.7), "impact", Vector3.ZERO, 1.0, 1.0, oil)
 		# small drops re-raycast round the mark, inside the fan
-		for i in 4 + int(amount * 5.0):
+		var drops := 5 + int(amount * 4.0) if head else (2 if limb else 3)
+		for i in drops:
 			var dd := (d + _rand_unit() * 0.32).normalized()
-			var h2 := _ray(pos + dd * 0.05, pos + dd * (reach * 0.9))
+			var h2 := _ray(pos + dd * 0.05, pos + dd * (reach + 0.1))
 			if not h2.is_empty():
 				var sl: Vector3 = dd - h2.normal * dd.dot(h2.normal)
 				spawn_decal(h2.position, h2.normal, _rng.randf_range(0.03, 0.09) * (1.0 + 0.4 * amount), "small", sl, 1.0, 1.0 + sl.length() * 1.5, oil)
 	elif not hit.is_empty() and pellet:
-		# one more pellet of the same shot: a drop or two in the fan, no second mark
-		for i in 2:
-			var dd := (d + _rand_unit() * 0.3).normalized()
-			var h2 := _ray(pos + dd * 0.05, pos + dd * reach)
-			if not h2.is_empty():
-				spawn_decal(h2.position, h2.normal, _rng.randf_range(0.03, 0.08), "small", Vector3.ZERO, 1.0, 1.0, oil)
+		# one more pellet of the same shot: a drop in the fan, no second mark;
+		# the fifth on one body is a close charge - the mass goes on
+		var dd := (d + _rand_unit() * 0.3).normalized()
+		var h2 := _ray(pos + dd * 0.05, pos + dd * reach)
+		if not h2.is_empty():
+			spawn_decal(h2.position, h2.normal, _rng.randf_range(0.03, 0.08), "small", Vector3.ZERO, 1.0, 1.0, oil)
+		if _shot_pellets == 5 and not limb:
+			var n: Vector3 = (hit.normal as Vector3).normalized()
+			spawn_decal(hit.position, n, 0.55, "impact", Vector3.ZERO, 1.0, 1.0, oil)
 	if pellet:
 		return
-	# back spatter toward the shooter: a small mist and a few drops
-	var bd := (-d + _rand_unit() * 0.5).normalized()
-	var bh := _ray(pos + bd * 0.05, pos + bd * 1.8)
-	if not bh.is_empty():
-		var bal: Vector3 = bd - bh.normal * bd.dot(bh.normal)
-		spawn_decal(bh.position, bh.normal, _rng.randf_range(0.22, 0.4) * (0.8 + 0.4 * amount), "mist", bal, 1.0, 1.0, oil)
-	for i in 1 + int(amount * 2.0):
+	# back spatter toward the shooter: a headshot's small mist and a few drops;
+	# a body shot's one drop
+	if head:
+		var bd := (-d + _rand_unit() * 0.5).normalized()
+		var bh := _ray(pos + bd * 0.05, pos + bd * 1.8)
+		if not bh.is_empty():
+			var bal: Vector3 = bd - bh.normal * bd.dot(bh.normal)
+			spawn_decal(bh.position, bh.normal, _rng.randf_range(0.22, 0.4) * (0.8 + 0.4 * amount), "mist", bal, 1.0, 1.0, oil)
+	var back := 1 + int(amount * 2.0) if head else (0 if limb else 1)
+	for i in back:
 		var bd2 := (-d + _rand_unit() * 0.8).normalized()
 		var bh2 := _ray(pos + bd2 * 0.05, pos + bd2 * 1.6)
 		if not bh2.is_empty():
 			spawn_decal(bh2.position, bh2.normal, _rng.randf_range(0.03, 0.07), "small", Vector3.ZERO, 1.0, 1.0, oil)
 	# drops straight down onto the floor beneath the wound
-	for i in 2 + int(amount * 2.0):
+	var floor_drops := 2 + int(amount * 2.0) if head else (1 if limb else 2)
+	for i in floor_drops:
 		var fd := (Vector3.DOWN + _rand_unit() * 0.32).normalized()
 		var fh := _ray(pos, pos + fd * 2.6)
 		if not fh.is_empty():
@@ -827,38 +875,59 @@ func _make_haze(oil: bool) -> GPUParticles3D:
 
 ## A puff of fine blood spray.
 func mist(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false) -> void:
-	_burst(pos, dir, amount, oil)
+	_burst(pos, dir, amount, oil, "head")
 
 
 ## The plume and the haze of one hit. The plume's life is cut to the wall
 ## behind (GPU particles cannot collide here): a ray along the round finds it
 ## and the strings die as they reach it; the Phase B marks are already there.
-func _burst(pos: Vector3, dir: Vector3, amount: float, oil := false) -> void:
+## The tier sets the plume's speed, span and count: a headshot's 4-9 m/s for
+## 0.45 s (up to 4 m into open air) with the haze; a body shot's 2.5-5 m/s for
+## 0.32 s (1.6 m) and a faint puff; a limb's 2-4 m/s, a few strings, no haze.
+func _burst(pos: Vector3, dir: Vector3, amount: float, oil := false, tier := "head") -> void:
 	sprays += 1
 	if not draw_spray:
 		return
 	dir = dir.normalized()
+	var smin := PLUME_SPEED_MIN
+	var smax := PLUME_SPEED_MAX
+	var span := PLUME_LIFE
+	var ratio := clampf(0.3 + amount * 0.45, 0.2, 1.0)
+	var haze_ratio := clampf(0.3 + amount * 0.4, 0.2, 1.0)
+	if tier == "body":
+		smin = 2.5; smax = 5.0; span = 0.32
+		ratio = clampf(0.18 + amount * 0.1, 0.15, 0.36)
+		haze_ratio = 0.16
+	elif tier == "limb":
+		smin = 2.0; smax = 4.0; span = 0.28
+		ratio = 0.12
+		haze_ratio = 0.0
 	var plumes := _plumes_oil if oil else _plumes
 	var p := plumes[_plume_next % plumes.size()]
 	_plume_next = (_plume_next + 1) % plumes.size()
-	var reach := PLUME_SPEED_MAX * PLUME_LIFE
+	var pm := p.process_material as ParticleProcessMaterial
+	pm.initial_velocity_min = smin
+	pm.initial_velocity_max = smax
+	var reach := smax * span
 	var hit := _ray(pos + dir * 0.03, pos + dir * reach)
-	var life := PLUME_LIFE
+	var life := span
 	if not hit.is_empty():
 		var dist: float = pos.distance_to(hit.position)
-		life = clampf(dist / (PLUME_SPEED_MIN + (PLUME_SPEED_MAX - PLUME_SPEED_MIN) * 0.6), 0.06, PLUME_LIFE)
+		life = clampf(dist / (smin + (smax - smin) * 0.8), 0.06, span)
 	p.global_position = pos
-	(p.process_material as ParticleProcessMaterial).direction = dir
+	pm.direction = dir
 	p.lifetime = life
-	p.amount_ratio = clampf(0.3 + amount * 0.45, 0.2, 1.0)
+	p.amount_ratio = ratio
 	p.restart()
 	p.emitting = true
+	if haze_ratio <= 0.0:
+		return
 	var hazes := _hazes_oil if oil else _hazes
 	var h := hazes[_haze_next % hazes.size()]
 	_haze_next = (_haze_next + 1) % hazes.size()
 	h.global_position = pos + dir * 0.1
 	(h.process_material as ParticleProcessMaterial).direction = dir
-	h.amount_ratio = clampf(0.3 + amount * 0.4, 0.2, 1.0)
+	h.amount_ratio = haze_ratio
 	h.restart()
 	h.emitting = true
 

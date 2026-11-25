@@ -74,14 +74,41 @@ func _run() -> void:
 	var smalls := _count("small")
 	_check(mists >= 1 and mists <= 2, "rifle at 1.5 m: one mist on the wall (+ a back-spatter mist at most): %d" % mists)
 	_check(_count("impact") == 0 and _count("heavy") == 0, "rifle at 1.5 m: no mass, it is a mist")
-	_check(smalls >= 4, "rifle: small drops round it, behind and beneath (%d)" % smalls)
+	_check(smalls >= 3, "rifle: small drops round it, behind and beneath (%d)" % smalls)
 	var big := 0.0
 	for e in _decals():
 		if _kind(e.tex) == "mist" and e.pos.z < -2.5:
 			big = maxf(big, maxf(e.size.x, e.size.z) * Blood.SPLAT2_FILL.mist)
-	_check(big >= 0.8 and big <= 1.5, "rifle mist on the wall is %.2f m across (0.8-1.5 by distance and amount)" % big)
+	_check(big >= 0.45 and big <= 0.75, "rifle body mist on the wall is %.2f m across (0.45-0.75: a body shot, not a headshot)" % big)
 	var total := _decals().size()
-	_check(total <= 24, "a rifle hit spends at most 24 decals (%d)" % total)
+	_check(total <= 10, "a rifle body hit spends at most 10 decals (%d)" % total)
+	# 1b. (25 Nov) tiers: a body shot reaches 1.6 m and no farther - a wall
+	#     across the room gets nothing; a limb shot is small; a headshot has
+	#     the reach and the mass
+	Blood.clear()
+	Blood.spawn_hit(Vector3(0, 1.3, -0.6), Vector3(0, -0.05, -1).normalized(), 1.6, false, "", "Rifle", 15)
+	await _frames(2)
+	var far_wall := 0
+	for e in _decals():
+		if e.pos.z < -2.5:
+			far_wall += 1
+	_check(far_wall == 0, "a rifle body shot 2.4 m from the wall marks nothing on it (%d)" % far_wall)
+	Blood.clear()
+	Blood.spawn_hit(Vector3(0, 1.3, -0.6), Vector3(0, -0.05, -1).normalized(), 1.6, false, "head", "Rifle", 16)
+	await _frames(2)
+	far_wall = 0
+	for e in _decals():
+		if e.pos.z < -2.5:
+			far_wall += 1
+	_check(far_wall >= 3 and _count("heavy") == 1, "the same shot to the head reaches it: %d marks and the heavy" % far_wall)
+	Blood.clear()
+	Blood.spawn_hit(Vector3(0, 1.0, -2.0), Vector3(0, -0.05, -1).normalized(), 1.6, false, "limb", "Rifle", 17)
+	await _frames(2)
+	big = 0.0
+	for e in _decals():
+		if _kind(e.tex) == "mist":
+			big = maxf(big, maxf(e.size.x, e.size.z) * Blood.SPLAT2_FILL.mist)
+	_check(big > 0.0 and big <= 0.42 and _decals().size() <= 6, "a limb hit: a small mist (%.2f m) and at most 6 decals (%d)" % [big, _decals().size()])
 	# 2. a revolver headshot close to the wall: heavy with drips on the mist,
 	#    the heavy's up along the world's up
 	Blood.clear()
@@ -103,7 +130,8 @@ func _run() -> void:
 		if _kind(e.tex) == "mist" and e.pos.z < -2.5:
 			wall_mists += 1
 	_check(wall_mists == 1, "eight pellets of one shot: one fan on the wall, not eight (%d)" % wall_mists)
-	_check(_decals().size() <= 40, "and the whole charge spends at most 40 decals (%d)" % _decals().size())
+	_check(_decals().size() <= 24, "and the whole charge spends at most 24 decals (%d)" % _decals().size())
+	_check(_count("impact") == 1, "eight pellets on one body is a close charge: the impact mass goes on (%d)" % _count("impact"))
 	# 4. a graze along the wall: a streak
 	Blood.clear()
 	Blood.spawn_hit(Vector3(-0.5, 1.2, -2.85), Vector3(0.95, -0.05, -0.3).normalized(), 1.0, false, "", "Rifle", 14)
@@ -150,9 +178,11 @@ func _run() -> void:
 	Blood.spawn_hit(Vector3(0, 1.3, -1.7), Vector3(0, -0.05, -1), 1.0, false, "", "Rifle", 77)
 	_check(Blood.sprays == sprays0 + 1, "a rifle hit fires one plume (%d)" % (Blood.sprays - sprays0))
 	var last_plume: GPUParticles3D = Blood._plumes[(Blood._plume_next - 1 + Blood.PLUMES) % Blood.PLUMES]
-	_check(last_plume.emitting and last_plume.lifetime < Blood.PLUME_LIFE and last_plume.lifetime > 0.1, "the plume is emitting and lives only to the wall 1.3 m behind (%.2f s)" % last_plume.lifetime)
+	_check(last_plume.emitting and last_plume.lifetime < 0.32 and last_plume.lifetime > 0.1, "the body plume is emitting and lives only to the wall 1.3 m behind (%.2f s)" % last_plume.lifetime)
+	var pm0 := last_plume.process_material as ParticleProcessMaterial
+	_check(pm0.initial_velocity_max <= 5.0 and last_plume.amount_ratio <= 0.36, "a body plume is slow and sparse (%.0f m/s, ratio %.2f)" % [pm0.initial_velocity_max, last_plume.amount_ratio])
 	var last_haze: GPUParticles3D = Blood._hazes[(Blood._haze_next - 1 + Blood.HAZES) % Blood.HAZES]
-	_check(last_haze.emitting and last_haze.lifetime > 1.0, "the haze hangs for over a second (%.1f s)" % last_haze.lifetime)
+	_check(last_haze.emitting and last_haze.lifetime > 1.0 and last_haze.amount_ratio <= 0.2, "a faint puff hangs for over a second (%.1f s, ratio %.2f)" % [last_haze.lifetime, last_haze.amount_ratio])
 	await _frames(1)
 	var drawn: int = Blood._drop_mm.visible_instance_count
 	_check(drawn >= 5 and drawn == Blood._drop_pos.size(), "the flying droplets are drawn, one quad each (%d)" % drawn)
@@ -160,13 +190,23 @@ func _run() -> void:
 	for v: Vector3 in Blood._drop_vel:
 		if v.length() >= Blood.PLUME_SPEED_MIN * 0.8:
 			fast += 1
-	_check(fast >= 3, "some of them fly with the plume, fast enough to draw as strings (%d)" % fast)
+	_check(fast >= 2, "some of them fly with the plume, fast enough to draw as strings (%d)" % fast)
 	await _frames(240)
 	_check(Blood._drop_mm.visible_instance_count == 0, "and the draw is empty once they have all landed (%d)" % Blood._drop_mm.visible_instance_count)
 	# the spray into open air: the plume lives its full span
-	Blood.spawn_hit(Vector3(0, 1.3, 6.0), Vector3(0, 0.3, 1), 1.0, false, "", "Rifle", 78)
+	Blood.spawn_hit(Vector3(0, 1.3, 6.0), Vector3(0, 0.3, 1), 1.0, false, "head", "Rifle", 78)
 	last_plume = Blood._plumes[(Blood._plume_next - 1 + Blood.PLUMES) % Blood.PLUMES]
-	_check(is_equal_approx(last_plume.lifetime, Blood.PLUME_LIFE), "into open air the plume lives its full %.2f s" % last_plume.lifetime)
+	pm0 = last_plume.process_material as ParticleProcessMaterial
+	_check(is_equal_approx(last_plume.lifetime, Blood.PLUME_LIFE) and pm0.initial_velocity_max == Blood.PLUME_SPEED_MAX, "into open air a headshot's plume lives its full %.2f s at %.0f m/s" % [last_plume.lifetime, pm0.initial_velocity_max])
+	# pellets share one spray
+	var s0: int = Blood.sprays
+	for k in 6:
+		Blood.spawn_hit(Vector3(0, 1.3, 6.0), Vector3(0, 0.3, 1), 0.5, false, "", "Trench Shotgun", 79)
+	_check(Blood.sprays == s0 + 1, "six pellets of one shot fire one spray, not six (%d)" % (Blood.sprays - s0))
+	last_haze = Blood._hazes[(Blood._haze_next - 1 + Blood.HAZES) % Blood.HAZES]
+	s0 = Blood.sprays
+	Blood.spawn_hit(Vector3(0, 1.0, 6.0), Vector3(0, 0.3, 1), 1.6, false, "limb", "Rifle", 80)
+	_check(Blood.sprays == s0 + 1 and Blood._hazes[(Blood._haze_next - 1 + Blood.HAZES) % Blood.HAZES] == last_haze, "a limb hit: a few strings and no haze")
 
 	# 9. (Phase D) persistence: a big mark placed first outlives 1,300 small
 	#    ones that follow; recycling takes the small and the far first; a

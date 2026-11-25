@@ -300,3 +300,26 @@ and the draw is empty once they have landed; some fly with the plume) — 27 che
 `test_pools` 0; `test_throat` the baseline 2. Look: `look_blood.tscn -- --spray --tag=X` with
 `--fixed-fps 30` (frames are moments: 0.07, 0.17, 0.3, 0.8 s side-on, a headshot over the
 shoulder, an arterial stream); `docs/reference/blood_phase_c/` holds the frames.
+
+## 12. After his test of Phase C (25 Nov) — hit tiers
+Andrew: "a bit too much spray occurring all the time on every single shot … not on every single
+shot to other areas of the body … too many decals being painted at one time against a wall …
+the distance it sprays to seems to be way too far. I shot a guy and it sprayed on a wall on the
+other side of the room." One root: `_place_gunshot` and the plume treated every hit as a head
+wound, with a reach of 2.6 + 3 × amount m (5.6 m for a rifle, whose amount is the 1.6 cap) and a
+mark that *grew* with distance; and every pellet of a shotgun fired its own plume and haze.
+Now a hit is a **tier**, by where it landed before how hard (`hit_tier`, `TIER_REACH`):
+- **head** — zone "head", or the gore module's own big events (a severing, a stump, a skull
+  opening: amount ≥ 1.3 with no weapon named): the plume at 4–9 m/s, the haze, the full set of
+  marks (mist 0.6–1.3 m + heavy + 5–11 drops + back mist + floor), **2.6 m reach**.
+- **body** — the torso: plume 2.5–5 m/s for 0.32 s, a faint puff (haze ratio 0.16), one mist
+  0.3–0.7 m + 3 drops + 1 back drop + 2 floor drops = **at most 10 decals**, **1.6 m reach**; a
+  wall farther than that gets nothing, the drops arc to the floor.
+- **limb** — arms, legs, hands, feet (`clown.gd` now passes "limb"): plume 2–4 m/s, a few
+  strings, no haze; a 0.22–0.4 m mist + 2 drops + 1 floor, 1.2 m reach.
+- Marks thin with distance (×0.7 by 2.6 m) instead of growing. A shotgun's pellets share **one
+  spray and one mark per shot** (2.2 m reach); the 5th pellet on one body is a close charge and
+  adds the impact mass. The impact mass otherwise only within 0.9 m at amount ≥ 1.2.
+Tests: `test_blood` 35 checks, 0 failed (body shot 2.4 m from a wall marks nothing on it; the same
+shot to the head reaches it with the heavy; a limb hit ≤ 6 decals; six pellets one spray; a limb
+hit no haze; a body plume slow and sparse). `test_pools` 0. Look: `wall_regimes_tiered.png`.

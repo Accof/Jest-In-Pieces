@@ -304,7 +304,8 @@ func hit(info: Dictionary) -> void:
 	if zone == &"Neck" and has_helmet and randf() < helmet_pop_chance:
 		knock_off_helmet(dir, info.position)
 	gore.add_wound(bone, info.position, raw)
-	Blood.spawn_hit(info.position, dir, amount, mechanical, "head" if zone == &"Neck" else "", String(info.get("weapon", "")), int(info.get("shot_id", -1)))
+	var blood_zone := "head" if zone == &"Neck" else ("limb" if zone in [&"UpperArm", &"LowerArm", &"Hand", &"UpperLeg", &"LowerLeg", &"Foot"] else "")
+	Blood.spawn_hit(info.position, dir, amount, mechanical, blood_zone, String(info.get("weapon", "")), int(info.get("shot_id", -1)))
 
 	# Shotgun-class shots add up across their pellets. Enough of them on one
 	# part blows it open; on a limb or (sometimes) the head, takes it off.
