@@ -908,8 +908,10 @@ func _make_haze(oil: bool) -> GPUParticles3D:
 
 
 ## A puff of fine blood spray.
+## Under 1.2 it is a body-class puff (a spurt's beat: slow, no haze); 1.2 and
+## over the head-class burst (a skull going).
 func mist(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false) -> void:
-	_burst(pos, dir, amount, oil, "head")
+	_burst(pos, dir, amount, oil, "head" if amount >= 1.2 else "body")
 
 
 ## The plume and the haze of one hit. The plume's life is cut to the wall
@@ -918,8 +920,13 @@ func mist(pos: Vector3, dir: Vector3, amount: float = 1.0, oil := false) -> void
 ## The tier sets the plume's speed, span and count: a headshot's 4-9 m/s for
 ## 0.45 s (up to 4 m into open air) with the haze; a body shot's 2.5-5 m/s for
 ## 0.32 s (1.6 m), no haze; a limb's 2-4 m/s, a few strings, no haze.
+var probe: Callable                  # tests: called (tier, amount) for every plume
+
+
 func _burst(pos: Vector3, dir: Vector3, amount: float, oil := false, tier := "head") -> void:
 	sprays += 1
+	if probe.is_valid():
+		probe.call(tier, amount)
 	if not draw_spray:
 		return
 	dir = dir.normalized()

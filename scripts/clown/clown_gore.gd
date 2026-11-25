@@ -229,14 +229,23 @@ func blast(bone: StringName, world_pos: Vector3, dir: Vector3, size: float) -> v
 		_mech_tear(region, size)
 		MechFx.sparks(clown, world_pos, -dir, 1.4)
 		MechFx.sound(clown, "spark", world_pos, -4.0)
-	Blood.spawn_hit(world_pos, dir, 1.8, clown.mechanical)
-	Blood.spawn_hit(world_pos, -dir, 0.9, clown.mechanical)
-	_throw_chunks(world_pos, dir, 5 if region != &"head" else 4, region == &"head")
+	# (25 Nov, Andrew's probe) a chest or belly blown open bleeds heavily but
+	# throws no spray and no arterial jet of its own; only the head has the
+	# jet and the back spatter. This was the "spurt on every revolver body
+	# shot": bullet wear blasts the chest at 75 damage, and the blast fired a
+	# headshot's spray plus seven pumping beats.
+	var head_region := region == &"head"
+	if head_region:
+		Blood.spawn_hit(world_pos, dir, 1.8, clown.mechanical)
+		Blood.spawn_hit(world_pos, -dir, 0.9, clown.mechanical)
+	# (a torso blast throws no spray of its own: the shot that opened it already did)
+	_throw_chunks(world_pos, dir, 5 if not head_region else 4, head_region)
 	var pb: PhysicalBone3D = clown.ragdoll.bones.get(bone)
 	if pb:
 		var inv := pb.global_transform.affine_inverse()
-		_spurts.append({bone = bone, local = inv * world_pos, dir = inv.basis * (-dir + Vector3.UP * 0.6).normalized(), left = 7, next = 0.0})
-		_bleeds.append({bone = bone, local = inv * world_pos, amount = 1.5, still = 0.0, pooled = false, drip = 0.0})
+		if head_region:
+			_spurts.append({bone = bone, local = inv * world_pos, dir = inv.basis * (-dir + Vector3.UP * 0.6).normalized(), left = 7, next = 0.0})
+		_bleeds.append({bone = bone, local = inv * world_pos, amount = 1.5 if head_region else 1.0, still = 0.0, pooled = false, drip = 0.0})
 		set_physics_process(true)
 		if region == &"belly" and not _gutted:
 			_gutted = true
@@ -538,8 +547,10 @@ func _physics_process(delta: float) -> void:
 		# Drips while the body is still on its way down.
 		b.drip -= delta
 		if b.drip <= 0.0 and _bleed_time < 7.0:
-			b.drip = _rng.randf_range(0.12, 0.4) / b.amount
-			Blood.add_droplet(pos, Vector3(_rng.randf_range(-0.4, 0.4), _rng.randf_range(-0.2, 0.5), _rng.randf_range(-0.4, 0.4)), _rng.randf_range(0.035, 0.08), clown.mechanical)
+			# (25 Nov) a drop every half second to a second per wound (was 3-8 a
+			# second: a fountain, 190 marks round one body); it stamps the floor only
+			b.drip = _rng.randf_range(0.5, 1.2) / b.amount
+			Blood.add_droplet(pos, Vector3(_rng.randf_range(-0.3, 0.3), _rng.randf_range(-0.2, 0.3), _rng.randf_range(-0.3, 0.3)), _rng.randf_range(0.03, 0.06), clown.mechanical, true)
 		# Once the wound stops moving near the floor, the pool starts there.
 		b.still = b.still + delta if speed < 0.3 else 0.0
 		if b.still > 0.4 or clown.ragdoll.is_settled:
@@ -786,8 +797,8 @@ func show_broken_knee(side: String) -> void:
 	var front := world * (knee + Vector3(s * 0.02, 0.0, 0.06))
 	_add_wound_entry(StringName(side + "LowerLeg"), front, 0.075, 0.03, 0.035)
 	_add_wound_entry(StringName(side + "LowerLeg"), world * (knee + Vector3(s * 0.065, -0.05, 0.02)), 0.05, 0.02, 0.02)
-	add_bleed(StringName(side + "LowerLeg"), front, 1.3)
-	Blood.spawn_hit(front, (world.basis * Vector3(0, 0.3, 1)).normalized(), 1.6, clown.mechanical)
+	add_bleed(StringName(side + "LowerLeg"), front, 1.0)
+	Blood.spawn_hit(front, (world.basis * Vector3(0, 0.3, 1)).normalized(), 1.0, clown.mechanical, "limb")
 	set_process(true)
 	set_physics_process(true)
 	_bleeding = true

@@ -939,7 +939,7 @@ func _break_leg(side: String, at: Vector3, dir: Vector3) -> void:
 	broken_legs.append(side)
 	if broken_leg == "":
 		broken_leg = side
-	Blood.spawn_hit(at, dir, 1.4, mechanical)
+	Blood.spawn_hit(at, dir, 1.0, mechanical, "limb")
 	gore.add_wound(StringName(side + "LowerLeg"), at, 40.0)
 	gore.show_broken_knee(side)
 	if dead:
@@ -963,7 +963,7 @@ func _break_arm(side: String, at: Vector3, dir: Vector3) -> void:
 	if arm_out(side):
 		return
 	broken_arms.append(side)
-	Blood.spawn_hit(at, dir, 1.2, mechanical)
+	Blood.spawn_hit(at, dir, 1.0, mechanical, "limb")
 	gore.add_wound(StringName(side + "LowerArm"), at, 35.0)
 	gore.show_broken_arm(side)
 	for part in ["UpperArm", "LowerArm", "Hand"]:

@@ -355,3 +355,33 @@ were golf balls at 0.6 ×) and stamp at 1.2 × (5–14 cm landings, were 2.2 ×)
 0.5–0.8 m, a tumbling body's up to 1.1 (were 0.8–1.7). The drip field beside a pooling body
 0.6–0.9 m (was 1.0–1.4). Pools cap at 0.5 m radius (was 0.6). `test_blood` 43, 0 failed; `test_pools`
 0. Look: `wall_regimes_restrained.png`.
+
+## 15. His fourth test (25 Nov) — "still way too many spurts too often … revolver … body shots
+cause spurts most of the time … I don't see any difference" — the probe
+He was right and the tuning was on the wrong path. A new probe, `scenes/probe_blood_sources.tscn`
+(`scripts/dev/probe_blood_sources.gd`), shoots the sandbox clowns in the chest with the revolver
+and logs **every plume with the code that fired it** (`Blood.probe` callable in `_burst`), the
+decals and the droplets spent per shot and over the 6 s after. What it found, per revolver chest
+shot, before: **3–4 plumes** — the hit's own (body tier, as tuned), then `clown_gore.blast` firing
+a **headshot-class spray** (amount 1.8) and a back spray, and the blast's **seven arterial beats**
+each firing a head-class `mist`; **7 decals** a shot and **~190 more in the 6 s after** (12 plumes)
+from the spurts' drops and the bleeds dripping 3–8 drops a second. The cause: **bullet wear**
+(`clown.gd` `_wear`, `WEAR_STAGES`) blows the chest open at 75 cumulative damage and the revolver
+does 80 — so every first revolver chest shot was a chest-opening, and the chest-opening behaved
+like a headshot.
+Fixed, by the probe:
+- `clown_gore.blast`: a **torso** blast (chest, belly) throws **no spray and no arterial jet of its
+  own** — the shot that opened it already sprayed; it bleeds (amount 1.0). The **head** keeps the
+  jet (7 beats), the 1.8 spray and the back spatter.
+- `Blood.mist` under amount 1.2 is a body-class puff (a spurt's beat: slow strings, no haze);
+  1.2 and over the head-class burst (a skull going). Spurt beats run 0.5–1.2.
+- **Bleeds** drip a drop every 0.5–1.2 s per wound / amount (were 0.12–0.4), floor-only, 3–6 cm.
+- `_break_leg`, `_break_arm`, `show_broken_knee`: limb tier (were amount 1.2–1.6 with no weapon
+  = head tier).
+- The rifle's **pierce exit** (`fps_player._pierce`): a "splash" (drops only) — the entry hit
+  already threw the exit spray; it was a second head-class spray on every rifle through-shot.
+After: per revolver chest shot **0–1 small body plume, 1 decal**; **0 plumes** and **20–28 small
+floor drips** in the 6 s after (were 12 and ~190). Thigh: 0–1 limb plume, 0 wall decals.
+Tests: `test_blood` 43/0, `test_impacts` 0, `test_blast` 0, `test_rifle` 0, `test_killcam` 0,
+`test_legs` 0, `test_throat` the baseline 2 (hands), `test_revolver` the baseline 1 (rate),
+`test_limbs` its known flaky pistol/explosion checks.
