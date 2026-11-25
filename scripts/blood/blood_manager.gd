@@ -846,8 +846,8 @@ func start_run(pos: Vector3, normal: Vector3, size: float, tint: Color, oil := f
 		mat.set_shader_parameter("deep", Color(0.012, 0.011, 0.01))
 		mat.set_shader_parameter("thin", Color(0.06, 0.055, 0.045))
 	else:
-		mat.set_shader_parameter("deep", Color(0.045, 0.003, 0.004))
-		mat.set_shader_parameter("thin", Color(0.26, 0.014, 0.011))
+		mat.set_shader_parameter("deep", Color(0.040, 0.003, 0.004))
+		mat.set_shader_parameter("thin", Color(0.20, 0.012, 0.009))
 	mat.set_shader_parameter("tint", tint)
 	_run_tint[i] = tint
 	_run_t[i] = 0.0

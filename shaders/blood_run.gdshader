@@ -14,8 +14,8 @@ uniform float progress : hint_range(0.0, 1.0) = 0.0;
 uniform vec2 uv_scale = vec2(1.0, 1.0);
 uniform vec2 uv_offset = vec2(0.0, 0.0);
 uniform vec4 tint : source_color = vec4(1.0, 1.0, 1.0, 1.0);
-uniform vec4 deep : source_color = vec4(0.045, 0.003, 0.004, 1.0);
-uniform vec4 thin : source_color = vec4(0.30, 0.016, 0.012, 1.0);
+uniform vec4 deep : source_color = vec4(0.040, 0.003, 0.004, 1.0);
+uniform vec4 thin : source_color = vec4(0.20, 0.012, 0.009, 1.0);
 uniform float wet = 1.0;          // 1 fresh and glossy, 0 dried and matt
 
 void fragment() {
@@ -34,7 +34,7 @@ void fragment() {
 	// the run itself thins toward its end: the lower, the thinner
 	float thick = clamp(on * (1.0 - 0.5 * reach) + head + rest, 0.0, 1.0);
 	// mostly the red of a fresh run; only the heads and beads go deep
-	vec3 col = mix(thin.rgb, deep.rgb, pow(thick, 0.6) * 0.55) * tint.rgb;
+	vec3 col = mix(thin.rgb, deep.rgb, pow(thick, 0.5) * 0.7) * tint.rgb;
 	ALBEDO = col;
 	ALPHA = a * tint.a;
 	METALLIC = 0.0;

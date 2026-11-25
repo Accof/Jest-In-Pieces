@@ -418,3 +418,13 @@ A–D and F built; E parked. The knobs he is most likely to want, all in `blood_
 `TIER_REACH {head 2.6, body 1.6, limb 1.2}`, the `_burst` ratios (head 0.3+0.45·amount, body
 0.12–0.25, limb 0.08), `RUN_TIME (3, 7)`, `maximum_pool_radius 0.5`, `DRY_TIME 50`,
 `MAX_DECALS 1200`. `scenes/probe_blood_sources.tscn` prints what a revolver kill spends.
+
+## 18. His look at the runs (25 Nov): "the blood splats are a little too light … makes the drips
+look weird because they are such a darker colour"
+The splat textures coloured most of a mass at the *thin* end of the ramp (thick^0.7 toward deep),
+so under a lamp a mark read pale while the run under it was painted at the deep end. The library
+is regenerated (`finish()`): the mass goes deep sooner (thick^0.45), the thin edge darker (0.16
+linear, was 0.21), the alpha floor 0.55 (was 0.45); the run shader comes a little lighter to meet
+it (thin 0.20, mix weight 0.7). `runs_palette_before_after.png` shows the pair; the regimes strip
+is darker throughout. `test_blood` 48, 0 failed. The 36 PNGs are rewritten — Godot re-imports them
+on the next open of the project.

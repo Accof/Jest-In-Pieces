@@ -220,15 +220,18 @@ def finish(c: Canvas, name: str, out_dir: str, edge_break=0.08, wet=1.0, seed=0)
     # bright") darker throughout: the thin edges a deep red, not pink
     # (second correction) real blood's albedo is low: thin edges ~0.2 linear
     # (a saturated red under light, salmon only when lit hard), thick near-black
-    thin = np.array([0.21, 0.012, 0.010], dtype=np.float32)
-    deep = np.array([0.045, 0.003, 0.004], dtype=np.float32)
-    k = (thick ** 0.7)[..., None]
+    # (third, 25 Nov: "the splats are a little too light ... the drips are such
+    # a darker colour") the mass goes deep sooner (thick^0.45), the thin edge
+    # a little darker, so a mark and the run under it are one blood
+    thin = np.array([0.16, 0.010, 0.008], dtype=np.float32)
+    deep = np.array([0.040, 0.003, 0.004], dtype=np.float32)
+    k = (thick ** 0.45)[..., None]
     rgb = thin * (1.0 - k) + deep * k
     rgb = rgb * (0.9 + 0.2 * hue[..., None])
     rgb[..., 1] *= 1.0 + 0.5 * (hue - 0.5)
     # the colour map is linear here; store sRGB
     srgb = np.where(rgb <= 0.0031308, rgb * 12.92, 1.055 * np.power(np.clip(rgb, 0, 1), 1 / 2.4) - 0.055)
-    a = cov * np.clip(0.45 + 1.0 * thick ** 0.5, 0.0, 1.0)     # drops opaque, the haze faint
+    a = cov * np.clip(0.55 + 1.0 * thick ** 0.5, 0.0, 1.0)     # drops opaque, the haze faint
     rgba = np.concatenate([np.clip(srgb, 0, 1), a[..., None]], axis=-1)
     col = Image.fromarray((rgba * 255).astype(np.uint8), "RGBA").resize((OUT, OUT), Image.BOX)
     col.save(os.path.join(out_dir, f"splat_{name}.png"))
