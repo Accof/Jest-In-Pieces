@@ -827,7 +827,7 @@ func start_run(pos: Vector3, normal: Vector3, size: float, tint: Color, oil := f
 	if _run_t[i] >= 0.0:
 		_bake_run(i)
 	var m := _runs[i]
-	var width := clampf(size * 0.8, 0.2, 0.7)
+	var width := clampf(size * 0.65, 0.18, 0.6)       # narrower than the mass: the runs come out of it, not beside it
 	var height := clampf(size * 1.4, 0.3, 0.9)
 	var up := Vector3.UP - normal * normal.dot(Vector3.UP)
 	if up.length() < 0.01:

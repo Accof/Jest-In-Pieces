@@ -31,6 +31,8 @@ void fragment() {
 	// the bead where it came to rest, once it has
 	float rest = bead * smoothstep(0.97, 1.0, progress);
 	float a = clamp(on + head * 0.6 + rest, 0.0, 1.0);
+	// the quad's top sits inside the mass: nothing starts on a line
+	a *= smoothstep(0.0, 0.1, UV.y);
 	// the run itself thins toward its end: the lower, the thinner
 	float thick = clamp(on * (1.0 - 0.5 * reach) + head + rest, 0.0, 1.0);
 	// mostly the red of a fresh run; only the heads and beads go deep

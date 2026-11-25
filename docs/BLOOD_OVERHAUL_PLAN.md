@@ -428,3 +428,12 @@ linear, was 0.21), the alpha floor 0.55 (was 0.45); the run shader comes a littl
 it (thin 0.20, mix weight 0.7). `runs_palette_before_after.png` shows the pair; the regimes strip
 is darker throughout. `test_blood` 48, 0 failed. The 36 PNGs are rewritten — Godot re-imports them
 on the next open of the project.
+
+## 19. His screenshot of the runs (25 Nov): "they all start from the same horizontal level …
+too evenly spaced apart"
+True of the mask: every run began on its top row and the eight sat at W/8. Regenerated
+(`--dripmask`): nine runs at random x with a minimum gap and one crowded pair; each starts at its
+own height in the top 30 % from a small swelling where the mass fed it; lengths 8–90 %; widths
+2–9 px. The run shader fades the quad's top 10 % so nothing begins on a line, and the quad is
+narrower than the mass (0.65 × size) so the runs come out of it, not beside it.
+`runs_staggered.png`. `test_blood` 48, 0 failed.

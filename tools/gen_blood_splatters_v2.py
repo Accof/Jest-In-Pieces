@@ -467,37 +467,60 @@ def gen_small(i):
 def gen_dripmask(out_dir):
     """Phase D's animated runs: R = time of arrival (0 at the top of each run,
     1 at its end), G = the run's shape (coverage), B = the bead's growth.
-    Eight runs across a 512 x 1024 texture; the shader shows G where R < t.
-    (25 Nov) Runs wander as a random walk, not a sine; widths vary 3-9 px and
+    Runs across a 512 x 1024 texture; the shader shows G where R < t.
+    (25 Nov) Runs wander as a random walk, not a sine; widths vary 2-9 px and
     swell where the run slows; each starts a little later than the last (an
-    R offset) and some are short; the edges are soft."""
+    R offset) and some are short; the edges are soft.
+    (25 Nov, Andrew: "they all start from the same horizontal level ... too
+    evenly spaced") each run starts at its own height in the top 40 % (from a
+    small swelling where the mass fed it), the x positions are drawn at
+    random with a minimum gap and a couple crowded together, and there are
+    nine runs so a quad's slice shows an uneven handful."""
     W, H = 512, 1024
     rmap = np.ones((H, W), dtype=np.float32)
     gmap = np.zeros((H, W), dtype=np.float32)
     bmap = np.zeros((H, W), dtype=np.float32)
     yy, xx = np.mgrid[0:H, 0:W]
     g = np.random.default_rng(5)
-    for k in range(8):
-        x = W * (k + 0.5) / 8 + g.normal(0, 10)
-        length = g.uniform(H * 0.25, H * 0.95) if g.random() < 0.8 else g.uniform(H * 0.12, H * 0.3)
-        width = g.uniform(3.0, 9.0)
-        delay = g.uniform(0.0, 0.22)                  # starts a little after the first
+    # uneven x positions: random with a minimum gap, then two pushed close
+    xs = []
+    tries = 0
+    while len(xs) < 9 and tries < 500:
+        tries += 1
+        x = g.uniform(12, W - 12)
+        if all(abs(x - o) > 34 for o in xs):
+            xs.append(x)
+    xs.sort()
+    xs[3] = xs[2] + g.uniform(14, 20)             # a crowded pair
+    for k, x in enumerate(xs):
+        top = g.uniform(0.0, 0.3) * H
+        length = g.uniform(H * 0.22, H * 0.9 - top) if g.random() < 0.8 else g.uniform(H * 0.08, H * 0.25)
+        length = max(length, H * 0.06)
+        width = g.uniform(2.0, 9.0)
+        delay = g.uniform(0.0, 0.3)
         drift = 0.0
         swell_at = g.uniform(0.3, 0.8)
-        for yi in range(int(length)):
-            s_ = yi / length
+        # the swelling where the mass fed the run
+        d0 = np.sqrt((xx - x) ** 2 + ((yy - top) * 1.3) ** 2)
+        feed = np.clip(1.0 - (d0 - width * 0.6) / (width * 0.9), 0, 1)
+        gmap = np.maximum(gmap, feed)
+        rmap = np.where(feed > 0.05, np.minimum(rmap, delay), rmap)
+        for yi in range(int(top), int(top + length)):
+            if yi >= H:
+                break
+            s_ = max((yi - top) / length, 0.0)
             drift += g.normal(0, 0.35)
-            drift *= 0.985                           # a slow wander, not a zigzag
+            drift *= 0.985
             xc = x + drift
             w = width * (1.0 - 0.45 * s_) * (1.0 + 0.6 * math.exp(-((s_ - swell_at) / 0.06) ** 2))
             d = np.abs(xx[yi] - xc)
-            cov = np.clip(1.0 - (d - w * 0.45) / (w * 0.75), 0, 1)       # soft edge
+            cov = np.clip(1.0 - (d - w * 0.45) / (w * 0.75), 0, 1)
             gmap[yi] = np.maximum(gmap[yi], cov)
             arrive = delay + (1.0 - delay) * s_ ** 1.15
             rmap[yi] = np.where(cov > 0.05, np.minimum(rmap[yi], arrive), rmap[yi])
-        # the bead at rest
         bx = x + drift
-        d = np.sqrt((xx - bx) ** 2 + ((yy - length) * 0.8) ** 2)
+        by = min(top + length, H - 1)
+        d = np.sqrt((xx - bx) ** 2 + ((yy - by) * 0.8) ** 2)
         bead = np.clip(1.0 - (d - width * 1.1) / (width * 0.9), 0, 1)
         bmap = np.maximum(bmap, bead)
         gmap = np.maximum(gmap, bead)
